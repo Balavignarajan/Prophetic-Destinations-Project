@@ -2,7 +2,9 @@ export {
   BusinessRuleError,
   ConflictError,
   DomainError,
+  ForbiddenError,
   NotFoundError,
+  UnauthorizedError,
 } from './domain-error.js';
 export {
   LEARNING_LEVELS,

@@ -10,6 +10,15 @@ import { loadConfig } from '../config/load-config.js';
 export default new DataSource({
   type: 'postgres',
   url: loadConfig().databaseUrl,
+  entities: [
+    join(
+      dirname(fileURLToPath(import.meta.url)),
+      '..',
+      'modules',
+      '**',
+      '*.entity.js',
+    ),
+  ],
   migrations: [
     join(dirname(fileURLToPath(import.meta.url)), 'migrations', '*.js'),
   ],

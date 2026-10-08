@@ -44,13 +44,36 @@ Rules (enforced by `test/architecture.spec.ts`):
 Planned internal shape of a module (create folders only when they have content):
 `api/` (controllers, DTOs), `application/` (use cases), `domain/` (pure rules), `persistence/` (entities, repositories).
 
+## Identity (admin authentication)
+
+Admins are invite-only; there is no signup endpoint. The first ADMIN comes from `npm run seed:admin`
+(reads `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD`, safe to re-run, never prints the password).
+
+- Routes are **default-deny**: a global `JwtAuthGuard` requires a valid access token unless the route is `@Public()`
+  (`platform/public.decorator.ts`, so health and the later learner API need no dependency on identity).
+- `@Roles(Role.X, ...)` restricts a route; roles are fixed in code (`ADMIN`, `EDITOR`, `REVIEWER`) and a role passes only if listed
+  (ADMIN is not an implicit superuser). `RolesGuard` holds no business rules. Get the caller with `@CurrentAdmin()`.
+- Other modules import `Role`, `Roles`, `CurrentAdmin` and `AuthenticatedAdmin` from `modules/identity` only.
+- Access token: JWT (HS256, 15 min) with claims `sub`, `role`, `typ`. The guard re-reads the admin on every request,
+  so disabling an account or changing a role applies immediately.
+- Refresh token: random, rotated on every use, stored only as a SHA-256 hash, sent as an httpOnly `SameSite=Strict` cookie
+  scoped to `/api/v1/admin/auth`. Tokens from one login form a *family* (the session); replaying a rotated token revokes the family.
+- Login and refresh are rate limited per IP (`AUTH_RATE_LIMIT` per `AUTH_RATE_WINDOW_SECONDS`).
+
+| Endpoint | Auth |
+|---|---|
+| `POST /api/v1/admin/auth/login` | public, throttled |
+| `POST /api/v1/admin/auth/refresh` | public (refresh cookie), throttled |
+| `POST /api/v1/admin/auth/logout` | public (refresh cookie); always 204 |
+| `GET  /api/v1/admin/auth/me` | any authenticated admin |
+
 ## HTTP conventions
 
 - All routes are under `/api/v1`, except `GET /health` and `GET /health/db`.
 - Every request has an `x-request-id` (generated if absent) that is echoed in the response and in error bodies.
 - Errors always look like `{ statusCode, code, message, details?, requestId }`.
-  Throw a `DomainError` subclass (`NotFoundError`, `ConflictError`, `BusinessRuleError`) from business code;
-  the global filter maps it to 404 / 409 / 422. Unexpected errors become a generic 500.
+  Throw a `DomainError` subclass (`NotFoundError`, `ConflictError`, `BusinessRuleError`, `UnauthorizedError`, `ForbiddenError`) from business code;
+  the global filter maps them to 404 / 409 / 422 / 401 / 403. Unexpected errors become a generic 500.
 - Request bodies are validated by a global `ValidationPipe` (whitelist, reject unknown fields, transform).
   Validation failures return `code: VALIDATION_FAILED` with per-field `details`.
 
@@ -60,9 +83,14 @@ Planned internal shape of a module (create folders only when they have content):
 - Each module registers its entities with `TypeOrmModule.forFeature`; `autoLoadEntities` picks them up.
 - Multi-write use cases run through `TransactionRunner.run(manager => ...)` and pass `manager` explicitly to repositories.
 - Migration commands (each builds first): `npm run migration:show | migration:run | migration:revert`.
-  `npm run migration:create` scaffolds an empty migration file.
+  Scaffold one with `npm run migration:create -- src/database/migrations/<Name>`, then write the SQL by hand and inspect it before running.
+- `npm run migration:drift` prints what TypeORM thinks differs between entities and the database. Expect two known false
+  positives: it re-sets the `gen_random_uuid()` id defaults and re-creates the `admin_refresh_tokens` foreign key. Anything else is real drift.
 
 ## Testing
 
 - `npm test` unit tests, colocated as `*.spec.ts`, plus the architecture rules.
-- `npm run test:e2e` boots the real app against the database in `.env` (read-only checks).
+- `npm run test:int` repository tests against the real database (`*.int-spec.ts`, next to the code they test).
+- `npm run test:e2e` boots the real app against the database in `.env`.
+- Integration and e2e tests create their own rows (emails ending in `@int-test.invalid` / `@e2e-test.invalid`) and delete them afterwards.
+  They use whatever `DATABASE_URL` points at, so point it at a Neon test branch when you have one.

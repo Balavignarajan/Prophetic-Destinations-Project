@@ -1,6 +1,9 @@
 import { parseConfig } from './app-config.js';
 
-const valid = { DATABASE_URL: 'postgresql://user:pass@host/db' };
+const valid = {
+  DATABASE_URL: 'postgresql://user:pass@host/db',
+  JWT_ACCESS_SECRET: 'x'.repeat(32),
+};
 
 describe('parseConfig', () => {
   it('applies defaults', () => {
@@ -9,6 +12,12 @@ describe('parseConfig', () => {
       port: 3001,
       databaseUrl: valid.DATABASE_URL,
       corsOrigins: [],
+      jwtAccessSecret: valid.JWT_ACCESS_SECRET,
+      jwtAccessTtlSeconds: 900,
+      refreshTokenTtlDays: 14,
+      authRateLimit: 5,
+      authRateWindowSeconds: 60,
+      secureCookies: false,
     });
   });
 
@@ -28,7 +37,30 @@ describe('parseConfig', () => {
   });
 
   it('requires DATABASE_URL', () => {
-    expect(() => parseConfig({})).toThrow(/DATABASE_URL is required/);
+    expect(() =>
+      parseConfig({ JWT_ACCESS_SECRET: valid.JWT_ACCESS_SECRET }),
+    ).toThrow(/DATABASE_URL is required/);
+  });
+
+  it('requires a long JWT secret', () => {
+    expect(() =>
+      parseConfig({
+        DATABASE_URL: valid.DATABASE_URL,
+        JWT_ACCESS_SECRET: 'short',
+      }),
+    ).toThrow(/JWT_ACCESS_SECRET/);
+  });
+
+  it('marks cookies secure only in production', () => {
+    expect(
+      parseConfig({ ...valid, NODE_ENV: 'production' }).secureCookies,
+    ).toBe(true);
+  });
+
+  it('rejects non-positive numeric settings', () => {
+    expect(() => parseConfig({ ...valid, AUTH_RATE_LIMIT: '0' })).toThrow(
+      /AUTH_RATE_LIMIT/,
+    );
   });
 
   it('reports every problem at once', () => {
@@ -38,6 +70,6 @@ describe('parseConfig', () => {
         PORT: 'abc',
         NODE_ENV: 'staging',
       }),
-    ).toThrow(/NODE_ENV[\s\S]*PORT[\s\S]*DATABASE_URL/);
+    ).toThrow(/NODE_ENV[\s\S]*PORT[\s\S]*DATABASE_URL[\s\S]*JWT_ACCESS_SECRET/);
   });
 });

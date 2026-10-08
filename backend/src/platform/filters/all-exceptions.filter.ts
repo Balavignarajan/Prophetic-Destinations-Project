@@ -11,7 +11,9 @@ import {
   BusinessRuleError,
   ConflictError,
   DomainError,
+  ForbiddenError,
   NotFoundError,
+  UnauthorizedError,
 } from '../../shared-kernel/index.js';
 import { REQUEST_ID_HEADER } from '../middleware/request-id.middleware.js';
 
@@ -114,6 +116,8 @@ export function toErrorBody(exception: unknown): ErrorBody {
 }
 
 function domainStatus(error: DomainError): number {
+  if (error instanceof UnauthorizedError) return HttpStatus.UNAUTHORIZED;
+  if (error instanceof ForbiddenError) return HttpStatus.FORBIDDEN;
   if (error instanceof NotFoundError) return HttpStatus.NOT_FOUND;
   if (error instanceof ConflictError) return HttpStatus.CONFLICT;
   if (error instanceof BusinessRuleError)

@@ -28,3 +28,13 @@ export class ConflictError extends DomainError {
 export class BusinessRuleError extends DomainError {
   readonly code = 'BUSINESS_RULE_VIOLATION';
 }
+
+/** The caller is not authenticated, or the credentials are invalid (401). */
+export class UnauthorizedError extends DomainError {
+  readonly code = 'UNAUTHORIZED';
+}
+
+/** The caller is authenticated but not allowed to do this (403). */
+export class ForbiddenError extends DomainError {
+  readonly code = 'FORBIDDEN';
+}

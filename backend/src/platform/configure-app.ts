@@ -1,4 +1,5 @@
 import type { INestApplication } from '@nestjs/common';
+import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { APP_CONFIG, type AppConfig } from '../config/index.js';
 import { AllExceptionsFilter } from './filters/all-exceptions.filter.js';
@@ -20,6 +21,7 @@ export function configureApp(app: INestApplication) {
 
   app.use(requestIdMiddleware);
   app.use(helmet());
+  app.use(cookieParser());
   app.enableCors({ origin: config.corsOrigins, credentials: true });
   app.setGlobalPrefix(API_PREFIX, { exclude: UNPREFIXED_ROUTES });
   app.useGlobalPipes(createValidationPipe());
