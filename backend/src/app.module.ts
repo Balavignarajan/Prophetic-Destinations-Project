@@ -1,41 +1,29 @@
-import { Logger, Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
-import { AppController } from './app.controller.js';
-import { AppService } from './app.service.js';
-import { HealthController } from './health.controller.js';
-
-try {
-  process.loadEnvFile('.env');
-} catch {
-  // .env is optional; DATABASE_URL may come from the real environment
-}
+import { Module } from '@nestjs/common';
+import { ConfigModule } from './config/index.js';
+import { DatabaseModule } from './database/database.module.js';
+import { CurriculumModule } from './modules/curriculum/index.js';
+import { DeliveryModule } from './modules/delivery/index.js';
+import { HealthModule } from './modules/health/index.js';
+import { IdentityModule } from './modules/identity/index.js';
+import { LessonsModule } from './modules/lessons/index.js';
+import { MediaModule } from './modules/media/index.js';
+import { PublishingModule } from './modules/publishing/index.js';
+import { QuizzesModule } from './modules/quizzes/index.js';
+import { ScriptureModule } from './modules/scripture/index.js';
 
 @Module({
   imports: [
-    TypeOrmModule.forRootAsync({
-      useFactory: () => ({
-        type: 'postgres' as const,
-        url: process.env.DATABASE_URL,
-        synchronize: false,
-      }),
-      dataSourceFactory: async (options) => {
-        const logger = new Logger('Database');
-        const dataSource = new DataSource(options!);
-        try {
-          await dataSource.initialize();
-          logger.log('🟢 PostgreSQL database connected successfully');
-          return dataSource;
-        } catch (error) {
-          logger.error(
-            `🔴 PostgreSQL database connection failed (${(error as Error).message})`,
-          );
-          throw error;
-        }
-      },
-    }),
+    ConfigModule,
+    DatabaseModule,
+    HealthModule,
+    IdentityModule,
+    CurriculumModule,
+    LessonsModule,
+    ScriptureModule,
+    MediaModule,
+    QuizzesModule,
+    PublishingModule,
+    DeliveryModule,
   ],
-  controllers: [AppController, HealthController],
-  providers: [AppService],
 })
 export class AppModule {}
