@@ -67,6 +67,40 @@ Admins are invite-only; there is no signup endpoint. The first ADMIN comes from 
 | `POST /api/v1/admin/auth/logout` | public (refresh cookie); always 204 |
 | `GET  /api/v1/admin/auth/me` | any authenticated admin |
 
+## Curriculum (courses and modules)
+
+**Owns:** the `courses` and `course_modules` tables, and the Course and Module (product term, never "unit") rules.
+**Does not own:** lessons, blocks, quizzes, scripture, media or publishing. Lessons will reference a module by id later.
+**Depends on:** identity only (`Role`/`Roles`). Nothing depends on curriculum yet; when lessons need to check a module exists,
+curriculum will export a small facade from its `index.ts` (entities are never exported).
+
+API (all authenticated, all under `/api/v1/admin`):
+
+| Endpoint | Roles |
+|---|---|
+| `GET /courses`, `GET /courses/:courseId` | ADMIN, EDITOR, REVIEWER |
+| `POST /courses`, `PATCH /courses/:courseId` | ADMIN, EDITOR |
+| `DELETE /courses/:courseId` | ADMIN |
+| `GET /courses/:courseId/modules`, `GET .../modules/:moduleId` | ADMIN, EDITOR, REVIEWER |
+| `POST /courses/:courseId/modules`, `PATCH .../modules/:moduleId`, `DELETE .../modules/:moduleId` | ADMIN, EDITOR |
+| `PUT /courses/:courseId/modules/order` (body `{ moduleIds: [...] }`) | ADMIN, EDITOR |
+
+The role matrix is an assumption (the requirements define none): reviewers read, editors write, only admins delete courses.
+
+Rules:
+
+- Titles are trimmed, not blank, at most 200 characters; descriptions at most 5000. The database repeats these as CHECK constraints.
+- Modules have an explicit `position`, 1..n with no gaps and unique per course (`UNIQUE (course_id, position)`, deferrable so a shift or
+  reorder is one statement). Create without a position appends; with a position it inserts there and pushes later modules down;
+  a position beyond the end is a 422. Deleting a module closes the gap. `PUT .../order` must list every module exactly once (422 otherwise).
+  Modules are always returned in position order. Courses are listed oldest first, with id as tie-breaker.
+- Every change to a course's modules locks the course row first, so concurrent changes to one course run one at a time.
+- **A course that still has modules cannot be deleted** (409, and the foreign key is `ON DELETE RESTRICT`). Remove its modules first.
+- `status` (`DRAFT`, `READY_FOR_REVIEW`, `APPROVED`, `PUBLISHED`) is stored here but cannot be set through this API; new content is `DRAFT`
+  and editing content puts it back to `DRAFT`. The Publishing module will own the transitions.
+- `PATCH` accepts an optional `version`; if it is not the current version the update is refused with 409 (someone else edited first).
+- Responses are explicit DTOs (`id`, `title`, `description`, `status`, `version`, `createdAt`, `updatedAt`, plus `courseId`/`position` for modules).
+
 ## HTTP conventions
 
 - All routes are under `/api/v1`, except `GET /health` and `GET /health/db`.
@@ -85,12 +119,12 @@ Admins are invite-only; there is no signup endpoint. The first ADMIN comes from 
 - Migration commands (each builds first): `npm run migration:show | migration:run | migration:revert`.
   Scaffold one with `npm run migration:create -- src/database/migrations/<Name>`, then write the SQL by hand and inspect it before running.
 - `npm run migration:drift` prints what TypeORM thinks differs between entities and the database. Expect two known false
-  positives: it re-sets the `gen_random_uuid()` id defaults and re-creates the `admin_refresh_tokens` foreign key. Anything else is real drift.
+  positives: it re-sets the `gen_random_uuid()` id defaults and re-creates foreign keys (`admin_refresh_tokens`, `course_modules`) and the `idx_courses_created_at_id` index. Anything else is real drift.
 
 ## Testing
 
 - `npm test` unit tests, colocated as `*.spec.ts`, plus the architecture rules.
 - `npm run test:int` repository tests against the real database (`*.int-spec.ts`, next to the code they test).
-- `npm run test:e2e` boots the real app against the database in `.env`.
-- Integration and e2e tests create their own rows (emails ending in `@int-test.invalid` / `@e2e-test.invalid`) and delete them afterwards.
-  They use whatever `DATABASE_URL` points at, so point it at a Neon test branch when you have one.
+- `npm run test:e2e` boots the real app against a real database.
+- Integration and e2e tests run against the database in `DATABASE_URL` (currently the development database; there is no separate test branch yet). They create their own rows (emails ending in `@int-test.invalid` / `@e2e-test.invalid`) and delete them afterwards.
+

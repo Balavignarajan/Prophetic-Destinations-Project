@@ -1,26 +1,8 @@
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { DataSource } from 'typeorm';
 import { loadConfig } from '../config/load-config.js';
+import { createCliDataSource } from './cli-data-source.js';
 
 /**
- * Entry point for the TypeORM CLI (migrations only). The app itself connects
- * through DatabaseModule. Run via the `migration:*` npm scripts, which build first.
+ * TypeORM CLI entry point for the DATABASE_URL branch (the `migration:*` npm
+ * scripts, which build first).
  */
-export default new DataSource({
-  type: 'postgres',
-  url: loadConfig().databaseUrl,
-  entities: [
-    join(
-      dirname(fileURLToPath(import.meta.url)),
-      '..',
-      'modules',
-      '**',
-      '*.entity.js',
-    ),
-  ],
-  migrations: [
-    join(dirname(fileURLToPath(import.meta.url)), 'migrations', '*.js'),
-  ],
-  synchronize: false,
-});
+export default createCliDataSource(loadConfig().databaseUrl);

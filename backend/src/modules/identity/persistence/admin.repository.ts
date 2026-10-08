@@ -5,7 +5,7 @@ import { ConflictError } from '../../../shared-kernel/index.js';
 import type { AdminAccount, AdminStatus } from '../domain/admin-account.js';
 import type { Role } from '../domain/role.js';
 import { AdminEntity } from './admin.entity.js';
-import { isUniqueViolation } from './pg-errors.js';
+import { isUniqueViolation } from '../../../database/pg-errors.js';
 
 export interface NewAdmin {
   email: string;
