@@ -118,16 +118,21 @@ describe('curriculum persistence (integration)', () => {
       expect(ours.map((course) => course.id)).toEqual([a.id, b.id, c.id]);
       expect(all.total).toBeGreaterThanOrEqual(3);
 
+      // Other suites share this database and may add courses at any time, so only
+      // compare this suite's own courses.
+      const mine = (items: { id: string }[]) =>
+        items
+          .filter((course) => [a.id, b.id, c.id].includes(course.id))
+          .map((course) => course.id);
       const again = await courses.list(1000, 0);
-      expect(again.items.map((course) => course.id)).toEqual(
-        all.items.map((course) => course.id),
-      );
+      expect(mine(again.items)).toEqual(mine(all.items));
 
-      const page = await courses.list(2, 0);
-      expect(page.items).toHaveLength(2);
-      expect(page.total).toBe(all.total);
-      const next = await courses.list(2, 2);
-      expect(next.items[0]?.id).toBe(all.items[2]?.id);
+      const first = await courses.list(2, 0);
+      const second = await courses.list(2, 2);
+      expect(first.items).toHaveLength(2);
+      expect(second.items).toHaveLength(2);
+      const ids = [...first.items, ...second.items].map((course) => course.id);
+      expect(new Set(ids).size).toBe(4); // pages do not overlap
     });
 
     it('deletes a course without modules', async () => {

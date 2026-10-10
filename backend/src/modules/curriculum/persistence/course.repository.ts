@@ -2,8 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { type EntityManager, Repository } from 'typeorm';
 import { isForeignKeyViolation } from '../../../database/pg-errors.js';
-import { ConflictError } from '../../../shared-kernel/index.js';
-import type { ContentStatus } from '../domain/content-status.js';
+import {
+  ConflictError,
+  type ContentStatus,
+} from '../../../shared-kernel/index.js';
 import type { Course } from '../domain/models.js';
 import { CourseEntity } from './course.entity.js';
 

@@ -70,9 +70,10 @@ Admins are invite-only; there is no signup endpoint. The first ADMIN comes from 
 ## Curriculum (courses and modules)
 
 **Owns:** the `courses` and `course_modules` tables, and the Course and Module (product term, never "unit") rules.
-**Does not own:** lessons, blocks, quizzes, scripture, media or publishing. Lessons will reference a module by id later.
-**Depends on:** identity only (`Role`/`Roles`). Nothing depends on curriculum yet; when lessons need to check a module exists,
-curriculum will export a small facade from its `index.ts` (entities are never exported).
+**Does not own:** lessons, blocks, quizzes, scripture, media or publishing.
+**Depends on:** identity only (`Role`/`Roles`). Lessons depend on curriculum through `CurriculumFacade` (exported from `index.ts`: `findModule`,
+`lockModule`), which exposes only a module's id and course id. Entities are never exported. Curriculum never imports lessons: deleting a
+module that still has lessons is refused by the `ON DELETE RESTRICT` foreign key, translated to a 409.
 
 API (all authenticated, all under `/api/v1/admin`):
 
@@ -101,6 +102,65 @@ Rules:
 - `PATCH` accepts an optional `version`; if it is not the current version the update is refused with 409 (someone else edited first).
 - Responses are explicit DTOs (`id`, `title`, `description`, `status`, `version`, `createdAt`, `updatedAt`, plus `courseId`/`position` for modules).
 
+## Lessons (slice 3E-a: lessons and level availability)
+
+**Owns:** `lessons` and `lesson_levels`. Blocks, block levels/variants and the resolver come in slices 3E-b and 3E-c; reusable (linked)
+blocks are not designed into code yet and need a separate approval.
+**Depends on:** curriculum (facade) and identity (`Role`/`Roles`). Scripture, Media and Quiz will be reached through their facades later.
+
+Lesson fields: `title` (required, <= 200), `shortTitle` (<= 100), `subtitle` (<= 300), `introduction` (plain multi-paragraph text,
+<= 5000, not Rich Text), `coverMediaId` (always null until the Media module exists; the API rejects anything else), `estimatedMinutes`
+(whole number >= 1), plus `position`, `status`, `version`, timestamps. Title, short title, subtitle and introduction are level-independent:
+there are no lesson-level variants. Level-specific content will live in blocks. Limits are backend validation limits: over-long input is
+rejected with a validation error and never truncated; blank optional text is stored as none.
+
+Level availability: one `lesson_levels` row per level the lesson is available at (`BEGINNER`, `INTERMEDIATE`, `ADVANCED`, from the shared
+`LearningLevel`; there is no level table). A new lesson has no levels until the editor chooses them. `PUT /lessons/:id/levels` replaces the set;
+unknown or duplicate levels are rejected, never merged.
+
+Ordering is the same as for modules: `UNIQUE (module_id, position) DEFERRABLE`, single-statement shifts and bulk reorder, and a lock on the
+parent **module** row (lock order is always Module, then Lesson). The pure ordering rules, `LearningLevel`, `ContentStatus` and the optimistic
+version check live in `shared-kernel` because several modules use them.
+
+| Endpoint | Roles |
+|---|---|
+| `GET /courses/:courseId/modules/:moduleId/lessons`, `GET /lessons/:lessonId` | ADMIN, EDITOR, REVIEWER |
+| `POST /courses/:courseId/modules/:moduleId/lessons`, `PUT .../lessons/order` | ADMIN, EDITOR |
+| `PATCH /lessons/:lessonId`, `PUT /lessons/:lessonId/levels` | ADMIN, EDITOR |
+| `DELETE /lessons/:lessonId` | ADMIN, EDITOR |
+
+Role decision: the guide defines CMS actions but no lesson/block role matrix, so lessons follow the approved curriculum model exactly:
+read for all three roles, write for ADMIN and EDITOR, and deleting a lesson is allowed to the same roles that may delete a Module (ADMIN and
+EDITOR). Only deleting a Course is ADMIN-only. `status` cannot be set through the API; editing a lesson (including its levels) puts it back
+to `DRAFT`. Lessons with blocks cannot be deleted once blocks exist (3E-b); published-lesson deletion is a Publishing decision.
+
+## Lesson blocks (slice 3E-b)
+
+**Owns:** `lesson_blocks` (and the trigger that keeps a block's type immutable). Block level visibility/variants (`lesson_block_levels`), the
+level-aware resolver, preview and reusable (linked) blocks are not built yet.
+
+- A block is a *placement* in a lesson: stable uuid `id`, immutable `type`, explicit `position` (1..n, `UNIQUE (lesson_id, position) DEFERRABLE`),
+  `shared_content jsonb` (nullable = no content yet), its own `version`. The FK to `lessons` is `ON DELETE RESTRICT`.
+- **BlockTypeRegistry** (`lessons/domain/blocks/registry.ts`) is the application source of truth. The 19 identifiers from the guide are listed in
+  `block-types.ts` and in a database CHECK (a backstop; adding an implemented type needs no migration). The registry decides which types are
+  *usable*: today **RICH_TEXT only**; any other defined type gets 422 "not available yet", an identifier outside the guide gets 400. Each
+  definition provides `validateShape` (every save), `validateComplete` (publishing readiness), `extractReferences`, and `variants`
+  (`SUPPORTED | NOT_SUPPORTED | UNCONFIRMED`; RICH_TEXT is `UNCONFIRMED`, to be treated as no variants until its contract settles it).
+  Do not invent schemas for the other types: each is added only after its content contract is specified from the guide.
+- **RICH_TEXT content** is structured JSON, never HTML: `{ "body": { "type": "doc", "content": [...] } }` with nodes `paragraph`,
+  `bulletList`, `orderedList`, `listItem`, `text` and marks `bold`, `italic`, `link` (`attrs.href`). There are deliberately no heading nodes: major lesson transitions use the dedicated `SECTION_INTRO` block, and headings return only through an explicit content-contract decision. Strict allow-list: unknown nodes,
+  marks, keys or attrs are rejected, as are markup-like keys (`html`, `onclick`, `style`, anything containing `<` or `>`, ...). Links must be absolute
+  `https:`, `http:` or `mailto:` URLs with no whitespace or control characters. Limits: depth 8, 5000 nodes, 100,000 bytes (the database CHECK
+  allows 200,000 as a backstop), 3 marks per text, NUL characters rejected. Text is plain text and is never interpreted as markup; clients must render it as text.
+- A global `JsonDepthInterceptor` rejects request bodies nested deeper than 64 levels (400 `BODY_TOO_DEEPLY_NESTED`) before validation, because the
+  validation pipe's object conversion recurses and would otherwise overflow the stack.
+- Operations (all under `/api/v1/admin/lessons/:lessonId/blocks`; same roles as lessons: read ADMIN/EDITOR/REVIEWER, write and delete ADMIN/EDITOR):
+  `GET`, `POST` (body `type`, optional `sharedContent`, optional `position`), `PUT order`, `GET|PATCH|DELETE :blockId`,
+  `POST :blockId/duplicate`. `type` is accepted on create only. Duplicate makes an independent copy (new id, deep-copied content) right after the original.
+- Every block operation locks the lesson row first, keeps positions 1..n, and puts the lesson back to `DRAFT` (without bumping the lesson's own
+  `version`; blocks have their own). At most 500 blocks per lesson (sanity limit).
+- A lesson that still has blocks cannot be deleted (409 with `blockCount`; the FK is the backstop).
+
 ## HTTP conventions
 
 - All routes are under `/api/v1`, except `GET /health` and `GET /health/db`.
@@ -119,7 +179,7 @@ Rules:
 - Migration commands (each builds first): `npm run migration:show | migration:run | migration:revert`.
   Scaffold one with `npm run migration:create -- src/database/migrations/<Name>`, then write the SQL by hand and inspect it before running.
 - `npm run migration:drift` prints what TypeORM thinks differs between entities and the database. Expect two known false
-  positives: it re-sets the `gen_random_uuid()` id defaults and re-creates foreign keys (`admin_refresh_tokens`, `course_modules`) and the `idx_courses_created_at_id` index. Anything else is real drift.
+  positives: it re-sets the `gen_random_uuid()` id defaults, re-creates foreign keys and the `idx_courses_created_at_id` index, and proposes dropping `lessons.module_id`'s foreign key (it targets another module's table, so it is intentionally not modelled in the entity). Triggers such as `trg_lesson_blocks_type_immutable` are not modelled in entities either. Anything else is real drift.
 
 ## Testing
 

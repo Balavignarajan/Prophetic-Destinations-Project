@@ -1,4 +1,4 @@
-import type { ContentStatus } from './content-status.js';
+import type { ContentStatus } from '../../../shared-kernel/index.js';
 
 export interface Course {
   id: string;

@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { CoursesController } from './api/courses.controller.js';
 import { ModulesController } from './api/modules.controller.js';
 import { CourseService } from './application/course.service.js';
+import { CurriculumFacade } from './application/curriculum.facade.js';
 import { ModuleService } from './application/module.service.js';
 import { CourseModuleEntity } from './persistence/course-module.entity.js';
 import { CourseModuleRepository } from './persistence/course-module.repository.js';
@@ -18,6 +19,8 @@ import { CourseRepository } from './persistence/course.repository.js';
     CourseModuleRepository,
     CourseService,
     ModuleService,
+    CurriculumFacade,
   ],
+  exports: [CurriculumFacade],
 })
 export class CurriculumModule {}

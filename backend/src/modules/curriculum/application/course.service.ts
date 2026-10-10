@@ -1,14 +1,17 @@
 import { Injectable } from '@nestjs/common';
 import { TransactionRunner } from '../../../database/transaction-runner.js';
-import { ConflictError, NotFoundError } from '../../../shared-kernel/index.js';
-import { statusAfterEdit } from '../domain/content-status.js';
+import {
+  ConflictError,
+  NotFoundError,
+  statusAfterEdit,
+  checkExpectedVersion,
+} from '../../../shared-kernel/index.js';
 import type { Course } from '../domain/models.js';
 import {
   checkTextChanges,
   checkTitle,
   normalizeDescription,
 } from '../domain/text-rules.js';
-import { checkExpectedVersion } from '../domain/versioning.js';
 import { CourseModuleRepository } from '../persistence/course-module.repository.js';
 import { CourseRepository } from '../persistence/course.repository.js';
 

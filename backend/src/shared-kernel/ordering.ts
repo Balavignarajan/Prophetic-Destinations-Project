@@ -1,13 +1,15 @@
-import { BusinessRuleError } from '../../../shared-kernel/index.js';
+import { BusinessRuleError } from './domain-error.js';
 
 /**
- * Modules in a course occupy positions 1..n with no gaps and no duplicates.
- * These functions hold the rules; the database enforces uniqueness as a backstop.
+ * Rules for ordered children of a parent (modules in a course, lessons in a
+ * module, blocks in a lesson). Items occupy positions 1..n with no gaps and no
+ * duplicates; the database enforces uniqueness as a backstop. These are pure
+ * functions: they know nothing about what is being ordered.
  */
 
 /**
- * Where a new module goes. No requested position means "at the end". A position
- * inside the list inserts there and pushes the following modules down.
+ * Where a new item goes. No requested position means "at the end". A position
+ * inside the list inserts there and pushes the following items down.
  */
 export function resolveInsertPosition(
   requested: number | undefined,
@@ -16,15 +18,15 @@ export function resolveInsertPosition(
   const last = existingCount + 1;
   if (requested === undefined) return last;
   if (!Number.isInteger(requested) || requested < 1 || requested > last) {
-    throw new BusinessRuleError(
-      `Position must be between 1 and ${last} for this course`,
-      { min: 1, max: last },
-    );
+    throw new BusinessRuleError(`Position must be between 1 and ${last}`, {
+      min: 1,
+      max: last,
+    });
   }
   return requested;
 }
 
-/** A reorder must list every module of the course exactly once. */
+/** A reorder must list every existing item exactly once. */
 export function checkReorder(
   currentIds: readonly string[],
   requestedIds: readonly string[],
@@ -41,14 +43,11 @@ export function checkReorder(
   const missing = currentIds.filter((id) => !seen.has(id));
 
   if (duplicates.size > 0 || unknown.length > 0 || missing.length > 0) {
-    throw new BusinessRuleError(
-      'The order must list every module of the course exactly once',
-      {
-        duplicates: [...duplicates],
-        unknown,
-        missing,
-      },
-    );
+    throw new BusinessRuleError('The order must list every item exactly once', {
+      duplicates: [...duplicates],
+      unknown,
+      missing,
+    });
   }
 }
 

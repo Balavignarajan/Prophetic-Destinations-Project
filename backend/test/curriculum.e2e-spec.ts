@@ -224,8 +224,22 @@ describe('Curriculum admin API (e2e)', () => {
         limit: 50,
         offset: 0,
       });
-      const ids = res.body.items.map((c: { id: string }) => c.id);
-      expect(ids).toContain(a.id);
+
+      // Other suites share this database and create courses at the same time, so walk the
+      // pages (oldest first) until both of ours have appeared.
+      const ids: string[] = [];
+      for (
+        let offset = 0;
+        !(ids.includes(a.id) && ids.includes(b.id));
+        offset += 100
+      ) {
+        const pageRes = await http()
+          .get(`${COURSES}?limit=100&offset=${offset}`)
+          .set('Authorization', as('reviewer'))
+          .expect(200);
+        ids.push(...pageRes.body.items.map((c: { id: string }) => c.id));
+        expect(pageRes.body.items.length).toBeGreaterThan(0);
+      }
       expect(ids.indexOf(a.id)).toBeLessThan(ids.indexOf(b.id));
 
       const page = await http()

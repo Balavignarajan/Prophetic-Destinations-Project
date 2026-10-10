@@ -1,4 +1,4 @@
-import { ConflictError } from '../../../shared-kernel/index.js';
+import { ConflictError } from './domain-error.js';
 
 /**
  * Optimistic concurrency: if the editor says which version they were looking at

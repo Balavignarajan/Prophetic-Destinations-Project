@@ -1,20 +1,20 @@
 import { Injectable } from '@nestjs/common';
 import type { EntityManager } from 'typeorm';
 import { TransactionRunner } from '../../../database/transaction-runner.js';
-import { NotFoundError } from '../../../shared-kernel/index.js';
-import { statusAfterEdit } from '../domain/content-status.js';
-import type { CourseModule } from '../domain/models.js';
 import {
+  NotFoundError,
   checkReorder,
   positionsFor,
   resolveInsertPosition,
-} from '../domain/ordering.js';
+  statusAfterEdit,
+  checkExpectedVersion,
+} from '../../../shared-kernel/index.js';
+import type { CourseModule } from '../domain/models.js';
 import {
   checkTextChanges,
   checkTitle,
   normalizeDescription,
 } from '../domain/text-rules.js';
-import { checkExpectedVersion } from '../domain/versioning.js';
 import { CourseModuleRepository } from '../persistence/course-module.repository.js';
 import { CourseRepository } from '../persistence/course.repository.js';
 

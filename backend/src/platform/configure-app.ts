@@ -3,6 +3,7 @@ import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { APP_CONFIG, type AppConfig } from '../config/index.js';
 import { AllExceptionsFilter } from './filters/all-exceptions.filter.js';
+import { JsonDepthInterceptor } from './interceptors/json-depth.interceptor.js';
 import { RequestLoggingInterceptor } from './interceptors/request-logging.interceptor.js';
 import { requestIdMiddleware } from './middleware/request-id.middleware.js';
 import { createValidationPipe } from './pipes/validation.pipe.js';
@@ -26,6 +27,9 @@ export function configureApp(app: INestApplication) {
   app.setGlobalPrefix(API_PREFIX, { exclude: UNPREFIXED_ROUTES });
   app.useGlobalPipes(createValidationPipe());
   app.useGlobalFilters(new AllExceptionsFilter());
-  app.useGlobalInterceptors(new RequestLoggingInterceptor());
+  app.useGlobalInterceptors(
+    new JsonDepthInterceptor(),
+    new RequestLoggingInterceptor(),
+  );
   app.enableShutdownHooks();
 }

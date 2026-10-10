@@ -1,9 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { type EntityManager, Repository } from 'typeorm';
-import { isUniqueViolation } from '../../../database/pg-errors.js';
-import { ConflictError } from '../../../shared-kernel/index.js';
-import type { ContentStatus } from '../domain/content-status.js';
+import {
+  isForeignKeyViolation,
+  isUniqueViolation,
+} from '../../../database/pg-errors.js';
+import {
+  ConflictError,
+  type ContentStatus,
+} from '../../../shared-kernel/index.js';
 import type { CourseModule } from '../domain/models.js';
 import { CourseModuleEntity } from './course-module.entity.js';
 
@@ -94,8 +99,18 @@ export class CourseModuleRepository {
     return toModule(await repo.findOneOrFail({ where: { id } }));
   }
 
+  /** Refused while anything (lessons) still references the module: the foreign keys are ON DELETE RESTRICT. */
   async delete(id: string, manager: EntityManager): Promise<void> {
-    await manager.getRepository(CourseModuleEntity).delete({ id });
+    try {
+      await manager.getRepository(CourseModuleEntity).delete({ id });
+    } catch (error) {
+      if (isForeignKeyViolation(error)) {
+        throw new ConflictError(
+          'This module still has lessons. Remove its lessons before deleting it.',
+        );
+      }
+      throw error;
+    }
   }
 
   /** Moves every module at or after `fromPosition` by `delta` (+1 to open a gap, -1 to close one). */
