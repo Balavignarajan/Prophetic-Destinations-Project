@@ -37,6 +37,8 @@ export class FakeLessons {
   levelsOf = new Map<string, LearningLevel[]>();
   locked: string[] = [];
   drafted: string[] = [];
+  /** content_revision per lesson: moves once for every markDraft. */
+  revisions = new Map<string, number>();
 
   add(id: string, levels: LearningLevel[] = []) {
     this.known.add(id);
@@ -55,6 +57,10 @@ export class FakeLessons {
   }
   async markDraft(id: string) {
     this.drafted.push(id);
+    this.revisions.set(id, this.revision(id) + 1);
+  }
+  revision(id: string) {
+    return this.revisions.get(id) ?? 1;
   }
 }
 

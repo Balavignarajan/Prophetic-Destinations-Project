@@ -127,6 +127,7 @@ describe('lessons persistence (integration)', () => {
         position: 1,
         status: 'DRAFT',
         version: 1,
+        contentRevision: 1,
         createdAt: expect.any(Date),
         updatedAt: expect.any(Date),
       });

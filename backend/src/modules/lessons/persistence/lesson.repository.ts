@@ -103,13 +103,22 @@ export class LessonRepository {
     return this.repo(manager).count({ where: { moduleId } });
   }
 
-  /** Updates lesson fields (bumping the version and updated_at) and returns the fresh lesson. */
+  /**
+   * Applies an effective change to the lesson: bumps `version` and `content_revision` (once) and
+   * refreshes updated_at, then returns the fresh lesson. Callers skip the call entirely when a
+   * request would change nothing.
+   */
   async update(
     id: string,
     changes: LessonChanges,
     manager: EntityManager,
   ): Promise<Lesson> {
-    await manager.getRepository(LessonEntity).update({ id }, changes);
+    await manager
+      .getRepository(LessonEntity)
+      .update(
+        { id },
+        { ...changes, contentRevision: () => '"content_revision" + 1' },
+      );
     return this.reload(id, manager);
   }
 
@@ -157,8 +166,9 @@ export class LessonRepository {
   }
 
   /**
-   * Removes the lesson and its level rows. Callers have already checked that it has no blocks;
-   * the foreign key (ON DELETE RESTRICT) is the backstop if one appeared concurrently.
+   * Removes the lesson and its level rows. Callers have already checked that it has no blocks.
+   * The foreign keys (ON DELETE RESTRICT) are the backstop: they also protect the history other
+   * modules keep about a lesson (workflow events, and later publications), which is retained forever.
    */
   async delete(id: string, manager: EntityManager): Promise<void> {
     try {
@@ -167,7 +177,7 @@ export class LessonRepository {
     } catch (error) {
       if (isForeignKeyViolation(error)) {
         throw new ConflictError(
-          'This lesson still has blocks. Remove its blocks before deleting it.',
+          'This lesson cannot be deleted because other records still depend on it (its blocks, or its workflow or publication history).',
         );
       }
       throw error;
@@ -175,12 +185,40 @@ export class LessonRepository {
   }
 
   /**
-   * Counts a change to the lesson's blocks as a lesson edit: back to DRAFT, updated_at refreshed.
-   * The lesson's own version is not bumped: it guards the lesson fields, and each block has its own version.
+   * Workflow status transition: sets `to` only if the status is currently `from`, and says whether it did.
+   * Not an authoring change, so neither `version` nor `content_revision` moves.
+   */
+  async compareAndSetStatus(
+    id: string,
+    from: ContentStatus,
+    to: ContentStatus,
+    manager: EntityManager,
+  ): Promise<boolean> {
+    // A CTE wrapped in a SELECT, because TypeORM returns a different shape ([rows, count]) for a bare UPDATE.
+    const [result]: { applied: number }[] = await manager.query(
+      `WITH updated AS (
+         UPDATE "lessons" SET "status" = $3, "updated_at" = now()
+          WHERE "id" = $1 AND "status" = $2
+          RETURNING "id"
+       )
+       SELECT count(*)::int AS "applied" FROM updated`,
+      [id, from, to],
+    );
+    return result.applied > 0;
+  }
+
+  /**
+   * Counts an effective change to the lesson's blocks (or their level settings) as a lesson edit:
+   * back to DRAFT, content_revision +1, updated_at refreshed. The lesson's own version is not
+   * bumped: it guards the lesson fields, and each block has its own version. Callers skip the
+   * call entirely when a request would change nothing.
    */
   async markDraft(id: string, manager: EntityManager): Promise<void> {
     await manager.query(
-      `UPDATE "lessons" SET "status" = 'DRAFT', "updated_at" = now() WHERE "id" = $1`,
+      `UPDATE "lessons"
+          SET "status" = 'DRAFT', "updated_at" = now(),
+              "content_revision" = "content_revision" + 1
+        WHERE "id" = $1`,
       [id],
     );
   }
@@ -254,6 +292,7 @@ function toLesson(row: LessonEntity, levels: string[]): Lesson {
     position: row.position,
     status: row.status as ContentStatus,
     version: row.version,
+    contentRevision: row.contentRevision,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };

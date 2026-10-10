@@ -151,6 +151,8 @@ export class LessonResponseDto {
   position: number;
   status: string;
   version: number;
+  /** Counts effective changes to the authoring content (including blocks); see Lesson.contentRevision. */
+  contentRevision: number;
   createdAt: string;
   updatedAt: string;
 
@@ -168,6 +170,7 @@ export class LessonResponseDto {
       position: lesson.position,
       status: lesson.status,
       version: lesson.version,
+      contentRevision: lesson.contentRevision,
       createdAt: lesson.createdAt.toISOString(),
       updatedAt: lesson.updatedAt.toISOString(),
     };

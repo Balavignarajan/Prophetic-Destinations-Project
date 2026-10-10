@@ -147,3 +147,34 @@ export function checkLessonChanges(
   }
   return result;
 }
+
+/** Whether a validated partial update would actually change the lesson's stored fields. */
+export function lessonFieldsDiffer(
+  current: {
+    title: string;
+    shortTitle: string | null;
+    subtitle: string | null;
+    introduction: string | null;
+    estimatedMinutes: number | null;
+  },
+  changes: LessonFieldChanges,
+): boolean {
+  return (
+    (changes.title !== undefined && changes.title !== current.title) ||
+    (changes.shortTitle !== undefined &&
+      changes.shortTitle !== current.shortTitle) ||
+    (changes.subtitle !== undefined && changes.subtitle !== current.subtitle) ||
+    (changes.introduction !== undefined &&
+      changes.introduction !== current.introduction) ||
+    (changes.estimatedMinutes !== undefined &&
+      changes.estimatedMinutes !== current.estimatedMinutes)
+  );
+}
+
+/** Two level sets are the same when they hold the same levels (both are in canonical order). */
+export function sameLevels(
+  a: readonly LearningLevel[],
+  b: readonly LearningLevel[],
+): boolean {
+  return a.length === b.length && a.every((level, index) => level === b[index]);
+}

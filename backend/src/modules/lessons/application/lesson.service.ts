@@ -19,6 +19,8 @@ import {
   checkLevels,
   checkOptionalText,
   checkTitle,
+  lessonFieldsDiffer,
+  sameLevels,
 } from '../domain/lesson-rules.js';
 import type { Lesson } from '../domain/models.js';
 import { LessonBlockLevelRepository } from '../persistence/lesson-block-level.repository.js';
@@ -119,6 +121,9 @@ export class LessonService {
       const current = await this.lockLesson(lessonId, manager);
       checkExpectedVersion(current.version, input.version);
 
+      // Nothing would change: no write, so no version bump, no revision move and no reset of the status.
+      if (!lessonFieldsDiffer(current, fields)) return current;
+
       return this.lessons.update(
         lessonId,
         { ...fields, status: statusAfterEdit(current.status) },
@@ -138,6 +143,9 @@ export class LessonService {
     return this.transactions.run(async (manager) => {
       const current = await this.lockLesson(lessonId, manager);
       checkExpectedVersion(current.version, expectedVersion);
+
+      // Same set of levels: nothing changes, so nothing is written.
+      if (sameLevels(current.levels, checked)) return current;
 
       // A level cannot be removed while blocks are visible at it: hide them there first.
       const removed = current.levels.filter(

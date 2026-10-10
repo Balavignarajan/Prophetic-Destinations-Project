@@ -18,6 +18,10 @@ import { LessonService } from './lesson.service.js';
 // In-memory stand-ins. The real SQL is covered by the integration tests.
 class FakeLessons {
   rows = new Map<string, Lesson>();
+  /** how often the lesson row was written / locked, to prove a no-op writes nothing */
+  updateCalls = 0;
+  levelWrites = 0;
+  locks = 0;
 
   async insert(input: {
     moduleId: string;
@@ -41,6 +45,7 @@ class FakeLessons {
       levels: [],
       status: 'DRAFT',
       version: 1,
+      contentRevision: 1,
       createdAt: now,
       updatedAt: now,
     };
@@ -52,6 +57,7 @@ class FakeLessons {
     return row ? { ...row } : null;
   }
   findByIdForUpdate(id: string) {
+    this.locks += 1;
     return this.findById(id);
   }
   async reload(id: string) {
@@ -67,11 +73,16 @@ class FakeLessons {
     return (await this.listByModule(moduleId)).length;
   }
   async update(id: string, changes: Partial<Lesson>) {
+    this.updateCalls += 1;
     const row = this.rows.get(id)!;
-    Object.assign(row, changes, { version: row.version + 1 });
+    Object.assign(row, changes, {
+      version: row.version + 1,
+      contentRevision: row.contentRevision + 1,
+    });
     return { ...row };
   }
   async replaceLevels(id: string, levels: readonly LearningLevel[]) {
+    this.levelWrites += 1;
     this.rows.get(id)!.levels = LEARNING_LEVELS.filter((l) =>
       levels.includes(l),
     );
@@ -373,6 +384,72 @@ describe('update', () => {
   });
 });
 
+describe('content revision', () => {
+  it('starts at 1', async () => {
+    const { service, courseId, module } = build();
+    const lesson = await service.create(courseId, module.id, { title: 'A' });
+    expect(lesson.contentRevision).toBe(1);
+  });
+
+  it('moves once for an effective metadata change, whatever number of fields changed', async () => {
+    const { service, courseId, module } = build();
+    const lesson = await service.create(courseId, module.id, { title: 'A' });
+    const updated = await service.update(lesson.id, {
+      title: 'B',
+      subtitle: 'S',
+      estimatedMinutes: 10,
+    });
+    expect(updated.contentRevision).toBe(2);
+  });
+
+  it('does not move for a write that changes nothing', async () => {
+    const { service, courseId, module } = build();
+    const lesson = await service.create(courseId, module.id, {
+      title: 'A',
+      subtitle: 'S',
+    });
+    const same = await service.update(lesson.id, {
+      title: ' A ',
+      subtitle: 'S',
+    });
+    expect(same.contentRevision).toBe(1);
+    expect(same.version).toBe(1);
+  });
+
+  it('clearing an already-empty field changes nothing', async () => {
+    const { service, courseId, module } = build();
+    const lesson = await service.create(courseId, module.id, { title: 'A' });
+    expect(
+      (await service.update(lesson.id, { shortTitle: null })).contentRevision,
+    ).toBe(1);
+  });
+
+  it('moves once when the level set changes, not when it is set to what it already is', async () => {
+    const { service, courseId, module } = build();
+    const lesson = await service.create(courseId, module.id, {
+      title: 'A',
+      levels: ['BEGINNER'],
+    });
+    expect(
+      (await service.setLevels(lesson.id, ['BEGINNER'])).contentRevision,
+    ).toBe(1);
+    expect(
+      (await service.setLevels(lesson.id, ['ADVANCED', 'BEGINNER']))
+        .contentRevision,
+    ).toBe(2);
+    expect((await service.setLevels(lesson.id, [])).contentRevision).toBe(3);
+  });
+
+  it('does not move when lessons are reordered or created beside it', async () => {
+    const { service, courseId, module } = await moduleWith(['A', 'B']);
+    const [a, b] = await service.list(courseId, module.id);
+    await service.reorder(courseId, module.id, [b.id, a.id]);
+    await service.create(courseId, module.id, { title: 'C', position: 1 });
+    const after = await service.list(courseId, module.id);
+    expect(after.every((lesson) => lesson.contentRevision === 1)).toBe(true);
+  });
+});
+
 describe('level availability', () => {
   it('replaces the whole set, in canonical order', async () => {
     const { service, courseId, module } = build();
@@ -567,5 +644,131 @@ describe('reorder', () => {
     await expect(
       service.reorder(randomUUID(), module.id, []),
     ).rejects.toBeInstanceOf(NotFoundError);
+  });
+});
+
+describe('a request that changes nothing', () => {
+  const NON_DRAFT = ['READY_FOR_REVIEW', 'APPROVED', 'PUBLISHED'] as const;
+
+  async function lessonIn(status: (typeof NON_DRAFT)[number]) {
+    const ctx = build();
+    const lesson = await ctx.service.create(ctx.courseId, ctx.module.id, {
+      title: 'Title',
+      shortTitle: 'Short',
+      subtitle: 'Sub',
+      introduction: 'Intro',
+      estimatedMinutes: 15,
+      levels: ['BEGINNER', 'ADVANCED'],
+    });
+    ctx.lessons.rows.get(lesson.id)!.status = status;
+    return {
+      ...ctx,
+      lesson,
+      written: () => ctx.lessons.updateCalls + ctx.lessons.levelWrites,
+    };
+  }
+
+  it.each(NON_DRAFT)(
+    'metadata identical to what is stored leaves a %s lesson untouched',
+    async (status) => {
+      const { service, lessons, lesson, written } = await lessonIn(status);
+      const writesBefore = written();
+
+      const result = await service.update(lesson.id, {
+        title: '  Title  ', // trimmed, so identical
+        shortTitle: 'Short',
+        subtitle: 'Sub',
+        introduction: 'Intro',
+        estimatedMinutes: 15,
+      });
+
+      expect(result).toMatchObject({ status, version: 1, contentRevision: 1 });
+      expect(lessons.rows.get(lesson.id)).toMatchObject({
+        status,
+        version: 1,
+        contentRevision: 1,
+      });
+      expect(written()).toBe(writesBefore);
+    },
+  );
+
+  it.each(NON_DRAFT)(
+    're-sending the same levels leaves a %s lesson untouched',
+    async (status) => {
+      const { service, lessons, lesson, written } = await lessonIn(status);
+      const writesBefore = written();
+
+      const result = await service.setLevels(lesson.id, [
+        'ADVANCED',
+        'BEGINNER',
+      ]); // same set, other order
+
+      expect(result).toMatchObject({ status, version: 1, contentRevision: 1 });
+      expect(lessons.rows.get(lesson.id)?.status).toBe(status);
+      expect(written()).toBe(writesBefore);
+    },
+  );
+
+  it.each(NON_DRAFT)(
+    'a genuine change to a %s lesson still bumps both versions and resets it to DRAFT',
+    async (status) => {
+      const { service, lesson } = await lessonIn(status);
+
+      const renamed = await service.update(lesson.id, { title: 'Different' });
+      expect(renamed).toMatchObject({
+        status: 'DRAFT',
+        version: 2,
+        contentRevision: 2,
+      });
+    },
+  );
+
+  it.each(NON_DRAFT)(
+    'a genuinely different level set on a %s lesson resets it to DRAFT',
+    async (status) => {
+      const { service, lesson } = await lessonIn(status);
+
+      const changed = await service.setLevels(lesson.id, ['BEGINNER']);
+      expect(changed).toMatchObject({
+        status: 'DRAFT',
+        version: 2,
+        contentRevision: 2,
+      });
+    },
+  );
+
+  it('still takes the lesson lock and still checks the expected version', async () => {
+    const { service, lessons, lesson } = await lessonIn('APPROVED');
+    const locksBefore = lessons.locks;
+
+    await service.update(lesson.id, { title: 'Title' });
+    await service.setLevels(lesson.id, ['BEGINNER', 'ADVANCED']);
+    expect(lessons.locks).toBe(locksBefore + 2);
+
+    // a stale version is refused even though the request would change nothing
+    await expect(
+      service.update(lesson.id, { title: 'Title', version: 99 }),
+    ).rejects.toBeInstanceOf(ConflictError);
+    await expect(
+      service.setLevels(lesson.id, ['BEGINNER', 'ADVANCED'], 99),
+    ).rejects.toBeInstanceOf(ConflictError);
+    // the current version is accepted
+    await expect(
+      service.update(lesson.id, { title: 'Title', version: 1 }),
+    ).resolves.toMatchObject({ version: 1 });
+  });
+
+  it('clearing a field that is already empty, or sending only the ignored cover, changes nothing', async () => {
+    const { service, lessons, courseId, module } = build();
+    const lesson = await service.create(courseId, module.id, { title: 'A' });
+    lessons.rows.get(lesson.id)!.status = 'APPROVED';
+
+    await service.update(lesson.id, { shortTitle: null, introduction: '   ' });
+    await service.update(lesson.id, { coverMediaId: null });
+    expect(lessons.rows.get(lesson.id)).toMatchObject({
+      status: 'APPROVED',
+      version: 1,
+      contentRevision: 1,
+    });
   });
 });

@@ -304,6 +304,36 @@ describe('Block levels, variants and preview (e2e, variants enabled)', () => {
     });
   });
 
+  describe('content revision for variant changes', () => {
+    it('moves once per effective variant change, never for a no-op or a refused hide', async () => {
+      const { lessonId, url } = await newLesson('rev-variant');
+      const block = await createBlock(url, 'shared');
+      const revisionOf = async () =>
+        (
+          await http()
+            .get(`${LESSONS}/${lessonId}`)
+            .set('Authorization', as('reviewer'))
+            .expect(200)
+        ).body.contentRevision as number;
+
+      const start = await revisionOf();
+      await put(url, block.id, 'BEGINNER', { content: rich('v1') }).expect(200);
+      expect(await revisionOf()).toBe(start + 1);
+
+      await put(url, block.id, 'BEGINNER', { content: rich('v1') }).expect(200); // identical
+      expect(await revisionOf()).toBe(start + 1);
+
+      await put(url, block.id, 'BEGINNER', { content: rich('v2') }).expect(200); // replaced
+      expect(await revisionOf()).toBe(start + 2);
+
+      await hide(url, block.id, 'BEGINNER').expect(409); // refused: would discard the variant
+      expect(await revisionOf()).toBe(start + 2);
+
+      await hide(url, block.id, 'BEGINNER', '?discardVariant=true').expect(200);
+      expect(await revisionOf()).toBe(start + 3);
+    });
+  });
+
   describe('hiding a block that has a variant', () => {
     it('needs an explicit discardVariant=true; anything else keeps the variant', async () => {
       const { url } = await newLesson('hide-variant');

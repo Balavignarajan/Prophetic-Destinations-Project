@@ -451,3 +451,41 @@ describe('level settings follow the block (BlockService)', () => {
     ).toEqual(['BEGINNER', 'INTERMEDIATE']);
   });
 });
+
+describe('content revision', () => {
+  it('moves exactly once for an effective visibility or variant change', async () => {
+    const { service, lessons, lessonId, block } = await withBlock();
+    const start = lessons.revision(lessonId);
+
+    await service.setLevel(lessonId, block.id, 'BEGINNER', { content: null });
+    expect(lessons.revision(lessonId)).toBe(start + 1);
+    await service.setLevel(lessonId, block.id, 'BEGINNER', {
+      content: rich('v'),
+    });
+    expect(lessons.revision(lessonId)).toBe(start + 2);
+    await service.removeLevel(lessonId, block.id, 'BEGINNER', {
+      discardVariant: true,
+    });
+    expect(lessons.revision(lessonId)).toBe(start + 3);
+  });
+
+  it('does not move for no-op writes, for hiding what is already hidden, or for refused requests', async () => {
+    const { service, lessons, lessonId, block } = await withBlock();
+    await service.setLevel(lessonId, block.id, 'BEGINNER', {
+      content: rich('v'),
+    });
+    const start = lessons.revision(lessonId);
+
+    await service.setLevel(lessonId, block.id, 'BEGINNER', {
+      content: rich('v'),
+    });
+    await service.removeLevel(lessonId, block.id, 'ADVANCED', {});
+    await service
+      .removeLevel(lessonId, block.id, 'BEGINNER', {})
+      .catch(() => undefined); // refused: has a variant
+    await service
+      .setLevel(lessonId, block.id, 'ADVANCED', { content: null })
+      .catch(() => undefined); // lesson lacks ADVANCED
+    expect(lessons.revision(lessonId)).toBe(start);
+  });
+});

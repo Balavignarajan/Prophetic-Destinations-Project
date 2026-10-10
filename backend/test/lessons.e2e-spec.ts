@@ -240,6 +240,7 @@ describe('Lessons admin API (e2e)', () => {
         position: 1,
         status: 'DRAFT',
         version: 1,
+        contentRevision: 1,
         createdAt: expect.any(String),
         updatedAt: expect.any(String),
       });

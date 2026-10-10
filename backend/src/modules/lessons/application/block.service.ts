@@ -17,6 +17,7 @@ import {
   checkBlockContent,
 } from '../domain/blocks/block-content.js';
 import { BlockTypeRegistry } from '../domain/blocks/registry.js';
+import { jsonContentEquals } from '../domain/json-equality.js';
 import { checkLevels } from '../domain/lesson-rules.js';
 import type { BlockView, Lesson, LessonBlock } from '../domain/models.js';
 import {
@@ -127,6 +128,14 @@ export class BlockService {
       const definition = this.registry.require(current.type);
       const sharedContent = checkBlockContent(definition, input.sharedContent);
 
+      // Identical content: nothing changes, so nothing is written (no block version bump, no status reset).
+      if (jsonContentEquals(current.sharedContent, sharedContent)) {
+        return {
+          ...current,
+          levels: await this.levels.listByBlock(blockId, manager),
+        };
+      }
+
       const updated = await this.blocks.updateContent(
         blockId,
         sharedContent,
@@ -205,15 +214,23 @@ export class BlockService {
         blockIds,
       );
 
-      await this.blocks.applyPositions(
-        lessonId,
-        blockIds,
-        positionsFor(blockIds),
-        manager,
+      // Same order as now: nothing changes, so nothing is written.
+      const unchanged = current.every(
+        (block, index) => block.id === blockIds[index],
       );
-      await this.lessons.markDraft(lessonId, manager);
+      if (!unchanged) {
+        await this.blocks.applyPositions(
+          lessonId,
+          blockIds,
+          positionsFor(blockIds),
+          manager,
+        );
+        await this.lessons.markDraft(lessonId, manager);
+      }
 
-      const blocks = await this.blocks.listByLesson(lessonId, manager);
+      const blocks = unchanged
+        ? current
+        : await this.blocks.listByLesson(lessonId, manager);
       const rows = groupByBlock(
         await this.levels.listByLesson(lessonId, manager),
       );

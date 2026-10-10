@@ -4,11 +4,7 @@ import {
   NotFoundError,
 } from '../../../shared-kernel/index.js';
 import { BlockTypeRegistry } from '../domain/blocks/registry.js';
-import {
-  type Resolution,
-  type ResolvableLesson,
-  resolveLesson,
-} from '../domain/level-resolution.js';
+import { type Resolution, resolveLesson } from '../domain/level-resolution.js';
 import type { Lesson } from '../domain/models.js';
 import {
   LessonBlockLevelRepository,
@@ -16,6 +12,7 @@ import {
 } from '../persistence/lesson-block-level.repository.js';
 import { LessonBlockRepository } from '../persistence/lesson-block.repository.js';
 import { LessonRepository } from '../persistence/lesson.repository.js';
+import { toResolvable } from './resolvable.js';
 
 export interface Preview {
   lesson: Lesson;
@@ -48,21 +45,7 @@ export class PreviewService {
     const blocks = await this.blocks.listByLesson(lessonId);
     const rows = groupByBlock(await this.levels.listByLesson(lessonId));
 
-    const resolvable: ResolvableLesson = {
-      availableLevels: lesson.levels,
-      blocks: blocks.map((block) => ({
-        id: block.id,
-        type: block.type,
-        position: block.position,
-        sharedContent: block.sharedContent,
-        variantSupport:
-          this.registry.get(block.type)?.variants ?? 'NOT_SUPPORTED',
-        levels: (rows.get(block.id) ?? []).map((row) => ({
-          level: row.level,
-          variant: row.content,
-        })),
-      })),
-    };
+    const resolvable = toResolvable(lesson, blocks, rows, this.registry);
 
     return { lesson, resolution: resolveLesson(resolvable, level) };
   }

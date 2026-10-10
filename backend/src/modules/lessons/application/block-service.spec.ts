@@ -458,3 +458,185 @@ describe('reorder', () => {
     );
   });
 });
+
+describe('content revision', () => {
+  it('moves once for creating a block, even when it is created visible at several levels', async () => {
+    const { service, lessons, lessonId } = build();
+    await service.create(lessonId, {
+      type: 'RICH_TEXT',
+      sharedContent: rich('a'),
+      levels: ['BEGINNER', 'ADVANCED'],
+    });
+    expect(lessons.revision(lessonId)).toBe(2);
+  });
+
+  it('moves once for an effective content change and not for identical content', async () => {
+    const { service, lessons, lessonId } = await lessonWith(['a']);
+    const [a] = await service.list(lessonId);
+    const before = lessons.revision(lessonId);
+
+    await service.update(lessonId, a.id, { sharedContent: rich('a') });
+    expect(lessons.revision(lessonId)).toBe(before);
+
+    await service.update(lessonId, a.id, { sharedContent: rich('b') });
+    expect(lessons.revision(lessonId)).toBe(before + 1);
+
+    await service.update(lessonId, a.id, { sharedContent: null });
+    expect(lessons.revision(lessonId)).toBe(before + 2);
+    await service.update(lessonId, a.id, { sharedContent: null });
+    expect(lessons.revision(lessonId)).toBe(before + 2);
+  });
+
+  it('moves once for duplicating and once for deleting', async () => {
+    const { service, lessons, lessonId } = await lessonWith(['a']);
+    const [a] = await service.list(lessonId);
+    const before = lessons.revision(lessonId);
+    const copy = await service.duplicate(lessonId, a.id);
+    expect(lessons.revision(lessonId)).toBe(before + 1);
+    await service.delete(lessonId, copy.id);
+    expect(lessons.revision(lessonId)).toBe(before + 2);
+  });
+
+  it('moves for a reorder that changes the order and not for one that does not', async () => {
+    const { service, lessons, lessonId } = await lessonWith(['a', 'b']);
+    const [a, b] = await service.list(lessonId);
+    const before = lessons.revision(lessonId);
+
+    await service.reorder(lessonId, [a.id, b.id]);
+    expect(lessons.revision(lessonId)).toBe(before);
+    await service.reorder(lessonId, [b.id, a.id]);
+    expect(lessons.revision(lessonId)).toBe(before + 1);
+  });
+
+  it('does not move for rejected requests', async () => {
+    const { service, lessons, lessonId } = await lessonWith(['a']);
+    const before = lessons.revision(lessonId);
+    await service.create(lessonId, { type: 'QUIZ' }).catch(() => undefined);
+    await service
+      .create(lessonId, { type: 'RICH_TEXT', sharedContent: { html: 'x' } })
+      .catch(() => undefined);
+    await service.reorder(lessonId, []).catch(() => undefined);
+    expect(lessons.revision(lessonId)).toBe(before);
+  });
+});
+
+describe('a request that changes nothing', () => {
+  it('identical content writes nothing: no block version bump, no status reset, no revision move', async () => {
+    const { service, blocks, lessons, lessonId } = await lessonWith(['a']);
+    const [a] = await service.list(lessonId);
+    lessons.drafted.length = 0;
+    const revision = lessons.revision(lessonId);
+
+    const result = await service.update(lessonId, a.id, {
+      sharedContent: rich('a'),
+    });
+
+    expect(result.version).toBe(a.version);
+    expect(blocks.rows.get(a.id)!.version).toBe(a.version);
+    expect(lessons.drafted).toEqual([]);
+    expect(lessons.revision(lessonId)).toBe(revision);
+  });
+
+  it('identical content with its keys in another order is still identical', async () => {
+    const { service, blocks, lessons, lessonId } = await lessonWith(['a']);
+    const [a] = await service.list(lessonId);
+    lessons.drafted.length = 0;
+
+    const reordered = {
+      body: { content: rich('a').body.content, type: 'doc' },
+    };
+    await service.update(lessonId, a.id, { sharedContent: reordered });
+
+    expect(blocks.rows.get(a.id)!.version).toBe(a.version);
+    expect(lessons.drafted).toEqual([]);
+  });
+
+  it('clearing content that is already empty writes nothing', async () => {
+    const { service, blocks, lessons, lessonId } = build();
+    const empty = await service.create(lessonId, { type: 'RICH_TEXT' });
+    lessons.drafted.length = 0;
+
+    await service.update(lessonId, empty.id, { sharedContent: null });
+    expect(blocks.rows.get(empty.id)!.version).toBe(empty.version);
+    expect(lessons.drafted).toEqual([]);
+  });
+
+  it('re-sending the current order writes nothing and returns the blocks as they are', async () => {
+    const { service, blocks, lessons, lessonId } = await lessonWith([
+      'a',
+      'b',
+      'c',
+    ]);
+    const before = await service.list(lessonId);
+    lessons.drafted.length = 0;
+
+    const result = await service.reorder(
+      lessonId,
+      before.map((b) => b.id),
+    );
+
+    expect(result.map((b) => [b.id, b.position])).toEqual(
+      before.map((b) => [b.id, b.position]),
+    );
+    expect(lessons.drafted).toEqual([]);
+    expect(blocks.layout(lessonId)).toEqual([
+      [1, 'a'],
+      [2, 'b'],
+      [3, 'c'],
+    ]);
+    expect(lessons.revision(lessonId)).toBe(4); // 1 + three creations, nothing for the no-op
+  });
+
+  it('an empty reorder of a lesson without blocks writes nothing', async () => {
+    const { service, lessons, lessonId } = build();
+    expect(await service.reorder(lessonId, [])).toEqual([]);
+    expect(lessons.drafted).toEqual([]);
+  });
+
+  it('genuine changes still reset the lesson and bump versions', async () => {
+    const { service, blocks, lessons, lessonId } = await lessonWith(['a', 'b']);
+    const [a, b] = await service.list(lessonId);
+    lessons.drafted.length = 0;
+
+    const updated = await service.update(lessonId, a.id, {
+      sharedContent: rich('changed'),
+    });
+    expect(updated.version).toBe(a.version + 1);
+    expect(lessons.drafted).toEqual([lessonId]);
+
+    await service.reorder(lessonId, [b.id, a.id]);
+    expect(lessons.drafted).toEqual([lessonId, lessonId]);
+    expect(blocks.layout(lessonId)).toEqual([
+      [1, 'b'],
+      [2, 'changed'],
+    ]);
+  });
+
+  it('still locks the lesson and still checks the expected version for a no-op', async () => {
+    const { service, lessons, lessonId } = await lessonWith(['a']);
+    const [a] = await service.list(lessonId);
+    lessons.locked.length = 0;
+
+    await service.update(lessonId, a.id, {
+      sharedContent: rich('a'),
+      version: a.version,
+    });
+    await service.reorder(lessonId, [a.id]);
+    expect(lessons.locked).toEqual([lessonId, lessonId]);
+
+    await expect(
+      service.update(lessonId, a.id, {
+        sharedContent: rich('a'),
+        version: a.version + 5,
+      }),
+    ).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  it('invalid content is still rejected even if it would be "the same"', async () => {
+    const { service, lessonId } = await lessonWith(['a']);
+    const [a] = await service.list(lessonId);
+    await expect(
+      service.update(lessonId, a.id, { sharedContent: { html: 'x' } }),
+    ).rejects.toBeInstanceOf(BusinessRuleError);
+  });
+});

@@ -22,17 +22,17 @@ There is deliberately no `common/` or `utils/` folder.
 
 ## Modules
 
-| Module | Owns | May import |
-|---|---|---|
-| identity | admin accounts, roles, auth, guards | none |
-| curriculum | courses and **modules** (product term; keep it in code and UI) | identity |
-| lessons | lessons, blocks, level variants, level availability, level resolution, preview | identity, curriculum, scripture, media, quizzes |
-| scripture | structured Scripture references | identity |
-| media | media library and storage adapter | identity |
-| quizzes | quizzes, questions, options | identity |
-| publishing | workflow transitions, audit events, published snapshots | identity, lessons, curriculum |
-| delivery | learner read API (no tables) | publishing |
-| health | liveness and DB readiness | none |
+| Module     | Owns                                                                           | May import                                      |
+| ---------- | ------------------------------------------------------------------------------ | ----------------------------------------------- |
+| identity   | admin accounts, roles, auth, guards                                            | none                                            |
+| curriculum | courses and **modules** (product term; keep it in code and UI)                 | identity                                        |
+| lessons    | lessons, blocks, level variants, level availability, level resolution, preview | identity, curriculum, scripture, media, quizzes |
+| scripture  | structured Scripture references                                                | identity                                        |
+| media      | media library and storage adapter                                              | identity                                        |
+| quizzes    | quizzes, questions, options                                                    | identity                                        |
+| publishing | workflow transitions, audit events, published snapshots                        | identity, lessons, curriculum                   |
+| delivery   | learner read API (no tables)                                                   | publishing                                      |
+| health     | liveness and DB readiness                                                      | none                                            |
 
 Rules (enforced by `test/architecture.spec.ts`):
 
@@ -57,15 +57,15 @@ Admins are invite-only; there is no signup endpoint. The first ADMIN comes from 
 - Access token: JWT (HS256, 15 min) with claims `sub`, `role`, `typ`. The guard re-reads the admin on every request,
   so disabling an account or changing a role applies immediately.
 - Refresh token: random, rotated on every use, stored only as a SHA-256 hash, sent as an httpOnly `SameSite=Strict` cookie
-  scoped to `/api/v1/admin/auth`. Tokens from one login form a *family* (the session); replaying a rotated token revokes the family.
+  scoped to `/api/v1/admin/auth`. Tokens from one login form a _family_ (the session); replaying a rotated token revokes the family.
 - Login and refresh are rate limited per IP (`AUTH_RATE_LIMIT` per `AUTH_RATE_WINDOW_SECONDS`).
 
-| Endpoint | Auth |
-|---|---|
-| `POST /api/v1/admin/auth/login` | public, throttled |
-| `POST /api/v1/admin/auth/refresh` | public (refresh cookie), throttled |
-| `POST /api/v1/admin/auth/logout` | public (refresh cookie); always 204 |
-| `GET  /api/v1/admin/auth/me` | any authenticated admin |
+| Endpoint                          | Auth                                |
+| --------------------------------- | ----------------------------------- |
+| `POST /api/v1/admin/auth/login`   | public, throttled                   |
+| `POST /api/v1/admin/auth/refresh` | public (refresh cookie), throttled  |
+| `POST /api/v1/admin/auth/logout`  | public (refresh cookie); always 204 |
+| `GET  /api/v1/admin/auth/me`      | any authenticated admin             |
 
 ## Curriculum (courses and modules)
 
@@ -77,14 +77,14 @@ module that still has lessons is refused by the `ON DELETE RESTRICT` foreign key
 
 API (all authenticated, all under `/api/v1/admin`):
 
-| Endpoint | Roles |
-|---|---|
-| `GET /courses`, `GET /courses/:courseId` | ADMIN, EDITOR, REVIEWER |
-| `POST /courses`, `PATCH /courses/:courseId` | ADMIN, EDITOR |
-| `DELETE /courses/:courseId` | ADMIN |
-| `GET /courses/:courseId/modules`, `GET .../modules/:moduleId` | ADMIN, EDITOR, REVIEWER |
-| `POST /courses/:courseId/modules`, `PATCH .../modules/:moduleId`, `DELETE .../modules/:moduleId` | ADMIN, EDITOR |
-| `PUT /courses/:courseId/modules/order` (body `{ moduleIds: [...] }`) | ADMIN, EDITOR |
+| Endpoint                                                                                         | Roles                   |
+| ------------------------------------------------------------------------------------------------ | ----------------------- |
+| `GET /courses`, `GET /courses/:courseId`                                                         | ADMIN, EDITOR, REVIEWER |
+| `POST /courses`, `PATCH /courses/:courseId`                                                      | ADMIN, EDITOR           |
+| `DELETE /courses/:courseId`                                                                      | ADMIN                   |
+| `GET /courses/:courseId/modules`, `GET .../modules/:moduleId`                                    | ADMIN, EDITOR, REVIEWER |
+| `POST /courses/:courseId/modules`, `PATCH .../modules/:moduleId`, `DELETE .../modules/:moduleId` | ADMIN, EDITOR           |
+| `PUT /courses/:courseId/modules/order` (body `{ moduleIds: [...] }`)                             | ADMIN, EDITOR           |
 
 The role matrix is an assumption (the requirements define none): reviewers read, editors write, only admins delete courses.
 
@@ -122,12 +122,12 @@ Ordering is the same as for modules: `UNIQUE (module_id, position) DEFERRABLE`, 
 parent **module** row (lock order is always Module, then Lesson). The pure ordering rules, `LearningLevel`, `ContentStatus` and the optimistic
 version check live in `shared-kernel` because several modules use them.
 
-| Endpoint | Roles |
-|---|---|
+| Endpoint                                                                     | Roles                   |
+| ---------------------------------------------------------------------------- | ----------------------- |
 | `GET /courses/:courseId/modules/:moduleId/lessons`, `GET /lessons/:lessonId` | ADMIN, EDITOR, REVIEWER |
-| `POST /courses/:courseId/modules/:moduleId/lessons`, `PUT .../lessons/order` | ADMIN, EDITOR |
-| `PATCH /lessons/:lessonId`, `PUT /lessons/:lessonId/levels` | ADMIN, EDITOR |
-| `DELETE /lessons/:lessonId` | ADMIN, EDITOR |
+| `POST /courses/:courseId/modules/:moduleId/lessons`, `PUT .../lessons/order` | ADMIN, EDITOR           |
+| `PATCH /lessons/:lessonId`, `PUT /lessons/:lessonId/levels`                  | ADMIN, EDITOR           |
+| `DELETE /lessons/:lessonId`                                                  | ADMIN, EDITOR           |
 
 Role decision: the guide defines CMS actions but no lesson/block role matrix, so lessons follow the approved curriculum model exactly:
 read for all three roles, write for ADMIN and EDITOR, and deleting a lesson is allowed to the same roles that may delete a Module (ADMIN and
@@ -139,11 +139,11 @@ to `DRAFT`. Lessons with blocks cannot be deleted once blocks exist (3E-b); publ
 **Owns:** `lesson_blocks` (and the trigger that keeps a block's type immutable). Level visibility, variants, the resolver and preview are in the
 next section; reusable (linked) blocks are not built yet.
 
-- A block is a *placement* in a lesson: stable uuid `id`, immutable `type`, explicit `position` (1..n, `UNIQUE (lesson_id, position) DEFERRABLE`),
+- A block is a _placement_ in a lesson: stable uuid `id`, immutable `type`, explicit `position` (1..n, `UNIQUE (lesson_id, position) DEFERRABLE`),
   `shared_content jsonb` (nullable = no content yet), its own `version`. The FK to `lessons` is `ON DELETE RESTRICT`.
 - **BlockTypeRegistry** (`lessons/domain/blocks/registry.ts`) is the application source of truth. The 19 identifiers from the guide are listed in
   `block-types.ts` and in a database CHECK (a backstop; adding an implemented type needs no migration). The registry decides which types are
-  *usable*: today **RICH_TEXT only**; any other defined type gets 422 "not available yet", an identifier outside the guide gets 400. Each
+  _usable_: today **RICH_TEXT only**; any other defined type gets 422 "not available yet", an identifier outside the guide gets 400. Each
   definition provides `validateShape` (every save), `validateComplete` (publishing readiness), `extractReferences`, and `variants`
   (`SUPPORTED | NOT_SUPPORTED | UNCONFIRMED`; RICH_TEXT is `UNCONFIRMED`, to be treated as no variants until its contract settles it).
   Do not invent schemas for the other types: each is added only after its content contract is specified from the guide.
@@ -166,7 +166,7 @@ next section; reusable (linked) blocks are not built yet.
 **Owns:** `lesson_block_levels`. Reusable (linked) blocks and the other 18 block types are not built.
 
 - **Visibility = a row.** `lesson_block_levels (block_id, lesson_id, level, content)` has one row per block per level the block is visible at;
-  no row means hidden. `content` is the *full-replacement variant* for that level, or NULL to use the block's own `shared_content`. Nothing is ever
+  no row means hidden. `content` is the _full-replacement variant_ for that level, or NULL to use the block's own `shared_content`. Nothing is ever
   merged or inherited, and a level never reads another level's row.
 - **Database guarantees.** Primary key `(block_id, level)`. Two composite foreign keys, both `ON DELETE RESTRICT`: `(block_id, lesson_id)` ->
   `lesson_blocks (id, lesson_id)` (the row's lesson is the block's lesson) and `(lesson_id, level)` -> `lesson_levels` (a block can only be
@@ -181,19 +181,79 @@ next section; reusable (linked) blocks are not built yet.
   `PUT blocks/:blockId/levels/:level` (body `{ "content": object | null, "version"? }`; the `content` key is required: `null` = visible using
   shared content, an object = the variant), `DELETE blocks/:blockId/levels/:level` (a block with a variant there needs `?discardVariant=true`;
   optional `?version=`), `GET preview?level=BEGINNER`. Block responses include `levels: [{ level, content }]` in canonical order.
-- **Versions.** An *effective* level change bumps the block's `version` and puts the lesson back to `DRAFT` without touching `lessons.version`.
+- **Versions.** An _effective_ level change bumps the block's `version` and puts the lesson back to `DRAFT` without touching `lessons.version`.
   Writing what is already stored changes nothing. "Already stored" means JSON equality (`jsonContentEquals`): object key order is ignored at any
   depth (jsonb does not keep it), array order and all values matter, `null` only equals `null`. A stale `version` is a 409 even for a no-op.
   Lock order is Module, Lesson, Block. Duplicating a block copies its level rows; deleting a block deletes them explicitly in the same transaction.
 - **The resolver** (`domain/level-resolution.ts`) is a pure function and the single implementation intended for preview, publishing and learner
   delivery: (1) the lesson must be available at the level; (2) a block is visible only if it has a row for that level; (3) a visible block shows its
-  variant, else its own shared content, else it is *unresolved*; (4) only the requested level's row is ever read. Unresolved blocks are returned
+  variant, else its own shared content, else it is _unresolved_; (4) only the requested level's row is ever read. Unresolved blocks are returned
   with a diagnostic and never skipped or replaced. Diagnostics: `LESSON_NOT_AVAILABLE_AT_LEVEL`, `NO_VISIBLE_BLOCKS` (available, but zero
   visible block rows; visible-but-unresolved blocks report their own instead), `BLOCK_NO_CONTENT`, `BLOCK_VARIANT_NOT_ALLOWED` (a stored variant for a
   type without variant support; no fallback to shared content). Hidden blocks never produce a diagnostic.
 - **Preview is advisory.** It reads the lesson, blocks and level rows in separate unlocked queries, so under concurrent edits it can show a mix of old
   and new data; it does not check completeness (`validateComplete` is reserved for Publishing readiness) and changes nothing. A clean preview does not
   mean a lesson is ready to publish: Publishing must independently validate a consistent state of the content.
+
+## Publishing foundation (slice 3F-a)
+
+Phase 3F publishes **lessons only** (courses, modules and catalog snapshots are deferred; `ARCHIVED` is deferred and the four statuses and their
+CHECK constraints are unchanged). Slice 3F-a adds no tables for publishing and no endpoints: it prepares the lessons module and the pure rules.
+
+- **`lessons.content_revision`** counts _effective_ changes to a lesson's authoring content: metadata, level availability, block create / content
+  change / duplicate / delete / reorder, and level visibility and variants. It moves **exactly once per logical change** (creating a block visible at
+  three levels is one change). It does **not** move for workflow status transitions, rejected requests, reordering or creating or deleting sibling
+  lessons, or edits to the module or course.
+- **A request that would change nothing writes nothing** (one rule for every lesson authoring path). Identical lesson metadata (after trimming), the same
+  set of levels, identical block content (JSON equality: object key order is ignored, array order and values count), the same block order, identical
+  visibility or variant, and hiding a block that is already hidden all leave the lesson untouched: no `lessons.version` or block `version` bump, no
+  `content_revision` move, no `updated_at` change, and **no reset of the status to `DRAFT`** (an APPROVED or PUBLISHED lesson stays that way). The request
+  still takes the locks and still checks the expected `version` first, so a stale version is a 409 even for a no-op; response shapes and status codes
+  are unchanged. A genuine change still bumps the relevant versions, moves the revision once and resets the lesson to `DRAFT`. Course and module `PATCH`
+  (Phase 3D) are not lesson content and keep their existing behaviour. `lessons.version` keeps its meaning (lesson fields and level availability only).
+  All writes happen under the Module, Lesson, Block lock order. Because every effective change also resets the status to `DRAFT`,
+  `status = APPROVED` already means "unchanged since approval"; the revision is stored with workflow events and publications for audit and for
+  showing "unpublished changes".
+- **`LessonsFacade`** (exported from `lessons/index.ts`) is the only way Publishing reaches lessons, and returns plain data only:
+  `lockForWorkflow` (locks the lesson row, the same lock every authoring writer takes first), `findWorkflowState` (unlocked read),
+  `compareAndSetStatus(from, to)` (not an authoring change: neither `version` nor `content_revision` moves) and `assembleForPublication`
+  (reads the lesson, blocks and level rows, then runs the pure resolver **separately for every available level** and checks each resolved block
+  with its type's `validateShape` and `validateComplete`). The pure `resolveLesson` and its types are exported too.
+- **Pure Publishing rules** (`publishing/domain`, no database):
+  - `workflow.ts`: SUBMIT_FOR_REVIEW (DRAFT to READY_FOR_REVIEW), REQUEST_CHANGES (READY_FOR_REVIEW to DRAFT, note required), APPROVE
+    (READY_FOR_REVIEW to APPROVED), PUBLISH (APPROVED to PUBLISHED), UNPUBLISH (PUBLISHED to APPROVED; a working copy that was edited after publishing and is still DRAFT stays DRAFT while its active publication ends. For an edited working copy already in READY_FOR_REVIEW or APPROVED, unpublish is refused for now: its behaviour is deferred until the complete 3F-c workflow is reviewed).
+  - `roles.ts`: ADMIN and EDITOR submit; ADMIN and REVIEWER request changes and approve; ADMIN alone publishes and unpublishes; all three roles read.
+  - `separation-of-duties.ts`: policy S0 (nothing enforced); a policy is a plain function, so stricter ones can be added later without touching the workflow.
+  - `readiness.ts`: aggregates every blocking issue (never just the first). Sources are kept apart: RULE (title, at least one level, block
+    content completeness), RESOLVER (any resolver diagnostic) and SAFEGUARD (invalid stored content, unavailable block type, a cover before Media exists,
+    a level snapshot over 5 MiB). Title is the only mandatory metadata beyond the existing rules.
+  - `snapshot-payload.ts`: the self-contained resolved payload of one level, its canonical (sorted-key) JSON, and the 5 MiB limit measured as serialized UTF-8 bytes.
+    Storing, hashing and versioning snapshots arrive with the publication tables.
+
+## Publishing workflow (slice 3F-b)
+
+Review transitions for lessons, with an append-only audit trail. Publishing itself (publish/unpublish, publications, snapshots) is **not** implemented yet (3F-c).
+
+**Endpoints** (all under `/api/v1/admin/lessons/:lessonId`):
+
+| Method and path                 | Roles           | Effect                                                                      |
+| ------------------------------- | --------------- | --------------------------------------------------------------------------- |
+| `POST workflow/submit`          | ADMIN, EDITOR   | DRAFT → READY_FOR_REVIEW                                                    |
+| `POST workflow/request-changes` | ADMIN, REVIEWER | READY_FOR_REVIEW → DRAFT; a nonblank note (≤ 2000 chars) is required        |
+| `POST workflow/approve`         | ADMIN, REVIEWER | READY_FOR_REVIEW → APPROVED                                                 |
+| `GET workflow`                  | all three       | status, content revision, the actions the caller may take now, latest event |
+| `GET workflow/events`           | all three       | history, newest first, `limit` (1–100, default 50) / `offset`               |
+| `GET readiness`                 | all three       | advisory readiness report; writes nothing, never gates a review transition  |
+
+Transition bodies accept an optional `note` and an optional `expectedContentRevision` (stale → 409).
+
+**History** lives in `lesson_workflow_events`: acting admin, role at the time, action, from/to status, note, the content revision the lesson had, and a database-assigned `seq` that defines order. DB triggers reject UPDATE, DELETE and TRUNCATE, and both foreign keys (lesson, admin) are RESTRICT. Consequently a lesson with any workflow history can no longer be deleted (controlled 409), and an admin who has acted cannot be deleted. There is no history-deletion API.
+
+**Guarantees.** A transition runs in one transaction: lock the lesson row, check the optional expected revision, plan the transition from the locked status, compare-and-set the status, append the event. If any step fails nothing is kept. Concurrent transitions on one lesson serialize on the row lock; exactly one wins and the rest get 409. Transitions change only `status` (and `updated_at`); they never change `lessons.version` or `content_revision`. Any effective authoring edit still resets the lesson to DRAFT, so APPROVED means "unchanged since approval".
+
+**Policy.** Role checks happen before any lock. Separation of duties is policy S0 (actors are recorded, nothing is enforced); a stricter policy can be supplied through the `SEPARATION_OF_DUTIES_POLICY` provider.
+
+**Not yet:** publish/unpublish, publication tables, snapshots, delivery, lock timeout (3F-d). The table's CHECKs already allow the PUBLISH/UNPUBLISH shapes so 3F-c needs no change to it.
 
 ## HTTP conventions
 
@@ -221,4 +281,3 @@ next section; reusable (linked) blocks are not built yet.
 - `npm run test:int` repository tests against the real database (`*.int-spec.ts`, next to the code they test).
 - `npm run test:e2e` boots the real app against a real database.
 - Integration and e2e tests run against the database in `DATABASE_URL` (currently the development database; there is no separate test branch yet). They create their own rows (emails ending in `@int-test.invalid` / `@e2e-test.invalid`) and delete them afterwards.
-

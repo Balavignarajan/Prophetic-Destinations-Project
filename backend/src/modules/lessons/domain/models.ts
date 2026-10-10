@@ -22,6 +22,12 @@ export interface Lesson {
   status: ContentStatus;
   /** Incremented on every change to the lesson; used to detect conflicting edits. */
   version: number;
+  /**
+   * Counts effective changes to the authoring content (metadata, level availability, blocks and
+   * their level settings). Unlike `version` it also moves for block changes, and it never moves
+   * for status transitions or no-op writes.
+   */
+  contentRevision: number;
   createdAt: Date;
   updatedAt: Date;
 }

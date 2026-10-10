@@ -21,6 +21,7 @@ import {
   deferrable: 'INITIALLY IMMEDIATE',
 })
 @Check('chk_lessons_position', `"position" >= 1`)
+@Check('chk_lessons_content_revision', `"content_revision" >= 1`)
 @Check(
   'chk_lessons_title',
   `"title" !~ '^\\s*$' AND char_length("title") <= 200`,
@@ -84,4 +85,12 @@ export class LessonEntity {
 
   @VersionColumn({ default: 1 })
   version: number;
+
+  /**
+   * Counts effective changes to the lesson's authoring content (metadata, level
+   * availability, blocks, visibility and variants). Bumped only by the lessons module, once
+   * per logical change; never by workflow status transitions or no-op writes.
+   */
+  @Column({ name: 'content_revision', type: 'integer', default: 1 })
+  contentRevision: number;
 }

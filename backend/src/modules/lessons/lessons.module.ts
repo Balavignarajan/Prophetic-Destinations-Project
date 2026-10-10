@@ -9,6 +9,7 @@ import { PreviewController } from './api/preview.controller.js';
 import { BlockLevelService } from './application/block-level.service.js';
 import { BlockService } from './application/block.service.js';
 import { LessonService } from './application/lesson.service.js';
+import { LessonsFacade } from './application/lessons.facade.js';
 import { PreviewService } from './application/preview.service.js';
 import { BlockTypeRegistry } from './domain/blocks/registry.js';
 import { LessonBlockLevelEntity } from './persistence/lesson-block-level.entity.js';
@@ -46,6 +47,8 @@ import { LessonRepository } from './persistence/lesson.repository.js';
     BlockService,
     BlockLevelService,
     PreviewService,
+    LessonsFacade,
   ],
+  exports: [LessonsFacade],
 })
 export class LessonsModule {}
