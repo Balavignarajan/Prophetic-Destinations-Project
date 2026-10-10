@@ -34,6 +34,10 @@ describe('lesson blocks persistence (integration)', () => {
     const modules = `SELECT m."id" FROM "course_modules" m JOIN "courses" c ON c."id" = m."course_id" WHERE c."title" LIKE $1`;
     const owned = `SELECT "id" FROM "lessons" WHERE "module_id" IN (${modules})`;
     await dataSource.query(
+      `DELETE FROM "lesson_block_levels" WHERE "lesson_id" IN (${owned})`,
+      [like],
+    );
+    await dataSource.query(
       `DELETE FROM "lesson_blocks" WHERE "lesson_id" IN (${owned})`,
       [like],
     );

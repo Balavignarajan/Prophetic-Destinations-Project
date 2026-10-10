@@ -10,6 +10,7 @@ import {
 } from '../../../shared-kernel/index.js';
 import type { CurriculumFacade } from '../../curriculum/index.js';
 import type { Lesson } from '../domain/models.js';
+import type { LessonBlockLevelRepository } from '../persistence/lesson-block-level.repository.js';
 import type { LessonBlockRepository } from '../persistence/lesson-block.repository.js';
 import type { LessonRepository } from '../persistence/lesson.repository.js';
 import { LessonService } from './lesson.service.js';
@@ -104,6 +105,13 @@ class FakeBlocks {
   }
 }
 
+class FakeBlockLevels {
+  visible: { blockId: string; level: string }[] = [];
+  async findVisibleAt(_lessonId: string, levels: readonly string[]) {
+    return this.visible.filter((row) => levels.includes(row.level));
+  }
+}
+
 class FakeCurriculum {
   modules = new Map<string, { id: string; courseId: string }>();
   locked: string[] = [];
@@ -126,6 +134,7 @@ class FakeCurriculum {
 function build() {
   const lessons = new FakeLessons();
   const blocks = new FakeBlocks();
+  const blockLevels = new FakeBlockLevels();
   const curriculum = new FakeCurriculum();
   const transactions = {
     run: (work: (m: EntityManager) => unknown) => work({} as EntityManager),
@@ -133,12 +142,21 @@ function build() {
   const service = new LessonService(
     lessons as unknown as LessonRepository,
     blocks as unknown as LessonBlockRepository,
+    blockLevels as unknown as LessonBlockLevelRepository,
     curriculum as unknown as CurriculumFacade,
     transactions,
   );
   const courseId = randomUUID();
   const module = curriculum.add(courseId);
-  return { lessons, blocks, curriculum, service, courseId, module };
+  return {
+    lessons,
+    blocks,
+    blockLevels,
+    curriculum,
+    service,
+    courseId,
+    module,
+  };
 }
 
 async function moduleWith(titles: string[]) {
@@ -384,6 +402,49 @@ describe('level availability', () => {
     lessons.rows.get(lesson.id)!.status = 'APPROVED';
     const updated = await service.setLevels(lesson.id, ['BEGINNER']);
     expect(updated).toMatchObject({ status: 'DRAFT', version: 2 });
+  });
+
+  it('refuses to remove a level that blocks are visible at (409), naming them, and changes nothing', async () => {
+    const { service, blockLevels, courseId, module } = build();
+    const lesson = await service.create(courseId, module.id, {
+      title: 'A',
+      levels: ['BEGINNER', 'ADVANCED'],
+    });
+    blockLevels.visible.push({ blockId: 'block-1', level: 'ADVANCED' });
+
+    const error = await service
+      .setLevels(lesson.id, ['BEGINNER'])
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ConflictError);
+    expect((error as ConflictError).details).toEqual({
+      levels: ['ADVANCED'],
+      blocks: [{ blockId: 'block-1', level: 'ADVANCED' }],
+    });
+    const after = await service.get(lesson.id);
+    expect(after.levels).toEqual(['BEGINNER', 'ADVANCED']);
+    expect(after.version).toBe(1);
+  });
+
+  it('removes a level nobody uses, and never blocks adding levels', async () => {
+    const { service, blockLevels, courseId, module } = build();
+    const lesson = await service.create(courseId, module.id, {
+      title: 'A',
+      levels: ['BEGINNER', 'ADVANCED'],
+    });
+    blockLevels.visible.push({ blockId: 'block-1', level: 'BEGINNER' });
+
+    expect((await service.setLevels(lesson.id, ['BEGINNER'])).levels).toEqual([
+      'BEGINNER',
+    ]);
+    expect(
+      (
+        await service.setLevels(lesson.id, [
+          'BEGINNER',
+          'INTERMEDIATE',
+          'ADVANCED',
+        ])
+      ).levels,
+    ).toEqual(['BEGINNER', 'INTERMEDIATE', 'ADVANCED']);
   });
 
   it('rejects unknown levels and duplicates without changing anything', async () => {

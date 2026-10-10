@@ -22,6 +22,8 @@ import { LessonEntity } from './lesson.entity.js';
 @Unique('UQ_lesson_blocks_lesson_id_position', ['lessonId', 'position'], {
   deferrable: 'INITIALLY IMMEDIATE',
 })
+// Not deferrable: it is the target of lesson_block_levels' composite foreign key.
+@Unique('UQ_lesson_blocks_id_lesson_id', ['id', 'lessonId'])
 @Check('chk_lesson_blocks_position', `"position" >= 1`)
 @Check(
   'chk_lesson_blocks_type',

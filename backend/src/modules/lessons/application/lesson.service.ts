@@ -21,6 +21,7 @@ import {
   checkTitle,
 } from '../domain/lesson-rules.js';
 import type { Lesson } from '../domain/models.js';
+import { LessonBlockLevelRepository } from '../persistence/lesson-block-level.repository.js';
 import { LessonBlockRepository } from '../persistence/lesson-block.repository.js';
 import { LessonRepository } from '../persistence/lesson.repository.js';
 
@@ -52,6 +53,7 @@ export class LessonService {
   constructor(
     private readonly lessons: LessonRepository,
     private readonly blocks: LessonBlockRepository,
+    private readonly blockLevels: LessonBlockLevelRepository,
     private readonly curriculum: CurriculumFacade,
     private readonly transactions: TransactionRunner,
   ) {}
@@ -136,6 +138,27 @@ export class LessonService {
     return this.transactions.run(async (manager) => {
       const current = await this.lockLesson(lessonId, manager);
       checkExpectedVersion(current.version, expectedVersion);
+
+      // A level cannot be removed while blocks are visible at it: hide them there first.
+      const removed = current.levels.filter(
+        (level) => !checked.includes(level),
+      );
+      if (removed.length > 0) {
+        const visible = await this.blockLevels.findVisibleAt(
+          lessonId,
+          removed,
+          manager,
+        );
+        if (visible.length > 0) {
+          throw new ConflictError(
+            'Some blocks are still visible at levels you are removing. Hide them at those levels first.',
+            {
+              levels: [...new Set(visible.map((row) => row.level))],
+              blocks: visible,
+            },
+          );
+        }
+      }
 
       await this.lessons.replaceLevels(lessonId, checked, manager);
       // Availability is lesson content: count it as a change.

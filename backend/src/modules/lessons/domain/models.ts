@@ -40,3 +40,14 @@ export interface LessonBlock {
   createdAt: Date;
   updatedAt: Date;
 }
+
+/** One level a block is visible at. `content` is the full-replacement variant, or null to use the block's shared content. */
+export interface BlockLevelSetting {
+  level: LearningLevel;
+  content: Record<string, unknown> | null;
+}
+
+/** A block together with the levels it is visible at, in canonical level order. */
+export interface BlockView extends LessonBlock {
+  levels: BlockLevelSetting[];
+}

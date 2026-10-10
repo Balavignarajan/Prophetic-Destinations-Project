@@ -3,6 +3,7 @@ import type { EntityManager } from 'typeorm';
 import { TransactionRunner } from '../../../database/transaction-runner.js';
 import {
   BusinessRuleError,
+  type LearningLevel,
   NotFoundError,
   checkExpectedVersion,
   checkReorder,
@@ -16,7 +17,12 @@ import {
   checkBlockContent,
 } from '../domain/blocks/block-content.js';
 import { BlockTypeRegistry } from '../domain/blocks/registry.js';
-import type { LessonBlock } from '../domain/models.js';
+import { checkLevels } from '../domain/lesson-rules.js';
+import type { BlockView, Lesson, LessonBlock } from '../domain/models.js';
+import {
+  LessonBlockLevelRepository,
+  groupByBlock,
+} from '../persistence/lesson-block-level.repository.js';
 import { LessonBlockRepository } from '../persistence/lesson-block.repository.js';
 import { LessonRepository } from '../persistence/lesson.repository.js';
 
@@ -26,6 +32,11 @@ export interface CreateBlockInput {
   sharedContent?: BlockContent | null;
   /** 1-based. Omit to append at the end of the lesson. */
   position?: number;
+  /**
+   * Levels the block is visible at. Omit for none: a new block is hidden everywhere
+   * until levels are chosen explicitly. Must be levels the lesson is available at.
+   */
+  levels?: string[];
 }
 
 export interface UpdateBlockInput {
@@ -39,36 +50,42 @@ export interface UpdateBlockInput {
  * Every operation that changes a lesson's blocks first locks the lesson row, so
  * concurrent inserts, deletes and reorders on one lesson run one at a time and
  * positions stay 1..n without gaps. Any change also puts the lesson back to DRAFT.
+ * Lock order is always Module, Lesson, Block.
  */
 @Injectable()
 export class BlockService {
   constructor(
     private readonly lessons: LessonRepository,
     private readonly blocks: LessonBlockRepository,
+    private readonly levels: LessonBlockLevelRepository,
     private readonly registry: BlockTypeRegistry,
     private readonly transactions: TransactionRunner,
   ) {}
 
-  async list(lessonId: string): Promise<LessonBlock[]> {
+  async list(lessonId: string): Promise<BlockView[]> {
     if (!(await this.lessons.findById(lessonId))) throw lessonNotFound();
-    return this.blocks.listByLesson(lessonId);
+    const blocks = await this.blocks.listByLesson(lessonId);
+    const rows = groupByBlock(await this.levels.listByLesson(lessonId));
+    return blocks.map((block) => ({
+      ...block,
+      levels: rows.get(block.id) ?? [],
+    }));
   }
 
-  async get(lessonId: string, blockId: string): Promise<LessonBlock> {
+  async get(lessonId: string, blockId: string): Promise<BlockView> {
     const block = await this.blocks.findById(blockId);
     if (!block || block.lessonId !== lessonId) throw blockNotFound();
-    return block;
+    return { ...block, levels: await this.levels.listByBlock(blockId) };
   }
 
-  async create(
-    lessonId: string,
-    input: CreateBlockInput,
-  ): Promise<LessonBlock> {
+  async create(lessonId: string, input: CreateBlockInput): Promise<BlockView> {
     const definition = this.registry.require(input.type);
     const sharedContent = checkBlockContent(definition, input.sharedContent);
+    const levels = checkLevels(input.levels ?? []);
 
     return this.transactions.run(async (manager) => {
-      await this.lockLesson(lessonId, manager);
+      const lesson = await this.lockLesson(lessonId, manager);
+      checkWithinLessonLevels(levels, lesson);
 
       const count = await this.blocks.countByLesson(lessonId, manager);
       checkRoomForAnother(count);
@@ -81,17 +98,23 @@ export class BlockService {
         { lessonId, type: input.type, sharedContent, position },
         manager,
       );
+      for (const level of levels) {
+        await this.levels.upsert(block.id, lessonId, level, null, manager);
+      }
       await this.lessons.markDraft(lessonId, manager);
-      return block;
+      return {
+        ...block,
+        levels: await this.levels.listByBlock(block.id, manager),
+      };
     });
   }
 
-  /** Changes the block's content. The type can never be changed. */
+  /** Changes the block's shared content. The type can never be changed, and variants are untouched. */
   async update(
     lessonId: string,
     blockId: string,
     input: UpdateBlockInput,
-  ): Promise<LessonBlock> {
+  ): Promise<BlockView> {
     if (input.sharedContent === undefined) {
       throw new BusinessRuleError('Nothing to update');
     }
@@ -110,12 +133,18 @@ export class BlockService {
         manager,
       );
       await this.lessons.markDraft(lessonId, manager);
-      return updated;
+      return {
+        ...updated,
+        levels: await this.levels.listByBlock(blockId, manager),
+      };
     });
   }
 
-  /** Copies the block (new id, same type, independent copy of the content) to just after the original. */
-  async duplicate(lessonId: string, blockId: string): Promise<LessonBlock> {
+  /**
+   * Copies the block to just after the original: new id, same type, and independent
+   * copies of its shared content and of every level setting including variants.
+   */
+  async duplicate(lessonId: string, blockId: string): Promise<BlockView> {
     return this.transactions.run(async (manager) => {
       await this.lockLesson(lessonId, manager);
       const source = await this.requireBlock(lessonId, blockId, manager);
@@ -139,17 +168,23 @@ export class BlockService {
         },
         manager,
       );
+      await this.levels.copy(blockId, copy.id, manager);
       await this.lessons.markDraft(lessonId, manager);
-      return copy;
+      return {
+        ...copy,
+        levels: await this.levels.listByBlock(copy.id, manager),
+      };
     });
   }
 
-  /** Removes the block and closes the gap, so the remaining positions stay 1..n. */
+  /** Removes the block with its level settings, and closes the gap so positions stay 1..n. */
   async delete(lessonId: string, blockId: string): Promise<void> {
     await this.transactions.run(async (manager) => {
       await this.lockLesson(lessonId, manager);
       const current = await this.requireBlock(lessonId, blockId, manager);
 
+      // Explicit, in one transaction: the foreign keys are RESTRICT, nothing cascades silently.
+      await this.levels.deleteAllForBlock(blockId, manager);
       await this.blocks.delete(blockId, manager);
       await this.blocks.shiftFrom(lessonId, current.position + 1, -1, manager);
       await this.lessons.markDraft(lessonId, manager);
@@ -160,7 +195,7 @@ export class BlockService {
   async reorder(
     lessonId: string,
     blockIds: readonly string[],
-  ): Promise<LessonBlock[]> {
+  ): Promise<BlockView[]> {
     return this.transactions.run(async (manager) => {
       await this.lockLesson(lessonId, manager);
 
@@ -177,17 +212,25 @@ export class BlockService {
         manager,
       );
       await this.lessons.markDraft(lessonId, manager);
-      return this.blocks.listByLesson(lessonId, manager);
+
+      const blocks = await this.blocks.listByLesson(lessonId, manager);
+      const rows = groupByBlock(
+        await this.levels.listByLesson(lessonId, manager),
+      );
+      return blocks.map((block) => ({
+        ...block,
+        levels: rows.get(block.id) ?? [],
+      }));
     });
   }
 
   private async lockLesson(
     lessonId: string,
     manager: EntityManager,
-  ): Promise<void> {
-    if (!(await this.lessons.findByIdForUpdate(lessonId, manager))) {
-      throw lessonNotFound();
-    }
+  ): Promise<Lesson> {
+    const lesson = await this.lessons.findByIdForUpdate(lessonId, manager);
+    if (!lesson) throw lessonNotFound();
+    return lesson;
   }
 
   /** Locks the block row too (after the lesson, never before) and checks it belongs to the lesson. */
@@ -199,6 +242,19 @@ export class BlockService {
     const block = await this.blocks.findByIdForUpdate(blockId, manager);
     if (!block || block.lessonId !== lessonId) throw blockNotFound();
     return block;
+  }
+}
+
+function checkWithinLessonLevels(
+  levels: readonly LearningLevel[],
+  lesson: Lesson,
+): void {
+  const outside = levels.filter((level) => !lesson.levels.includes(level));
+  if (outside.length > 0) {
+    throw new BusinessRuleError(
+      'A block can only be visible at levels the lesson is available at',
+      { notAvailable: outside, lessonLevels: lesson.levels },
+    );
   }
 }
 

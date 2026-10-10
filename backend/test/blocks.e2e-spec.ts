@@ -104,6 +104,10 @@ describe('Lesson blocks admin API (e2e)', () => {
     const modules = `SELECT m."id" FROM "course_modules" m JOIN "courses" c ON c."id" = m."course_id" WHERE c."title" LIKE $1`;
     const owned = `SELECT "id" FROM "lessons" WHERE "module_id" IN (${modules})`;
     await dataSource.query(
+      `DELETE FROM "lesson_block_levels" WHERE "lesson_id" IN (${owned})`,
+      [like],
+    );
+    await dataSource.query(
       `DELETE FROM "lesson_blocks" WHERE "lesson_id" IN (${owned})`,
       [like],
     );
@@ -173,6 +177,9 @@ describe('Lesson blocks admin API (e2e)', () => {
       ['patch', `${base}/${id}`],
       ['post', `${base}/${id}/duplicate`],
       ['delete', `${base}/${id}`],
+      ['put', `${base}/${id}/levels/BEGINNER`],
+      ['delete', `${base}/${id}/levels/BEGINNER`],
+      ['get', `${LESSONS}/${id}/preview?level=BEGINNER`],
     ];
 
     it.each(routes)('%s %s requires authentication', async (method, path) => {
@@ -270,6 +277,7 @@ describe('Lesson blocks admin API (e2e)', () => {
         type: 'RICH_TEXT',
         position: 1,
         sharedContent: rich('Hello'),
+        levels: [],
         version: 1,
         createdAt: expect.any(String),
         updatedAt: expect.any(String),
@@ -1081,6 +1089,374 @@ describe('Lesson blocks admin API (e2e)', () => {
         .delete(`${COURSES}/${module[0].course_id}`)
         .set('Authorization', as('admin'))
         .expect(409);
+    });
+  });
+
+  describe('levels with the real registry (RICH_TEXT variants are unconfirmed)', () => {
+    const putLevel = (
+      url: string,
+      blockId: string,
+      level: string,
+      body: object,
+    ) =>
+      http()
+        .put(`${url}/${blockId}/levels/${level}`)
+        .set('Authorization', as('editor'))
+        .send(body);
+
+    const lessonWithLevels = async (name: string, levels: string[]) => {
+      const made = await newLesson(name);
+      await http()
+        .put(`${LESSONS}/${made.lessonId}/levels`)
+        .set('Authorization', as('editor'))
+        .send({ levels })
+        .expect(200);
+      return made;
+    };
+
+    it('new blocks are hidden everywhere, and existing ones stay hidden until configured', async () => {
+      const { url } = await lessonWithLevels('lv-hidden', [
+        'BEGINNER',
+        'ADVANCED',
+      ]);
+      const block = await createBlock(url, 'a');
+      expect(block.levels).toEqual([]);
+    });
+
+    it('can be created visible at chosen levels (a subset of the lesson levels)', async () => {
+      const { url } = await lessonWithLevels('lv-create', [
+        'BEGINNER',
+        'INTERMEDIATE',
+      ]);
+      const block = await createBlock(url, 'a', {
+        levels: ['INTERMEDIATE', 'BEGINNER'],
+      });
+      expect(block.levels).toEqual([
+        { level: 'BEGINNER', content: null },
+        { level: 'INTERMEDIATE', content: null },
+      ]);
+      const outside = await http()
+        .post(url)
+        .set('Authorization', as('editor'))
+        .send({ type: 'RICH_TEXT', levels: ['ADVANCED'] })
+        .expect(422);
+      expect(outside.body.code).toBe('BUSINESS_RULE_VIOLATION');
+    });
+
+    it('makes a block visible with its shared content, and hides it again', async () => {
+      const { url } = await lessonWithLevels('lv-visible', ['BEGINNER']);
+      const block = await createBlock(url, 'a');
+
+      const shown = await putLevel(url, block.id, 'BEGINNER', {
+        content: null,
+      }).expect(200);
+      expect(shown.body.levels).toEqual([{ level: 'BEGINNER', content: null }]);
+      expect(shown.body.version).toBe(block.version + 1);
+
+      const hidden = await http()
+        .delete(`${url}/${block.id}/levels/BEGINNER`)
+        .set('Authorization', as('editor'))
+        .expect(200);
+      expect(hidden.body.levels).toEqual([]);
+    });
+
+    it('rejects a variant for RICH_TEXT with 422, because its contract does not confirm variants', async () => {
+      const { url } = await lessonWithLevels('lv-variant', ['BEGINNER']);
+      const block = await createBlock(url, 'a');
+      const res = await putLevel(url, block.id, 'BEGINNER', {
+        content: rich('variant'),
+      }).expect(422);
+      expect(res.body).toMatchObject({
+        code: 'BUSINESS_RULE_VIOLATION',
+        details: { type: 'RICH_TEXT', variants: 'UNCONFIRMED' },
+      });
+      const got = await http()
+        .get(`${url}/${block.id}`)
+        .set('Authorization', as('reviewer'))
+        .expect(200);
+      expect(got.body.levels).toEqual([]);
+    });
+
+    it('requires an explicit content key, and a valid level in the path', async () => {
+      const { url } = await lessonWithLevels('lv-validation', ['BEGINNER']);
+      const block = await createBlock(url, 'a');
+
+      for (const body of [
+        {},
+        { version: 1 },
+        { content: 'text' },
+        { content: [] },
+        { content: 5 },
+      ]) {
+        const res = await putLevel(url, block.id, 'BEGINNER', body).expect(400);
+        expect(res.body.code).toBe('VALIDATION_FAILED');
+      }
+      await putLevel(url, block.id, 'beginner', { content: null }).expect(400);
+      await putLevel(url, block.id, 'EXPERT', { content: null }).expect(400);
+      await http()
+        .delete(`${url}/${block.id}/levels/expert`)
+        .set('Authorization', as('editor'))
+        .expect(400);
+      const got = await http()
+        .get(`${url}/${block.id}`)
+        .set('Authorization', as('reviewer'))
+        .expect(200);
+      expect(got.body.levels).toEqual([]);
+    });
+
+    it('refuses a level the lesson is not available at (422)', async () => {
+      const { url } = await lessonWithLevels('lv-unavailable', ['BEGINNER']);
+      const block = await createBlock(url, 'a');
+      const res = await putLevel(url, block.id, 'ADVANCED', {
+        content: null,
+      }).expect(422);
+      expect(res.body.code).toBe('BUSINESS_RULE_VIOLATION');
+    });
+
+    it('does not bump versions or reset the lesson when nothing changes', async () => {
+      const { url, lessonId } = await lessonWithLevels('lv-noop', ['BEGINNER']);
+      const block = await createBlock(url, 'a');
+      const first = (
+        await putLevel(url, block.id, 'BEGINNER', { content: null }).expect(200)
+      ).body;
+
+      await dataSource.query(
+        `UPDATE "lessons" SET "status" = 'APPROVED' WHERE "id" = $1`,
+        [lessonId],
+      );
+      const again = (
+        await putLevel(url, block.id, 'BEGINNER', { content: null }).expect(200)
+      ).body;
+      await http()
+        .delete(`${url}/${block.id}/levels/ADVANCED`)
+        .set('Authorization', as('editor'))
+        .expect(200);
+
+      expect(again.version).toBe(first.version);
+      expect((await getLesson(lessonId)).status).toBe('APPROVED');
+    });
+
+    it('an effective change bumps the block version and resets the lesson, but not the lesson version', async () => {
+      const { url, lessonId } = await lessonWithLevels('lv-effective', [
+        'BEGINNER',
+      ]);
+      const block = await createBlock(url, 'a');
+      const before = await getLesson(lessonId);
+      await dataSource.query(
+        `UPDATE "lessons" SET "status" = 'APPROVED' WHERE "id" = $1`,
+        [lessonId],
+      );
+
+      const res = await putLevel(url, block.id, 'BEGINNER', {
+        content: null,
+      }).expect(200);
+      expect(res.body.version).toBe(block.version + 1);
+      const after = await getLesson(lessonId);
+      expect(after.status).toBe('DRAFT');
+      expect(after.version).toBe(before.version);
+    });
+
+    it('refuses a stale version with 409', async () => {
+      const { url } = await lessonWithLevels('lv-stale', [
+        'BEGINNER',
+        'INTERMEDIATE',
+      ]);
+      const block = await createBlock(url, 'a');
+      await putLevel(url, block.id, 'BEGINNER', { content: null }).expect(200);
+      const res = await putLevel(url, block.id, 'INTERMEDIATE', {
+        content: null,
+        version: block.version,
+      }).expect(409);
+      expect(res.body).toMatchObject({
+        code: 'CONFLICT',
+        details: { currentVersion: block.version + 1 },
+      });
+    });
+
+    it('refuses to remove a lesson level that blocks are visible at (409), then allows it once they are hidden', async () => {
+      const { url, lessonId } = await lessonWithLevels('lv-remove', [
+        'BEGINNER',
+        'ADVANCED',
+      ]);
+      const block = await createBlock(url, 'a', { levels: ['ADVANCED'] });
+
+      const refused = await http()
+        .put(`${LESSONS}/${lessonId}/levels`)
+        .set('Authorization', as('editor'))
+        .send({ levels: ['BEGINNER'] })
+        .expect(409);
+      expect(refused.body).toMatchObject({
+        code: 'CONFLICT',
+        details: {
+          levels: ['ADVANCED'],
+          blocks: [{ blockId: block.id, level: 'ADVANCED' }],
+        },
+      });
+      expect((await getLesson(lessonId)).levels).toEqual([
+        'BEGINNER',
+        'ADVANCED',
+      ]);
+
+      await http()
+        .delete(`${url}/${block.id}/levels/ADVANCED`)
+        .set('Authorization', as('editor'))
+        .expect(200);
+      await http()
+        .put(`${LESSONS}/${lessonId}/levels`)
+        .set('Authorization', as('editor'))
+        .send({ levels: ['BEGINNER'] })
+        .expect(200);
+    });
+
+    it('duplicates level settings with the block, and deletes them with it', async () => {
+      const { url } = await lessonWithLevels('lv-copy', [
+        'BEGINNER',
+        'INTERMEDIATE',
+      ]);
+      const block = await createBlock(url, 'a', {
+        levels: ['BEGINNER', 'INTERMEDIATE'],
+      });
+      const copy = (
+        await http()
+          .post(`${url}/${block.id}/duplicate`)
+          .set('Authorization', as('editor'))
+          .expect(201)
+      ).body;
+      expect(copy.levels).toEqual(block.levels);
+
+      await http()
+        .delete(`${url}/${block.id}`)
+        .set('Authorization', as('editor'))
+        .expect(204);
+      const rows = await dataSource.query(
+        `SELECT 1 FROM "lesson_block_levels" WHERE "block_id" = $1`,
+        [block.id],
+      );
+      expect(rows).toHaveLength(0);
+      const kept = await http()
+        .get(`${url}/${copy.id}`)
+        .set('Authorization', as('reviewer'))
+        .expect(200);
+      expect(kept.body.levels).toHaveLength(2);
+    });
+
+    it('lists blocks with their levels', async () => {
+      const { url } = await lessonWithLevels('lv-list', [
+        'BEGINNER',
+        'ADVANCED',
+      ]);
+      await createBlock(url, 'a', { levels: ['ADVANCED'] });
+      await createBlock(url, 'b');
+      const res = await http()
+        .get(url)
+        .set('Authorization', as('reviewer'))
+        .expect(200);
+      expect(
+        res.body.items.map((b: { levels: unknown[] }) => b.levels.length),
+      ).toEqual([1, 0]);
+    });
+
+    it('reviewers cannot change levels (403) but can read them', async () => {
+      const { url } = await lessonWithLevels('lv-roles', ['BEGINNER']);
+      const block = await createBlock(url, 'a', { levels: ['BEGINNER'] });
+      await http()
+        .put(`${url}/${block.id}/levels/BEGINNER`)
+        .set('Authorization', as('reviewer'))
+        .send({ content: null })
+        .expect(403);
+      await http()
+        .delete(`${url}/${block.id}/levels/BEGINNER`)
+        .set('Authorization', as('reviewer'))
+        .expect(403);
+      await http()
+        .get(`${url}/${block.id}`)
+        .set('Authorization', as('reviewer'))
+        .expect(200);
+    });
+
+    it('cannot reach the levels of a block through another lesson', async () => {
+      const one = await lessonWithLevels('lv-cross-1', ['BEGINNER']);
+      const two = await lessonWithLevels('lv-cross-2', ['BEGINNER']);
+      const block = await createBlock(one.url, 'a');
+      await putLevel(two.url, block.id, 'BEGINNER', { content: null }).expect(
+        404,
+      );
+      await http()
+        .delete(`${two.url}/${block.id}/levels/BEGINNER`)
+        .set('Authorization', as('editor'))
+        .expect(404);
+    });
+  });
+
+  describe('preview with the real registry', () => {
+    it('a variant that is stored for a type without variant support is flagged, never shown, and never replaced by shared content', async () => {
+      const made = await newLesson('pv-stored-variant');
+      await http()
+        .put(`${LESSONS}/${made.lessonId}/levels`)
+        .set('Authorization', as('editor'))
+        .send({ levels: ['BEGINNER'] })
+        .expect(200);
+      const block = await createBlock(
+        made.url,
+        'SHARED-CONTENT-MUST-NOT-APPEAR',
+        { levels: ['BEGINNER'] },
+      );
+      // The API cannot create this state; write it directly, as bad data from elsewhere would be.
+      await dataSource.query(
+        `UPDATE "lesson_block_levels" SET "content" = $1::jsonb WHERE "block_id" = $2`,
+        [JSON.stringify(rich('STORED-VARIANT-MUST-NOT-APPEAR')), block.id],
+      );
+
+      const res = await http()
+        .get(`${LESSONS}/${made.lessonId}/preview?level=BEGINNER`)
+        .set('Authorization', as('reviewer'))
+        .expect(200);
+      expect(res.body.blocks).toEqual([
+        {
+          blockId: block.id,
+          type: 'RICH_TEXT',
+          ordinal: 1,
+          source: null,
+          content: null,
+          unresolved: {
+            code: 'BLOCK_VARIANT_NOT_ALLOWED',
+            message: expect.any(String),
+          },
+        },
+      ]);
+      expect(res.body.diagnostics.map((d: { code: string }) => d.code)).toEqual(
+        ['BLOCK_VARIANT_NOT_ALLOWED'],
+      );
+      expect(JSON.stringify(res.body)).not.toContain('MUST-NOT-APPEAR');
+    });
+
+    it('shows shared content for visible blocks and nothing for hidden ones', async () => {
+      const made = await newLesson('pv-real');
+      await http()
+        .put(`${LESSONS}/${made.lessonId}/levels`)
+        .set('Authorization', as('editor'))
+        .send({ levels: ['BEGINNER', 'ADVANCED'] })
+        .expect(200);
+      await createBlock(made.url, 'visible at beginner', {
+        levels: ['BEGINNER'],
+      });
+      await createBlock(made.url, 'hidden everywhere');
+
+      const beginner = await http()
+        .get(`${LESSONS}/${made.lessonId}/preview?level=BEGINNER`)
+        .set('Authorization', as('reviewer'))
+        .expect(200);
+      expect(
+        beginner.body.blocks.map((b: { source: string }) => b.source),
+      ).toEqual(['SHARED']);
+
+      const advanced = await http()
+        .get(`${LESSONS}/${made.lessonId}/preview?level=ADVANCED`)
+        .set('Authorization', as('reviewer'))
+        .expect(200);
+      expect(
+        advanced.body.diagnostics.map((d: { code: string }) => d.code),
+      ).toEqual(['NO_VISIBLE_BLOCKS']);
     });
   });
 

@@ -136,8 +136,8 @@ to `DRAFT`. Lessons with blocks cannot be deleted once blocks exist (3E-b); publ
 
 ## Lesson blocks (slice 3E-b)
 
-**Owns:** `lesson_blocks` (and the trigger that keeps a block's type immutable). Block level visibility/variants (`lesson_block_levels`), the
-level-aware resolver, preview and reusable (linked) blocks are not built yet.
+**Owns:** `lesson_blocks` (and the trigger that keeps a block's type immutable). Level visibility, variants, the resolver and preview are in the
+next section; reusable (linked) blocks are not built yet.
 
 - A block is a *placement* in a lesson: stable uuid `id`, immutable `type`, explicit `position` (1..n, `UNIQUE (lesson_id, position) DEFERRABLE`),
   `shared_content jsonb` (nullable = no content yet), its own `version`. The FK to `lessons` is `ON DELETE RESTRICT`.
@@ -161,6 +161,40 @@ level-aware resolver, preview and reusable (linked) blocks are not built yet.
   `version`; blocks have their own). At most 500 blocks per lesson (sanity limit).
 - A lesson that still has blocks cannot be deleted (409 with `blockCount`; the FK is the backstop).
 
+## Block levels, variants and preview (slice 3E-c)
+
+**Owns:** `lesson_block_levels`. Reusable (linked) blocks and the other 18 block types are not built.
+
+- **Visibility = a row.** `lesson_block_levels (block_id, lesson_id, level, content)` has one row per block per level the block is visible at;
+  no row means hidden. `content` is the *full-replacement variant* for that level, or NULL to use the block's own `shared_content`. Nothing is ever
+  merged or inherited, and a level never reads another level's row.
+- **Database guarantees.** Primary key `(block_id, level)`. Two composite foreign keys, both `ON DELETE RESTRICT`: `(block_id, lesson_id)` ->
+  `lesson_blocks (id, lesson_id)` (the row's lesson is the block's lesson) and `(lesson_id, level)` -> `lesson_levels` (a block can only be
+  visible at levels its lesson is available at). The `UNIQUE (id, lesson_id)` on `lesson_blocks` that the first key needs is deliberately
+  **not** deferrable. CHECKs: level is one of the three, content is a JSON object of at most 200,000 characters or NULL.
+- **Variants need type support.** A variant is allowed only if the block type's registry entry says `variants: 'SUPPORTED'`. RICH_TEXT is
+  `UNCONFIRMED`, so the real application rejects RICH_TEXT variants (422); visibility alone always works. Variant tests use a test-only registry override.
+- **New blocks are hidden everywhere** unless `levels` is sent on create (they must be levels the lesson has). Blocks from before 3E-c have no
+  rows, so they stay hidden until configured. Gaining a lesson level never makes a block visible there.
+- **Removing a lesson level** is refused with 409 while any block is visible at it (the response names the blocks); hide them there first.
+- **Endpoints** (`/api/v1/admin/lessons/:lessonId/...`; read: ADMIN/EDITOR/REVIEWER, write: ADMIN/EDITOR):
+  `PUT blocks/:blockId/levels/:level` (body `{ "content": object | null, "version"? }`; the `content` key is required: `null` = visible using
+  shared content, an object = the variant), `DELETE blocks/:blockId/levels/:level` (a block with a variant there needs `?discardVariant=true`;
+  optional `?version=`), `GET preview?level=BEGINNER`. Block responses include `levels: [{ level, content }]` in canonical order.
+- **Versions.** An *effective* level change bumps the block's `version` and puts the lesson back to `DRAFT` without touching `lessons.version`.
+  Writing what is already stored changes nothing. "Already stored" means JSON equality (`jsonContentEquals`): object key order is ignored at any
+  depth (jsonb does not keep it), array order and all values matter, `null` only equals `null`. A stale `version` is a 409 even for a no-op.
+  Lock order is Module, Lesson, Block. Duplicating a block copies its level rows; deleting a block deletes them explicitly in the same transaction.
+- **The resolver** (`domain/level-resolution.ts`) is a pure function and the single implementation intended for preview, publishing and learner
+  delivery: (1) the lesson must be available at the level; (2) a block is visible only if it has a row for that level; (3) a visible block shows its
+  variant, else its own shared content, else it is *unresolved*; (4) only the requested level's row is ever read. Unresolved blocks are returned
+  with a diagnostic and never skipped or replaced. Diagnostics: `LESSON_NOT_AVAILABLE_AT_LEVEL`, `NO_VISIBLE_BLOCKS` (available, but zero
+  visible block rows; visible-but-unresolved blocks report their own instead), `BLOCK_NO_CONTENT`, `BLOCK_VARIANT_NOT_ALLOWED` (a stored variant for a
+  type without variant support; no fallback to shared content). Hidden blocks never produce a diagnostic.
+- **Preview is advisory.** It reads the lesson, blocks and level rows in separate unlocked queries, so under concurrent edits it can show a mix of old
+  and new data; it does not check completeness (`validateComplete` is reserved for Publishing readiness) and changes nothing. A clean preview does not
+  mean a lesson is ready to publish: Publishing must independently validate a consistent state of the content.
+
 ## HTTP conventions
 
 - All routes are under `/api/v1`, except `GET /health` and `GET /health/db`.
@@ -179,7 +213,7 @@ level-aware resolver, preview and reusable (linked) blocks are not built yet.
 - Migration commands (each builds first): `npm run migration:show | migration:run | migration:revert`.
   Scaffold one with `npm run migration:create -- src/database/migrations/<Name>`, then write the SQL by hand and inspect it before running.
 - `npm run migration:drift` prints what TypeORM thinks differs between entities and the database. Expect two known false
-  positives: it re-sets the `gen_random_uuid()` id defaults, re-creates foreign keys and the `idx_courses_created_at_id` index, and proposes dropping `lessons.module_id`'s foreign key (it targets another module's table, so it is intentionally not modelled in the entity). Triggers such as `trg_lesson_blocks_type_immutable` are not modelled in entities either. Anything else is real drift.
+  positives: it re-sets the `gen_random_uuid()` id defaults, re-creates foreign keys and the `idx_courses_created_at_id` index, and proposes dropping `lessons.module_id`'s foreign key and the composite foreign keys of `lesson_block_levels` (it targets another module's table, so it is intentionally not modelled in the entity). Triggers such as `trg_lesson_blocks_type_immutable` are not modelled in entities either. Anything else is real drift.
 
 ## Testing
 

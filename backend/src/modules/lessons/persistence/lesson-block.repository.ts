@@ -88,6 +88,17 @@ export class LessonBlockRepository {
     return toBlock(await repo.findOneOrFail({ where: { id } }));
   }
 
+  /**
+   * Counts a change to the block's level rows as a change to the block: version and updated_at move.
+   * (Content changes bump them through updateContent.)
+   */
+  async touch(id: string, manager: EntityManager): Promise<void> {
+    await manager.query(
+      `UPDATE "lesson_blocks" SET "version" = "version" + 1, "updated_at" = now() WHERE "id" = $1`,
+      [id],
+    );
+  }
+
   async delete(id: string, manager: EntityManager): Promise<void> {
     await manager.getRepository(LessonBlockEntity).delete({ id });
   }

@@ -130,7 +130,17 @@ export class LessonRepository {
     const toAdd = levels.filter((level) => !current.includes(level));
 
     if (toRemove.length > 0) {
-      await repo.delete({ lessonId: id, level: In(toRemove) });
+      try {
+        await repo.delete({ lessonId: id, level: In(toRemove) });
+      } catch (error) {
+        // Backstop: blocks that are visible at a level keep the lesson available at it (ON DELETE RESTRICT).
+        if (isForeignKeyViolation(error)) {
+          throw new ConflictError(
+            'Some blocks are still visible at a level you are removing',
+          );
+        }
+        throw error;
+      }
     }
     if (toAdd.length > 0) {
       await repo.insert(toAdd.map((level) => ({ lessonId: id, level })));

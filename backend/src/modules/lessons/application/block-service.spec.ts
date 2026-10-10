@@ -1,6 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import type { EntityManager } from 'typeorm';
-import type { TransactionRunner } from '../../../database/transaction-runner.js';
 import {
   BusinessRuleError,
   ConflictError,
@@ -8,126 +6,36 @@ import {
 } from '../../../shared-kernel/index.js';
 import { MAX_BLOCKS_PER_LESSON } from '../domain/blocks/block-content.js';
 import type { BlockType } from '../domain/blocks/block-types.js';
+import {
+  FakeBlockLevels,
+  FakeBlocks,
+  FakeLessons,
+  inlineTransactions,
+  label,
+  rich,
+} from '../../../../test/support/block-fakes.js';
 import { BlockTypeRegistry } from '../domain/blocks/registry.js';
-import type { LessonBlock } from '../domain/models.js';
+import type { LessonBlockLevelRepository } from '../persistence/lesson-block-level.repository.js';
 import type { LessonBlockRepository } from '../persistence/lesson-block.repository.js';
 import type { LessonRepository } from '../persistence/lesson.repository.js';
 import { BlockService } from './block.service.js';
 
-// In-memory stand-ins. The real SQL is covered by the integration tests.
-class FakeLessons {
-  known = new Set<string>();
-  locked: string[] = [];
-  drafted: string[] = [];
-  async findById(id: string) {
-    return this.known.has(id) ? { id } : null;
-  }
-  async findByIdForUpdate(id: string) {
-    if (!this.known.has(id)) return null;
-    this.locked.push(id);
-    return { id };
-  }
-  async markDraft(id: string) {
-    this.drafted.push(id);
-  }
-}
-
-class FakeBlocks {
-  rows = new Map<string, LessonBlock>();
-  async insert(input: {
-    lessonId: string;
-    type: BlockType;
-    sharedContent: Record<string, unknown> | null;
-    position: number;
-  }) {
-    const taken = [...this.rows.values()].some(
-      (b) => b.lessonId === input.lessonId && b.position === input.position,
-    );
-    if (taken)
-      throw new ConflictError('Another block already has this position');
-    const now = new Date();
-    const block: LessonBlock = {
-      id: randomUUID(),
-      ...input,
-      version: 1,
-      createdAt: now,
-      updatedAt: now,
-    };
-    this.rows.set(block.id, block);
-    return { ...block };
-  }
-  async findById(id: string) {
-    const row = this.rows.get(id);
-    return row ? { ...row } : null;
-  }
-  findByIdForUpdate(id: string) {
-    return this.findById(id);
-  }
-  async listByLesson(lessonId: string) {
-    return [...this.rows.values()]
-      .filter((b) => b.lessonId === lessonId)
-      .sort((a, b) => a.position - b.position)
-      .map((b) => ({ ...b }));
-  }
-  async countByLesson(lessonId: string) {
-    return (await this.listByLesson(lessonId)).length;
-  }
-  async updateContent(
-    id: string,
-    sharedContent: Record<string, unknown> | null,
-  ) {
-    const row = this.rows.get(id)!;
-    Object.assign(row, { sharedContent, version: row.version + 1 });
-    return { ...row };
-  }
-  async delete(id: string) {
-    this.rows.delete(id);
-  }
-  async shiftFrom(lessonId: string, from: number, delta: number) {
-    for (const b of this.rows.values()) {
-      if (b.lessonId === lessonId && b.position >= from) b.position += delta;
-    }
-  }
-  async applyPositions(lessonId: string, ids: string[], positions: number[]) {
-    ids.forEach((id, i) => {
-      const b = this.rows.get(id);
-      if (b && b.lessonId === lessonId) b.position = positions[i];
-    });
-  }
-  /** (position, label) pairs, where the label is the first text of the block. */
-  layout(lessonId: string) {
-    return [...this.rows.values()]
-      .filter((b) => b.lessonId === lessonId)
-      .sort((a, b) => a.position - b.position)
-      .map((b) => [b.position, label(b)] as const);
-  }
-}
-
-const rich = (value: string) => ({
-  body: {
-    type: 'doc',
-    content: [{ type: 'paragraph', content: [{ type: 'text', text: value }] }],
-  },
-});
-const label = (block: LessonBlock): string | null =>
-  (block.sharedContent as ReturnType<typeof rich> | null)?.body.content[0]
-    .content[0].text ?? null;
+// The in-memory repositories live in test/support/block-fakes.ts (shared with the level service tests).
 
 function build() {
   const lessons = new FakeLessons();
   const blocks = new FakeBlocks();
-  const transactions = {
-    run: (work: (m: EntityManager) => unknown) => work({} as EntityManager),
-  } as unknown as TransactionRunner;
+  const levels = new FakeBlockLevels(lessons, blocks);
   const service = new BlockService(
     lessons as unknown as LessonRepository,
     blocks as unknown as LessonBlockRepository,
+    levels as unknown as LessonBlockLevelRepository,
     new BlockTypeRegistry(),
-    transactions,
+    inlineTransactions,
   );
   const lessonId = randomUUID();
-  lessons.known.add(lessonId);
-  return { lessons, blocks, service, lessonId };
+  lessons.add(lessonId, ['BEGINNER', 'INTERMEDIATE', 'ADVANCED']);
+  return { lessons, blocks, levels, service, lessonId };
 }
 
 async function lessonWith(values: string[]) {
@@ -274,7 +182,7 @@ describe('create', () => {
   it('keeps lessons independent', async () => {
     const { service, blocks, lessons, lessonId } = await lessonWith(['a']);
     const other = randomUUID();
-    lessons.known.add(other);
+    lessons.add(other);
     await service.create(other, {
       type: 'RICH_TEXT',
       sharedContent: rich('z'),
@@ -305,7 +213,7 @@ describe('read', () => {
   it('cannot reach a block through another lesson', async () => {
     const { service, lessons, lessonId } = await lessonWith(['a']);
     const other = randomUUID();
-    lessons.known.add(other);
+    lessons.add(other);
     const [block] = await service.list(lessonId);
     await expect(service.get(other, block.id)).rejects.toBeInstanceOf(
       NotFoundError,
@@ -520,7 +428,7 @@ describe('reorder', () => {
     const { service, blocks, lessons, lessonId } = await lessonWith(['a', 'b']);
     const [a, b] = await service.list(lessonId);
     const other = randomUUID();
-    lessons.known.add(other);
+    lessons.add(other);
     const foreign = await service.create(other, {
       type: 'RICH_TEXT',
       sharedContent: rich('f'),
