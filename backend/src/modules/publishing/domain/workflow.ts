@@ -47,12 +47,11 @@ const FIXED_TRANSITIONS: Record<
 /**
  * Decides what an action does to a lesson in its current state.
  *
- * UNPUBLISH depends on whether a publication is active, not only on the status:
- * a PUBLISHED lesson becomes APPROVED, and a lesson whose working copy was edited
- * after publishing and is still DRAFT stays DRAFT while its active publication
- * ends. What UNPUBLISH should do when the edited working copy is already
- * READY_FOR_REVIEW or APPROVED is deliberately NOT decided yet (to be settled when
- * the complete 3F-c workflow is reviewed), so it is refused for now.
+ * UNPUBLISH depends on whether a publication is active, not only on the status.
+ * It ends the active publication and changes the working copy's status only in one
+ * case: a PUBLISHED lesson becomes APPROVED. A working copy that was edited after
+ * publishing (DRAFT, READY_FOR_REVIEW or APPROVED) keeps its status, because
+ * unpublishing is about what learners see, not about the review state of the edits.
  */
 export function planTransition(
   action: WorkflowAction,
@@ -63,17 +62,10 @@ export function planTransition(
     if (!hasActivePublication) {
       return { allowed: false, reason: 'NOT_PUBLISHED', allowedFrom: [] };
     }
-    if (status === 'PUBLISHED') {
-      return { allowed: true, from: 'PUBLISHED', to: 'APPROVED' };
-    }
-    if (status === 'DRAFT') {
-      return { allowed: true, from: 'DRAFT', to: 'DRAFT' };
-    }
-    // READY_FOR_REVIEW / APPROVED with an active publication: undecided, so not allowed yet.
     return {
-      allowed: false,
-      reason: 'WRONG_STATUS',
-      allowedFrom: ['PUBLISHED', 'DRAFT'],
+      allowed: true,
+      from: status,
+      to: status === 'PUBLISHED' ? 'APPROVED' : status,
     };
   }
 

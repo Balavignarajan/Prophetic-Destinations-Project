@@ -221,7 +221,7 @@ CHECK constraints are unchanged). Slice 3F-a adds no tables for publishing and n
   with its type's `validateShape` and `validateComplete`). The pure `resolveLesson` and its types are exported too.
 - **Pure Publishing rules** (`publishing/domain`, no database):
   - `workflow.ts`: SUBMIT_FOR_REVIEW (DRAFT to READY_FOR_REVIEW), REQUEST_CHANGES (READY_FOR_REVIEW to DRAFT, note required), APPROVE
-    (READY_FOR_REVIEW to APPROVED), PUBLISH (APPROVED to PUBLISHED), UNPUBLISH (PUBLISHED to APPROVED; a working copy that was edited after publishing and is still DRAFT stays DRAFT while its active publication ends. For an edited working copy already in READY_FOR_REVIEW or APPROVED, unpublish is refused for now: its behaviour is deferred until the complete 3F-c workflow is reviewed).
+    (READY_FOR_REVIEW to APPROVED), PUBLISH (APPROVED to PUBLISHED), UNPUBLISH (ends the active publication; PUBLISHED becomes APPROVED, and a working copy that was edited after publishing keeps its status: DRAFT, READY_FOR_REVIEW or APPROVED. See slice 3F-c).
   - `roles.ts`: ADMIN and EDITOR submit; ADMIN and REVIEWER request changes and approve; ADMIN alone publishes and unpublishes; all three roles read.
   - `separation-of-duties.ts`: policy S0 (nothing enforced); a policy is a plain function, so stricter ones can be added later without touching the workflow.
   - `readiness.ts`: aggregates every blocking issue (never just the first). Sources are kept apart: RULE (title, at least one level, block
@@ -253,7 +253,36 @@ Transition bodies accept an optional `note` and an optional `expectedContentRevi
 
 **Policy.** Role checks happen before any lock. Separation of duties is policy S0 (actors are recorded, nothing is enforced); a stricter policy can be supplied through the `SEPARATION_OF_DUTIES_POLICY` provider.
 
-**Not yet:** publish/unpublish, publication tables, snapshots, delivery, lock timeout (3F-d). The table's CHECKs already allow the PUBLISH/UNPUBLISH shapes so 3F-c needs no change to it.
+**Not in this slice:** publishing (added in slice 3F-c below), delivery, lock timeout (3F-d).
+
+## Publishing and unpublishing (slice 3F-c)
+
+ADMIN-only publish and unpublish of lessons, with immutable per-level snapshots. There is no learner-facing delivery yet (the Delivery module comes later), and only lessons are published (no course or module publishing, no ARCHIVED).
+
+**Endpoints** (under `/api/v1/admin/lessons/:lessonId`):
+
+| Method and path                           | Roles     | Effect                                                                                           |
+| ----------------------------------------- | --------- | ------------------------------------------------------------------------------------------------ |
+| `POST workflow/publish`                   | ADMIN     | APPROVED → PUBLISHED: creates the next publication version with one snapshot per available level |
+| `POST workflow/unpublish`                 | ADMIN     | ends the active publication; PUBLISHED → APPROVED, other statuses preserved                      |
+| `GET publications`                        | all three | version history, newest first, `limit`/`offset`                                                  |
+| `GET publications/:version`               | all three | one version: times, actors, end reason, per-level hash and size                                  |
+| `GET publications/:version/levels/:level` | all three | the stored snapshot of one level (admin view)                                                    |
+
+`GET workflow` now also returns `activePublication`, and `allowedActions` includes `PUBLISH` / `UNPUBLISH` when they apply to the caller.
+
+**Tables** (migration `CreateLessonPublications`):
+
+- `lesson_publications`: version (unique per lesson), source `content_revision`, snapshot schema version, who/when published, and `ended_at/ended_by/ended_reason` (`SUPERSEDED` or `UNPUBLISHED`, all set together or all null). A partial unique index allows at most one active publication per lesson.
+- `lesson_publication_levels`: one row per publication and level: the complete resolved lesson as `jsonb`, its SHA-256 over the canonical (sorted-key) JSON, and its size in UTF-8 bytes (1 to 5 MiB). A composite foreign key `(publication_id, lesson_id)` guarantees a snapshot belongs to a publication of the same lesson.
+- `lesson_workflow_events.publication_id` links PUBLISH/UNPUBLISH events to their publication (required for those two actions, forbidden for the others).
+- Database triggers enforce the lifecycle: a publication can only be ended, once, and is never reactivated or otherwise changed; snapshots can never be updated, deleted or truncated, nor added to an ended publication; publications are never deleted. All foreign keys are RESTRICT, so a lesson or admin with publication history cannot be deleted (lesson delete returns a controlled 409). The migration's `down()` destroys history once real publications exist: treat it as forward-only from then on.
+
+**Publish** runs in the same transaction and under the same lesson lock as the review transitions: lock the lesson, check the expected revision and that the status is APPROVED, re-assemble the locked content and re-run the readiness rules (422 with the full report if anything is wrong, nothing written), resolve every available level independently (no cross-level fallback), measure each serialized snapshot against the 5 MiB limit, end the previous active publication as SUPERSEDED, allocate the next version, store the snapshots, move the status with a compare-and-set, and append the event. Any failure rolls everything back. Concurrent publishes and publish/edit races serialize on the lesson row lock: exactly one wins, an edit that commits first makes the publish a 409, and a publish that commits first snapshots a consistent pre-edit state (the later edit leaves the lesson a DRAFT while the old version keeps serving).
+
+**Unpublish** ends the active publication, exactly once, in every working-copy state, and is refused (409, "no active publication") when there is none. It only changes the working copy's status in one case: PUBLISHED becomes APPROVED. A working copy that was edited after publishing keeps its status: DRAFT stays DRAFT, READY_FOR_REVIEW stays READY_FOR_REVIEW, APPROVED stays APPROVED, so the review of those edits can simply continue. When the status is preserved the lesson row is not written at all (not even `updated_at`); `lessons.version`, `content_revision`, the blocks and every snapshot are untouched in all four cases. The audit event records the status transition (`from_status = to_status` when preserved) and the ended publication. The events table's transition-shape CHECK was widened for this by migration `AllowUnpublishToPreserveStatus`.
+
+**Not in this slice:** lock timeout and the status/publication consistency check (3F-d), public Delivery APIs, course/module publishing, ARCHIVED.
 
 ## HTTP conventions
 

@@ -19,6 +19,7 @@ import type {
   WorkflowEventRepository,
 } from '../persistence/workflow-event.repository.js';
 import type { WorkflowEvent } from '../domain/models.js';
+import type { PublicationService } from './publication.service.js';
 import {
   REVIEW_ACTIONS,
   type ReviewAction,
@@ -128,7 +129,9 @@ function build(world = new World(), policy = NO_SEPARATION_OF_DUTIES) {
 
   return {
     world,
-    service: new WorkflowService(facade, events, transactions, policy),
+    service: new WorkflowService(facade, events, transactions, policy, {
+      findActive: async () => null,
+    } as unknown as PublicationService),
   };
 }
 
@@ -543,21 +546,27 @@ describe('reading workflow information', () => {
     ).toEqual(['REQUEST_CHANGES', 'APPROVE']);
     expect(
       (await service.getState(approved, Role.ADMIN)).allowedActions,
-    ).toEqual([]);
+    ).toEqual(['PUBLISH']);
+    for (const role of [Role.EDITOR, Role.REVIEWER]) {
+      expect((await service.getState(approved, role)).allowedActions).toEqual(
+        [],
+      );
+    }
   });
 
-  it('never advertises publish or unpublish in this slice', async () => {
+  it('offers publish only to an ADMIN on an approved lesson, and never unpublish without an active publication', async () => {
     const { world, service } = build();
     for (const status of CONTENT_STATUSES) {
       const lessonId = world.addLesson(status);
-      const { allowedActions } = await service.getState(lessonId, Role.ADMIN);
-      expect(
-        allowedActions.every((a) =>
-          (REVIEW_ACTIONS as readonly string[]).includes(a),
-        ),
-      ).toBe(true);
+      for (const role of [Role.ADMIN, Role.EDITOR, Role.REVIEWER]) {
+        const { allowedActions } = await service.getState(lessonId, role);
+        expect(allowedActions.includes('PUBLISH')).toBe(
+          role === Role.ADMIN && status === 'APPROVED',
+        );
+        expect(allowedActions).not.toContain('UNPUBLISH'); // nothing is published in this world
+      }
     }
-    expect(WORKFLOW_ACTIONS).toContain('PUBLISH'); // the rules exist, the feature does not
+    expect(WORKFLOW_ACTIONS).toContain('PUBLISH');
   });
 
   it('returns the state with the latest event, and history newest first with paging', async () => {

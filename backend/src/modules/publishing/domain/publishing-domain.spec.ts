@@ -98,33 +98,28 @@ describe('workflow transitions', () => {
       });
     });
 
-    it('keeps DRAFT when the edited working copy is still a draft, ending only the publication', () => {
-      expect(planTransition('UNPUBLISH', 'DRAFT', true)).toEqual({
-        allowed: true,
-        from: 'DRAFT',
-        to: 'DRAFT',
-      });
-    });
-
-    // Deferred: what to do for an edited working copy that is already in review or approved is
-    // decided when the complete 3F-c workflow is reviewed. Until then it is refused.
-    it.each(['READY_FOR_REVIEW', 'APPROVED'] as const)(
-      'is not allowed yet for a %s working copy that has an active publication',
+    it.each(['DRAFT', 'READY_FOR_REVIEW', 'APPROVED'] as const)(
+      'keeps a %s working copy as it is, ending only the publication',
       (status) => {
         expect(planTransition('UNPUBLISH', status, true)).toEqual({
-          allowed: false,
-          reason: 'WRONG_STATUS',
-          allowedFrom: ['PUBLISHED', 'DRAFT'],
+          allowed: true,
+          from: status,
+          to: status,
         });
       },
     );
 
-    it('only ever allows PUBLISHED to APPROVED and DRAFT to DRAFT', () => {
-      const allowed = CONTENT_STATUSES.flatMap((status) => {
+    it('changes the status only for PUBLISHED, in every state', () => {
+      const moves = CONTENT_STATUSES.map((status) => {
         const plan = planTransition('UNPUBLISH', status, true);
-        return plan.allowed ? [`${plan.from}>${plan.to}`] : [];
+        return plan.allowed ? `${plan.from}>${plan.to}` : 'refused';
       });
-      expect(allowed).toEqual(['DRAFT>DRAFT', 'PUBLISHED>APPROVED']);
+      expect(moves).toEqual([
+        'DRAFT>DRAFT',
+        'READY_FOR_REVIEW>READY_FOR_REVIEW',
+        'APPROVED>APPROVED',
+        'PUBLISHED>APPROVED',
+      ]);
     });
 
     it.each(CONTENT_STATUSES)(

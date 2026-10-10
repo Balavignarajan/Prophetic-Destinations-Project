@@ -107,4 +107,32 @@ export class WorkflowController {
       await this.workflow.perform('APPROVE', lessonId, admin, dto),
     );
   }
+
+  /** ADMIN only: snapshots every available level of an APPROVED lesson as the next version. */
+  @Post('publish')
+  @HttpCode(200)
+  @Roles(...ACTION_ROLES.PUBLISH)
+  async publish(
+    @Param('lessonId', ParseUUIDPipe) lessonId: string,
+    @CurrentAdmin() admin: AuthenticatedAdmin,
+    @Body() dto: TransitionDto,
+  ): Promise<TransitionResponseDto> {
+    return TransitionResponseDto.from(
+      await this.workflow.perform('PUBLISH', lessonId, admin, dto),
+    );
+  }
+
+  /** ADMIN only: ends the active publication; its snapshots are kept. */
+  @Post('unpublish')
+  @HttpCode(200)
+  @Roles(...ACTION_ROLES.UNPUBLISH)
+  async unpublish(
+    @Param('lessonId', ParseUUIDPipe) lessonId: string,
+    @CurrentAdmin() admin: AuthenticatedAdmin,
+    @Body() dto: TransitionDto,
+  ): Promise<TransitionResponseDto> {
+    return TransitionResponseDto.from(
+      await this.workflow.perform('UNPUBLISH', lessonId, admin, dto),
+    );
+  }
 }

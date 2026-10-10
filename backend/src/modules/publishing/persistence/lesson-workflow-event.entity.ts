@@ -33,6 +33,10 @@ import { Check, Column, Entity, Index, PrimaryColumn } from 'typeorm';
   'chk_lesson_workflow_events_note',
   `"note" IS NULL OR ("note" !~ '^\\s*$' AND char_length("note") <= 2000)`,
 )
+@Check(
+  'chk_lesson_workflow_events_publication',
+  `("publication_id" IS NOT NULL) = ("action" IN ('PUBLISH', 'UNPUBLISH'))`,
+)
 @Check('chk_lesson_workflow_events_content_revision', `"content_revision" >= 1`)
 export class LessonWorkflowEventEntity {
   @PrimaryColumn({ type: 'uuid', default: () => 'gen_random_uuid()' })
@@ -70,6 +74,9 @@ export class LessonWorkflowEventEntity {
 
   @Column({ name: 'content_revision', type: 'integer' })
   contentRevision: number;
+
+  @Column({ name: 'publication_id', type: 'uuid', nullable: true })
+  publicationId: string | null;
 
   @Column({
     name: 'created_at',

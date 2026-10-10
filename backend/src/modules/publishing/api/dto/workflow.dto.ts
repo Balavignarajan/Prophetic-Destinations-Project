@@ -14,6 +14,7 @@ import type {
 } from '../../application/workflow.service.js';
 import type { WorkflowEvent } from '../../domain/models.js';
 import { NOTE_MAX_LENGTH } from '../../domain/notes.js';
+import { PublicationDto } from './publication.dto.js';
 
 /** Trims string input before validation so whitespace-only values count as empty. */
 const Trim = () =>
@@ -74,6 +75,8 @@ export class WorkflowEventDto {
   note: string | null;
   /** The lesson's content revision when the transition happened. */
   contentRevision: number;
+  /** The publication a publish created or an unpublish ended. */
+  publicationId: string | null;
   createdAt: string;
 
   static from(event: WorkflowEvent): WorkflowEventDto {
@@ -86,6 +89,7 @@ export class WorkflowEventDto {
       actor: { adminId: event.actorAdminId, role: event.actorRole },
       note: event.note,
       contentRevision: event.contentRevision,
+      publicationId: event.publicationId,
       createdAt: event.createdAt.toISOString(),
     };
   }
@@ -103,6 +107,8 @@ export class WorkflowStateDto {
   status: string;
   contentRevision: number;
   allowedActions: string[];
+  /** The version learners currently get, if any; it can exist while the working copy is edited. */
+  activePublication: PublicationDto | null;
   latestEvent: WorkflowEventDto | null;
 
   static from(state: WorkflowState): WorkflowStateDto {
@@ -111,6 +117,9 @@ export class WorkflowStateDto {
       status: state.status,
       contentRevision: state.contentRevision,
       allowedActions: state.allowedActions,
+      activePublication: state.activePublication
+        ? PublicationDto.from(state.activePublication)
+        : null,
       latestEvent: state.latestEvent
         ? WorkflowEventDto.from(state.latestEvent)
         : null,
@@ -124,6 +133,10 @@ export class TransitionResponseDto {
   status: string;
   contentRevision: number;
   event: WorkflowEventDto;
+  /** Publish: the new version. Unpublish: the version that was ended. Absent for review actions. */
+  publication?: PublicationDto;
+  /** Publish only: the version that the new one replaced. */
+  supersededVersion?: number;
 
   static from(result: TransitionResult): TransitionResponseDto {
     return {
@@ -132,6 +145,12 @@ export class TransitionResponseDto {
       status: result.status,
       contentRevision: result.contentRevision,
       event: WorkflowEventDto.from(result.event),
+      ...(result.publication
+        ? { publication: PublicationDto.from(result.publication) }
+        : {}),
+      ...(result.supersededPublication
+        ? { supersededVersion: result.supersededPublication.version }
+        : {}),
     };
   }
 }

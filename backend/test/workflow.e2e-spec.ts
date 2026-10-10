@@ -7,7 +7,7 @@ import { AppModule } from './../src/app.module.js';
 import { AdminProvisioningService } from './../src/modules/identity/application/admin-provisioning.service.js';
 import { Role } from './../src/modules/identity/index.js';
 import { configureApp } from './../src/platform/configure-app.js';
-import { deleteWorkflowEvents } from './support/workflow-cleanup.js';
+import { deleteWorkflowHistory } from './support/workflow-cleanup.js';
 
 // The publishing workflow through the real HTTP API: transitions, role matrix, validation,
 // error mapping, history, and the guarantee that review transitions never touch content versions.
@@ -100,7 +100,7 @@ describe('Publishing workflow (e2e)', () => {
     const like = `e2e-${runId}-%`;
     const modules = `SELECT m."id" FROM "course_modules" m JOIN "courses" c ON c."id" = m."course_id" WHERE c."title" LIKE $1`;
     const owned = `SELECT "id" FROM "lessons" WHERE "module_id" IN (${modules})`;
-    await deleteWorkflowEvents(dataSource, owned, [like]);
+    await deleteWorkflowHistory(dataSource, owned, [like]);
     await dataSource.query(
       `DELETE FROM "lesson_block_levels" WHERE "lesson_id" IN (${owned})`,
       [like],
@@ -617,7 +617,10 @@ describe('Publishing workflow (e2e)', () => {
       ).toEqual(['APPROVE', 'REQUEST_CHANGES']);
 
       await act(id, 'approve', Role.REVIEWER).expect(200);
-      for (const role of ALL_ROLES) expect(await allowed(role)).toEqual([]); // publishing is not available yet
+      // approved: only an ADMIN may publish
+      expect(await allowed(Role.ADMIN)).toEqual(['PUBLISH']);
+      expect(await allowed(Role.EDITOR)).toEqual([]);
+      expect(await allowed(Role.REVIEWER)).toEqual([]);
     });
 
     it('describes the latest event and is not cacheable', async () => {
@@ -644,28 +647,24 @@ describe('Publishing workflow (e2e)', () => {
   });
 
   describe('scope guards (nothing from later slices)', () => {
-    it('has no publish, unpublish or history-deletion endpoints', async () => {
-      const id = await submitted('no-publish');
+    it('has no history-deletion endpoints, and no way to edit publications', async () => {
+      const id = await submitted('no-history-delete');
       await act(id, 'approve', Role.ADMIN).expect(200);
-      for (const path of ['publish', 'unpublish']) {
+      for (const [method, url] of [
+        ['delete', `${wf(id)}/events`],
+        ['delete', wf(id)],
+        ['delete', `${LESSONS}/${id}/publications`],
+        ['delete', `${LESSONS}/${id}/publications/1`],
+        ['patch', `${LESSONS}/${id}/publications/1`],
+        ['put', `${LESSONS}/${id}/publications/1`],
+        ['post', `${LESSONS}/${id}/publications`],
+      ] as const) {
         await http()
-          .post(`${wf(id)}/${path}`)
+          [method](url)
           .set('Authorization', as(Role.ADMIN))
           .send({})
           .expect(404);
       }
-      await http()
-        .delete(`${wf(id)}/events`)
-        .set('Authorization', as(Role.ADMIN))
-        .expect(404);
-      await http()
-        .delete(wf(id))
-        .set('Authorization', as(Role.ADMIN))
-        .expect(404);
-      await http()
-        .get(`${LESSONS}/${id}/publications`)
-        .set('Authorization', as(Role.ADMIN))
-        .expect(404);
       expect((await state(id)).status).toBe('APPROVED');
     });
 

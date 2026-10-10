@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { AssembledLesson, AssembledLevel } from '../../lessons/index.js';
 import type { LearningLevel } from '../../../shared-kernel/index.js';
 
@@ -87,4 +88,31 @@ function sortKeys(value: unknown): unknown {
 /** Size of a payload as stored: its canonical serialization in UTF-8 bytes. */
 export function payloadBytes(payload: LevelSnapshotPayload): number {
   return Buffer.byteLength(canonicalJson(payload), 'utf8');
+}
+
+/** A level payload as it is stored: the canonical text, its size in bytes, and its SHA-256. */
+export interface SerializedSnapshot {
+  json: string;
+  bytes: number;
+  hash: string;
+}
+
+/** SHA-256 (lower-case hex) of a canonical serialization. */
+export function hashCanonicalJson(json: string): string {
+  return createHash('sha256').update(json, 'utf8').digest('hex');
+}
+
+/**
+ * Serializes a payload once and derives size and hash from that same text, so what is
+ * measured, hashed and stored can never disagree.
+ */
+export function serializeSnapshot(
+  payload: LevelSnapshotPayload,
+): SerializedSnapshot {
+  const json = canonicalJson(payload);
+  return {
+    json,
+    bytes: Buffer.byteLength(json, 'utf8'),
+    hash: hashCanonicalJson(json),
+  };
 }

@@ -17,6 +17,8 @@ export interface NewWorkflowEvent {
   actorRole: Role;
   note: string | null;
   contentRevision: number;
+  /** Set for PUBLISH (the new publication) and UNPUBLISH (the ended one); null otherwise. */
+  publicationId?: string | null;
 }
 
 /**
@@ -37,7 +39,11 @@ export class WorkflowEventRepository {
   ): Promise<WorkflowEvent> {
     const repo = manager.getRepository(LessonWorkflowEventEntity);
     const id = randomUUID();
-    await repo.insert({ id, ...event });
+    await repo.insert({
+      id,
+      ...event,
+      publicationId: event.publicationId ?? null,
+    });
     return toEvent(await repo.findOneOrFail({ where: { id } }));
   }
 
@@ -87,6 +93,7 @@ function toEvent(row: LessonWorkflowEventEntity): WorkflowEvent {
     actorRole: row.actorRole as Role,
     note: row.note,
     contentRevision: row.contentRevision,
+    publicationId: row.publicationId,
     createdAt: row.createdAt,
   };
 }

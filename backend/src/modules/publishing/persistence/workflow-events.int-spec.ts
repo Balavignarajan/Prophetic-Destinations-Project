@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Test } from '@nestjs/testing';
 import { DataSource } from 'typeorm';
-import { deleteWorkflowEvents } from '../../../../test/support/workflow-cleanup.js';
+import { deleteWorkflowHistory } from '../../../../test/support/workflow-cleanup.js';
 import { ConfigModule } from '../../../config/index.js';
 import { DatabaseModule } from '../../../database/database.module.js';
 import {
@@ -33,7 +33,7 @@ describe('workflow events and transitions (integration)', () => {
 
   const cleanup = async () => {
     const like = `int-${runId}-%`;
-    await deleteWorkflowEvents(dataSource, lessonsOfRun, [like]);
+    await deleteWorkflowHistory(dataSource, lessonsOfRun, [like]);
     await dataSource.query(
       `DELETE FROM "lesson_block_levels" WHERE "lesson_id" IN (${lessonsOfRun})`,
       [like],
@@ -147,7 +147,7 @@ describe('workflow events and transitions (integration)', () => {
   });
 
   describe('table integrity', () => {
-    it('accepts every approved transition shape', async () => {
+    it('accepts every approved review transition shape (publish and unpublish need a publication: see publications.int-spec)', async () => {
       const lessonId = await newLesson('shapes');
       const shapes: Record<string, unknown>[] = [
         {
@@ -166,13 +166,6 @@ describe('workflow events and transitions (integration)', () => {
           from_status: 'READY_FOR_REVIEW',
           to_status: 'APPROVED',
         },
-        { action: 'PUBLISH', from_status: 'APPROVED', to_status: 'PUBLISHED' },
-        {
-          action: 'UNPUBLISH',
-          from_status: 'PUBLISHED',
-          to_status: 'APPROVED',
-        },
-        { action: 'UNPUBLISH', from_status: 'DRAFT', to_status: 'DRAFT' },
       ];
       for (const shape of shapes)
         await expect(insertEvent(lessonId, shape)).resolves.toBeDefined();
@@ -197,12 +190,6 @@ describe('workflow events and transitions (integration)', () => {
           action: 'PUBLISH',
           from_status: 'READY_FOR_REVIEW',
           to_status: 'PUBLISHED',
-        },
-        { action: 'UNPUBLISH', from_status: 'APPROVED', to_status: 'APPROVED' }, // deferred decision: not recordable yet
-        {
-          action: 'UNPUBLISH',
-          from_status: 'READY_FOR_REVIEW',
-          to_status: 'READY_FOR_REVIEW',
         },
         {
           action: 'REQUEST_CHANGES',

@@ -8,7 +8,7 @@ import {
 import type { ContentStatus } from '../../../shared-kernel/index.js';
 import type { AuthenticatedAdmin, Role } from '../../identity/index.js';
 import { LessonsFacade } from '../../lessons/index.js';
-import type { WorkflowEvent } from '../domain/models.js';
+import type { Publication, WorkflowEvent } from '../domain/models.js';
 import { normalizeNote } from '../domain/notes.js';
 import { canPerform } from '../domain/roles.js';
 import {
@@ -17,16 +17,15 @@ import {
   checkSeparationOfDuties,
 } from '../domain/separation-of-duties.js';
 import {
+  WORKFLOW_ACTIONS,
   type WorkflowAction,
   planTransition,
   requiresNote,
 } from '../domain/workflow.js';
 import { WorkflowEventRepository } from '../persistence/workflow-event.repository.js';
+import { PublicationService } from './publication.service.js';
 
-/**
- * The review actions available in this slice. PUBLISH and UNPUBLISH are part of the
- * workflow rules but are implemented later, together with publications.
- */
+/** The review actions (everything except publishing and unpublishing, which are ADMIN-only and create/end publications). */
 export const REVIEW_ACTIONS = [
   'SUBMIT_FOR_REVIEW',
   'REQUEST_CHANGES',
@@ -47,6 +46,10 @@ export interface TransitionResult {
   status: ContentStatus;
   contentRevision: number;
   event: WorkflowEvent;
+  /** PUBLISH: the new publication. UNPUBLISH: the publication that was ended. Null for review actions. */
+  publication: Publication | null;
+  /** PUBLISH only: the previously active publication that the new one replaced. */
+  supersededPublication: Publication | null;
 }
 
 export interface WorkflowState {
@@ -54,18 +57,22 @@ export interface WorkflowState {
   status: ContentStatus;
   contentRevision: number;
   /** The actions this caller may perform right now (by role and by the lesson's current status). */
-  allowedActions: ReviewAction[];
+  allowedActions: WorkflowAction[];
+  /** The publication learners currently get, if any (it can exist while the working copy is being edited). */
+  activePublication: Publication | null;
   latestEvent: WorkflowEvent | null;
 }
 
-const VERBS: Record<ReviewAction, string> = {
+const VERBS: Record<WorkflowAction, string> = {
   SUBMIT_FOR_REVIEW: 'submit for review',
   REQUEST_CHANGES: 'request changes on',
   APPROVE: 'approve',
+  PUBLISH: 'publish',
+  UNPUBLISH: 'unpublish',
 };
 
 /**
- * Review workflow of a lesson: submit, request changes, approve.
+ * Workflow of a lesson: submit, request changes, approve, publish, unpublish.
  *
  * Each transition is one transaction that
  *   1. locks the lesson row (the lock every authoring writer takes first),
@@ -73,8 +80,10 @@ const VERBS: Record<ReviewAction, string> = {
  *   3. changes the status with a compare-and-set, and
  *   4. appends the audit event,
  * so the status change and its event commit or roll back together, and two
- * concurrent transitions can never both succeed. Workflow transitions are not
- * authoring changes: neither `lessons.version` nor `content_revision` moves.
+ * concurrent transitions can never both succeed. Publishing and unpublishing do their
+ * publication work (snapshots, versions, ending the active one) in the same transaction,
+ * between the checks and the status change. Workflow transitions are not authoring
+ * changes: neither `lessons.version` nor `content_revision` moves.
  */
 @Injectable()
 export class WorkflowService {
@@ -84,10 +93,11 @@ export class WorkflowService {
     private readonly transactions: TransactionRunner,
     @Inject(SEPARATION_OF_DUTIES_POLICY)
     private readonly separationOfDuties: SeparationOfDutiesPolicy,
+    private readonly publications: PublicationService,
   ) {}
 
   async perform(
-    action: ReviewAction,
+    action: WorkflowAction,
     lessonId: string,
     actor: AuthenticatedAdmin,
     input: TransitionInput = {},
@@ -111,11 +121,17 @@ export class WorkflowService {
         );
       }
 
-      // No publications exist yet in this slice, so nothing is ever actively published.
-      const plan = planTransition(action, state.status, false);
+      // Whether a publication is active matters only to unpublishing (read under the lesson lock).
+      const active =
+        action === 'UNPUBLISH'
+          ? await this.publications.findActive(lessonId, manager)
+          : null;
+      const plan = planTransition(action, state.status, active !== null);
       if (!plan.allowed) {
         throw new ConflictError(
-          `Cannot ${VERBS[action]} a lesson that is ${state.status}`,
+          plan.reason === 'NOT_PUBLISHED'
+            ? 'The lesson has no active publication to unpublish'
+            : `Cannot ${VERBS[action]} a lesson that is ${state.status}`,
           { action, status: state.status, allowedFrom: plan.allowedFrom },
         );
       }
@@ -131,17 +147,41 @@ export class WorkflowService {
         })),
       });
 
-      const applied = await this.lessons.compareAndSetStatus(
-        lessonId,
-        plan.from,
-        plan.to,
-        manager,
-      );
-      if (!applied) {
-        // Cannot happen while the lock is held; refuse rather than record an event for a change that did not happen.
-        throw new ConflictError(
-          'The lesson changed state; reload it and try again.',
+      // Publication work first: readiness failures and snapshot problems abort before anything is written.
+      let publication: Publication | null = null;
+      let supersededPublication: Publication | null = null;
+      if (action === 'PUBLISH') {
+        const effect = await this.publications.publish(
+          lessonId,
+          state.contentRevision,
+          actor,
+          manager,
         );
+        publication = effect.publication;
+        supersededPublication = effect.superseded;
+      } else if (action === 'UNPUBLISH') {
+        publication = await this.publications.unpublish(
+          lessonId,
+          actor,
+          manager,
+        );
+      }
+
+      // An unpublish that keeps the working copy's status writes nothing to the lesson at all
+      // (the lock held since the start already guarantees the status is still what was planned).
+      if (plan.from !== plan.to) {
+        const applied = await this.lessons.compareAndSetStatus(
+          lessonId,
+          plan.from,
+          plan.to,
+          manager,
+        );
+        if (!applied) {
+          // Cannot happen while the lock is held; refuse rather than record an event for a change that did not happen.
+          throw new ConflictError(
+            'The lesson changed state; reload it and try again.',
+          );
+        }
       }
 
       const event = await this.events.append(
@@ -154,6 +194,7 @@ export class WorkflowService {
           actorRole: actor.role,
           note,
           contentRevision: state.contentRevision,
+          publicationId: publication?.id ?? null,
         },
         manager,
       );
@@ -164,6 +205,8 @@ export class WorkflowService {
         status: plan.to,
         contentRevision: state.contentRevision,
         event,
+        publication,
+        supersededPublication,
       };
     });
   }
@@ -171,16 +214,19 @@ export class WorkflowService {
   async getState(lessonId: string, role: Role): Promise<WorkflowState> {
     const state = await this.lessons.findWorkflowState(lessonId);
     if (!state) throw lessonNotFound();
+    const activePublication = await this.publications.findActive(lessonId);
 
     return {
       lessonId,
       status: state.status,
       contentRevision: state.contentRevision,
-      allowedActions: REVIEW_ACTIONS.filter(
+      allowedActions: WORKFLOW_ACTIONS.filter(
         (action) =>
           canPerform(action, role) &&
-          planTransition(action, state.status, false).allowed,
+          planTransition(action, state.status, activePublication !== null)
+            .allowed,
       ),
+      activePublication,
       latestEvent: await this.events.latest(lessonId),
     };
   }
