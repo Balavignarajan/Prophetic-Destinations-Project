@@ -253,7 +253,7 @@ Transition bodies accept an optional `note` and an optional `expectedContentRevi
 
 **Policy.** Role checks happen before any lock. Separation of duties is policy S0 (actors are recorded, nothing is enforced); a stricter policy can be supplied through the `SEPARATION_OF_DUTIES_POLICY` provider.
 
-**Not in this slice:** publishing (added in slice 3F-c below), delivery, lock timeout (3F-d).
+**Not in this slice:** publishing (added in slice 3F-c below), delivery (lock timeout: see slice 3F-d).
 
 ## Publishing and unpublishing (slice 3F-c)
 
@@ -282,7 +282,25 @@ ADMIN-only publish and unpublish of lessons, with immutable per-level snapshots.
 
 **Unpublish** ends the active publication, exactly once, in every working-copy state, and is refused (409, "no active publication") when there is none. It only changes the working copy's status in one case: PUBLISHED becomes APPROVED. A working copy that was edited after publishing keeps its status: DRAFT stays DRAFT, READY_FOR_REVIEW stays READY_FOR_REVIEW, APPROVED stays APPROVED, so the review of those edits can simply continue. When the status is preserved the lesson row is not written at all (not even `updated_at`); `lessons.version`, `content_revision`, the blocks and every snapshot are untouched in all four cases. The audit event records the status transition (`from_status = to_status` when preserved) and the ended publication. The events table's transition-shape CHECK was widened for this by migration `AllowUnpublishToPreserveStatus`.
 
-**Not in this slice:** lock timeout and the status/publication consistency check (3F-d), public Delivery APIs, course/module publishing, ARCHIVED.
+**Not in this slice:** public Delivery APIs, course/module publishing, ARCHIVED. (The lock timeout and the consistency checks are in slice 3F-d below.)
+
+## Publishing hardening (slice 3F-d)
+
+**Lock timeout.** Every workflow transition (submit, request changes, approve, publish, unpublish) runs with a 10 second lock timeout. `TransactionRunner.run(work, { lockTimeoutMs })` sets it at the start of the transaction with `set_config('lock_timeout', …, true)`, which is `SET LOCAL`: it lasts only until that transaction commits or rolls back, so it cannot leak to the next user of a pooled connection (tests check that every pool connection reports no timeout afterwards). It applies to every lock the transition waits for, not only the lesson row: for example a publish that gets the lesson lock but then waits to supersede a publication row also gives up, and its whole transaction rolls back. The value is the `WORKFLOW_LOCK_TIMEOUT_MS` provider (10 000 ms), which tests override. Authoring transactions (lessons, blocks, curriculum, identity) are unchanged.
+
+**Concurrency errors.** `TransactionRunner` translates a lock timeout (`55P03`), a deadlock (`40P01`) and a serialization failure (`40001`) into a `ConflictError`, which the global filter returns as HTTP 409 `CONFLICT` with `details: { reason: 'LOCK_TIMEOUT' | 'CONCURRENT_UPDATE', retryable: true }`. The message is generic; no SQL, table names, driver text or stack trace reach the client. The transaction has been rolled back, so for the authoring and workflow endpoints the same request can be sent again. This translation is the default for every `TransactionRunner.run` call; a call can turn it off with the `translateConcurrencyErrors: false` option, in which case the original error propagates unchanged, exactly as it did before the translation existed.
+
+Exactly one call site opts out: `SessionService.rotate`, which backs `POST /api/v1/admin/auth/refresh`. A refresh is not "send the same request again": if a concurrent refresh has already rotated the token, presenting that token a second time is reuse, and reuse detection revokes the whole session. So a concurrency failure there is never reported as retryable. The opt-out changes error translation only; refresh-token rotation, reuse detection, the refresh cookie and session revocation behave exactly as before.
+
+**Status and publication consistency.**
+
+- Database rule (migration `AddPublishedLessonConsistency`): a lesson whose status is PUBLISHED has an active publication. It is a deferred constraint trigger, checked at commit, from both sides: when a lesson's status becomes PUBLISHED (or a lesson is inserted that way), and when a publication is inserted or ended. Being deferred, publish and unpublish can order their writes freely inside the transaction.
+- Deliberately not constrained: a DRAFT, READY_FOR_REVIEW or APPROVED working copy may have an older publication that is still active. After an authoring edit the working copy returns to DRAFT (and may be re-reviewed and re-approved) while the published version keeps serving, until it is replaced or unpublished.
+- Already enforced by earlier migrations: at most one active publication per lesson; a publication is ended once, never reactivated or changed; snapshots and workflow events are immutable; an event's publication belongs to the same lesson; every PUBLISH/UNPUBLISH event has a publication.
+- Application check: `GET /api/v1/admin/publishing/consistency` (ADMIN only, read-only, never repairs) reports PUBLISHED lessons without an active publication, multiple active publications, publications without their PUBLISH event, PUBLISH events whose revision differs from the publication's source revision, UNPUBLISHED endings without an UNPUBLISH event, SUPERSEDED publications without a successor, publications without snapshots, and, with `?verifySnapshots=true`, snapshots whose stored hash or size no longer matches their content, or that exceed 5 MiB. `limit` (1 to 1000, default 100) caps issues per check and the report says when it was truncated. Re-hashing reads every snapshot, so it is opt-in.
+- Not an inconsistency: a lesson's current status differing from its last event, because authoring edits reset the status without writing an event.
+
+**Migration-only constraints.** The workflow-events transition-shape CHECK, the deferred consistency triggers and the append-only/immutability triggers exist only in migrations (the entities cannot express them), so `migration:drift` lists them (or their surrounding indexes and foreign keys) as differences. They are intentional and are not to be removed to quiet the drift report.
 
 ## HTTP conventions
 

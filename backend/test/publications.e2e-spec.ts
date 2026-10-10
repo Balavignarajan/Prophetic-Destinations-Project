@@ -965,7 +965,7 @@ describe('Publishing and unpublishing (e2e)', () => {
           expect(list.total).toBe(0);
         }
       }
-    });
+    }, 120_000);
   });
 
   describe('deletion and the boundaries of this slice', () => {

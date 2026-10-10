@@ -355,3 +355,58 @@ describe('authenticate', () => {
     );
   });
 });
+
+describe('refresh rotation and concurrency errors', () => {
+  const driverError = (code: string) =>
+    Object.assign(new Error('postgres detail'), { driverError: { code } });
+
+  it('asks the runner not to translate concurrency errors (a refresh is not "retry the same request")', async () => {
+    const seen: unknown[] = [];
+    const transactions = {
+      run: (_work: unknown, options?: unknown) => {
+        seen.push(options);
+        return Promise.resolve(null);
+      },
+    };
+    const sessions = new SessionService(
+      new FakeTokens() as unknown as RefreshTokenRepository,
+      new FakeAdmins() as unknown as AdminRepository,
+      transactions as unknown as TransactionRunner,
+      config,
+    );
+
+    await expect(sessions.rotate('some-token')).rejects.toBeInstanceOf(
+      UnauthorizedError,
+    );
+    expect(seen).toEqual([{ translateConcurrencyErrors: false }]);
+  });
+
+  it.each(['40P01', '40001', '55P03'])(
+    'a database %s during rotation reaches the caller as the original error, never as a retryable 409',
+    async (code) => {
+      const original = driverError(code);
+      // the real runner, over a data source whose transaction fails
+      const { TransactionRunner: Runner } =
+        await import('../../../database/transaction-runner.js');
+      const runner = new Runner({
+        transaction: async () => {
+          throw original;
+        },
+      } as never);
+      const sessions = new SessionService(
+        new FakeTokens() as unknown as RefreshTokenRepository,
+        new FakeAdmins() as unknown as AdminRepository,
+        runner,
+        config,
+      );
+
+      const thrown = await sessions
+        .rotate('some-token')
+        .catch((e: unknown) => e);
+
+      expect(thrown).toBe(original);
+      expect(thrown).not.toBeInstanceOf(ConflictError);
+      expect(thrown).not.toBeInstanceOf(UnauthorizedError);
+    },
+  );
+});

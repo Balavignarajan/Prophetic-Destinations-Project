@@ -121,6 +121,15 @@ export class LessonsFacade {
     return this.lessons.compareAndSetStatus(lessonId, from, to, manager);
   }
 
+  /** Ids of the lessons with a status, in id order after `afterId` (keyset paging; for consistency checks). */
+  listLessonIdsByStatus(
+    status: ContentStatus,
+    limit: number,
+    afterId: string | null,
+  ): Promise<string[]> {
+    return this.lessons.idsByStatus(status, limit, afterId);
+  }
+
   /**
    * Reads the lesson, its blocks and their level rows, then resolves every available
    * level separately with the pure resolver and checks each resolved block against its

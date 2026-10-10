@@ -16,6 +16,11 @@ import { LessonsModule } from '../lessons.module.js';
 import { LessonBlockLevelRepository } from './lesson-block-level.repository.js';
 import { LessonBlockRepository } from './lesson-block.repository.js';
 import { LessonRepository } from './lesson.repository.js';
+import {
+  ensureActivePublication,
+  forceStatus,
+} from '../../../../test/support/lesson-status.js';
+import { deleteWorkflowHistory } from '../../../../test/support/workflow-cleanup.js';
 
 // Integration: content_revision and the LessonsFacade against the development database (DATABASE_URL).
 // Everything created here hangs off a course with a per-run prefix and is deleted afterwards.
@@ -43,6 +48,7 @@ describe('content revision and the lessons facade (integration)', () => {
     const like = `int-${runId}-%`;
     const modules = `SELECT m."id" FROM "course_modules" m JOIN "courses" c ON c."id" = m."course_id" WHERE c."title" LIKE $1`;
     const owned = `SELECT "id" FROM "lessons" WHERE "module_id" IN (${modules})`;
+    await deleteWorkflowHistory(dataSource, owned, [like]);
     await dataSource.query(
       `DELETE FROM "lesson_block_levels" WHERE "lesson_id" IN (${owned})`,
       [like],
@@ -170,6 +176,8 @@ describe('content revision and the lessons facade (integration)', () => {
     it('changes the status only from the expected one, and is not an authoring change', async () => {
       const lessonId = await newLesson('cas'); // created APPROVED
       const before = await row(lessonId);
+      // a PUBLISHED lesson must have an active publication (the database checks it at commit)
+      await ensureActivePublication(dataSource.manager, lessonId);
 
       expect(
         await transactions.run((m) =>
@@ -200,6 +208,7 @@ describe('content revision and the lessons facade (integration)', () => {
 
     it('two simultaneous transitions from the same status: exactly one wins', async () => {
       const lessonId = await newLesson('cas-race');
+      await ensureActivePublication(dataSource.manager, lessonId);
       const results = await Promise.all([
         transactions.run((m) =>
           facade.compareAndSetStatus(lessonId, 'APPROVED', 'PUBLISHED', m),
@@ -311,10 +320,7 @@ describe('content revision and the lessons facade (integration)', () => {
     });
 
     const setStatus = (lessonId: string, status: string) =>
-      dataSource.query(`UPDATE "lessons" SET "status" = $2 WHERE "id" = $1`, [
-        lessonId,
-        status,
-      ]);
+      forceStatus(dataSource, lessonId, status);
 
     it.each(['READY_FOR_REVIEW', 'APPROVED', 'PUBLISHED'])(
       'every no-op path leaves a %s lesson and its block exactly as they were',

@@ -70,6 +70,22 @@ export class LessonRepository {
     return toLesson(row, levels.get(row.id) ?? []);
   }
 
+  /** Ids of lessons with the given status, in id order, after `afterId` (keyset paging for consistency checks). */
+  async idsByStatus(
+    status: ContentStatus,
+    limit: number,
+    afterId: string | null,
+    manager?: EntityManager,
+  ): Promise<string[]> {
+    const rows: { id: string }[] = await (manager ?? this.repo().manager).query(
+      `SELECT "id" FROM "lessons"
+        WHERE "status" = $1 AND ($2::uuid IS NULL OR "id" > $2::uuid)
+        ORDER BY "id" LIMIT $3`,
+      [status, afterId, limit],
+    );
+    return rows.map((row) => row.id);
+  }
+
   /** Locks the lesson row until the transaction ends. Serializes changes to one lesson. */
   async findByIdForUpdate(
     id: string,

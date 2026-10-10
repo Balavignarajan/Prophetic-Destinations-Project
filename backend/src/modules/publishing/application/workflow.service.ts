@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { TransactionRunner } from '../../../database/transaction-runner.js';
 import {
   ConflictError,
@@ -24,6 +24,13 @@ import {
 } from '../domain/workflow.js';
 import { WorkflowEventRepository } from '../persistence/workflow-event.repository.js';
 import { PublicationService } from './publication.service.js';
+
+/**
+ * How long a workflow transition waits for the lesson lock (or any other lock) before it
+ * gives up with a retryable 409. Provided as a token so tests can shorten it.
+ */
+export const WORKFLOW_LOCK_TIMEOUT_MS = Symbol('WORKFLOW_LOCK_TIMEOUT_MS');
+export const DEFAULT_WORKFLOW_LOCK_TIMEOUT_MS = 10_000;
 
 /** The review actions (everything except publishing and unpublishing, which are ADMIN-only and create/end publications). */
 export const REVIEW_ACTIONS = [
@@ -94,6 +101,9 @@ export class WorkflowService {
     @Inject(SEPARATION_OF_DUTIES_POLICY)
     private readonly separationOfDuties: SeparationOfDutiesPolicy,
     private readonly publications: PublicationService,
+    @Optional()
+    @Inject(WORKFLOW_LOCK_TIMEOUT_MS)
+    private readonly lockTimeoutMs: number = DEFAULT_WORKFLOW_LOCK_TIMEOUT_MS,
   ) {}
 
   async perform(
@@ -108,107 +118,110 @@ export class WorkflowService {
     }
     const note = normalizeNote(input.note, requiresNote(action));
 
-    return this.transactions.run(async (manager) => {
-      const state = await this.lessons.lockForWorkflow(lessonId, manager);
+    return this.transactions.run(
+      async (manager) => {
+        const state = await this.lessons.lockForWorkflow(lessonId, manager);
 
-      if (
-        input.expectedContentRevision !== undefined &&
-        input.expectedContentRevision !== state.contentRevision
-      ) {
-        throw new ConflictError(
-          'The lesson was changed since you last looked at it. Reload it and try again.',
-          { currentContentRevision: state.contentRevision },
-        );
-      }
-
-      // Whether a publication is active matters only to unpublishing (read under the lesson lock).
-      const active =
-        action === 'UNPUBLISH'
-          ? await this.publications.findActive(lessonId, manager)
-          : null;
-      const plan = planTransition(action, state.status, active !== null);
-      if (!plan.allowed) {
-        throw new ConflictError(
-          plan.reason === 'NOT_PUBLISHED'
-            ? 'The lesson has no active publication to unpublish'
-            : `Cannot ${VERBS[action]} a lesson that is ${state.status}`,
-          { action, status: state.status, allowedFrom: plan.allowedFrom },
-        );
-      }
-
-      checkSeparationOfDuties(this.separationOfDuties, {
-        action,
-        actorId: actor.id,
-        priorEvents: (
-          await this.events.list(lessonId, PRIOR_EVENTS_WINDOW, 0, manager)
-        ).items.map((event) => ({
-          action: event.action,
-          actorId: event.actorAdminId,
-        })),
-      });
-
-      // Publication work first: readiness failures and snapshot problems abort before anything is written.
-      let publication: Publication | null = null;
-      let supersededPublication: Publication | null = null;
-      if (action === 'PUBLISH') {
-        const effect = await this.publications.publish(
-          lessonId,
-          state.contentRevision,
-          actor,
-          manager,
-        );
-        publication = effect.publication;
-        supersededPublication = effect.superseded;
-      } else if (action === 'UNPUBLISH') {
-        publication = await this.publications.unpublish(
-          lessonId,
-          actor,
-          manager,
-        );
-      }
-
-      // An unpublish that keeps the working copy's status writes nothing to the lesson at all
-      // (the lock held since the start already guarantees the status is still what was planned).
-      if (plan.from !== plan.to) {
-        const applied = await this.lessons.compareAndSetStatus(
-          lessonId,
-          plan.from,
-          plan.to,
-          manager,
-        );
-        if (!applied) {
-          // Cannot happen while the lock is held; refuse rather than record an event for a change that did not happen.
+        if (
+          input.expectedContentRevision !== undefined &&
+          input.expectedContentRevision !== state.contentRevision
+        ) {
           throw new ConflictError(
-            'The lesson changed state; reload it and try again.',
+            'The lesson was changed since you last looked at it. Reload it and try again.',
+            { currentContentRevision: state.contentRevision },
           );
         }
-      }
 
-      const event = await this.events.append(
-        {
-          lessonId,
+        // Whether a publication is active matters only to unpublishing (read under the lesson lock).
+        const active =
+          action === 'UNPUBLISH'
+            ? await this.publications.findActive(lessonId, manager)
+            : null;
+        const plan = planTransition(action, state.status, active !== null);
+        if (!plan.allowed) {
+          throw new ConflictError(
+            plan.reason === 'NOT_PUBLISHED'
+              ? 'The lesson has no active publication to unpublish'
+              : `Cannot ${VERBS[action]} a lesson that is ${state.status}`,
+            { action, status: state.status, allowedFrom: plan.allowedFrom },
+          );
+        }
+
+        checkSeparationOfDuties(this.separationOfDuties, {
           action,
-          fromStatus: plan.from,
-          toStatus: plan.to,
-          actorAdminId: actor.id,
-          actorRole: actor.role,
-          note,
-          contentRevision: state.contentRevision,
-          publicationId: publication?.id ?? null,
-        },
-        manager,
-      );
+          actorId: actor.id,
+          priorEvents: (
+            await this.events.list(lessonId, PRIOR_EVENTS_WINDOW, 0, manager)
+          ).items.map((event) => ({
+            action: event.action,
+            actorId: event.actorAdminId,
+          })),
+        });
 
-      return {
-        lessonId,
-        fromStatus: plan.from,
-        status: plan.to,
-        contentRevision: state.contentRevision,
-        event,
-        publication,
-        supersededPublication,
-      };
-    });
+        // Publication work first: readiness failures and snapshot problems abort before anything is written.
+        let publication: Publication | null = null;
+        let supersededPublication: Publication | null = null;
+        if (action === 'PUBLISH') {
+          const effect = await this.publications.publish(
+            lessonId,
+            state.contentRevision,
+            actor,
+            manager,
+          );
+          publication = effect.publication;
+          supersededPublication = effect.superseded;
+        } else if (action === 'UNPUBLISH') {
+          publication = await this.publications.unpublish(
+            lessonId,
+            actor,
+            manager,
+          );
+        }
+
+        // An unpublish that keeps the working copy's status writes nothing to the lesson at all
+        // (the lock held since the start already guarantees the status is still what was planned).
+        if (plan.from !== plan.to) {
+          const applied = await this.lessons.compareAndSetStatus(
+            lessonId,
+            plan.from,
+            plan.to,
+            manager,
+          );
+          if (!applied) {
+            // Cannot happen while the lock is held; refuse rather than record an event for a change that did not happen.
+            throw new ConflictError(
+              'The lesson changed state; reload it and try again.',
+            );
+          }
+        }
+
+        const event = await this.events.append(
+          {
+            lessonId,
+            action,
+            fromStatus: plan.from,
+            toStatus: plan.to,
+            actorAdminId: actor.id,
+            actorRole: actor.role,
+            note,
+            contentRevision: state.contentRevision,
+            publicationId: publication?.id ?? null,
+          },
+          manager,
+        );
+
+        return {
+          lessonId,
+          fromStatus: plan.from,
+          status: plan.to,
+          contentRevision: state.contentRevision,
+          event,
+          publication,
+          supersededPublication,
+        };
+      },
+      { lockTimeoutMs: this.lockTimeoutMs ?? DEFAULT_WORKFLOW_LOCK_TIMEOUT_MS },
+    );
   }
 
   async getState(lessonId: string, role: Role): Promise<WorkflowState> {

@@ -23,6 +23,8 @@ import { WorkflowEventRepository } from './workflow-event.repository.js';
 const runId = randomUUID().slice(0, 8);
 const title = (name: string) => `int-${runId}-${name}`;
 const emailOf = (name: string) => `pubint-${runId}-${name}@int-test.invalid`;
+/** A time safely after any publication made now, whatever the clock skew between this machine and the database. */
+const later = () => new Date(Date.now() + 60 * 60 * 1000);
 const HASH = 'a'.repeat(64);
 const ALL_LEVELS = ['BEGINNER', 'INTERMEDIATE', 'ADVANCED'];
 
@@ -282,11 +284,11 @@ describe('publications (integration)', () => {
         { version: 0 },
         { source_content_revision: 0 },
         { snapshot_schema_version: 0 },
-        { ended_at: new Date(), ended_by: admins.admin.id }, // no reason
-        { ended_at: new Date(), ended_reason: 'UNPUBLISHED' }, // no actor
+        { ended_at: later(), ended_by: admins.admin.id }, // no reason
+        { ended_at: later(), ended_reason: 'UNPUBLISHED' }, // no actor
         { ended_reason: 'UNPUBLISHED' }, // reason without end
         {
-          ended_at: new Date(),
+          ended_at: later(),
           ended_by: admins.admin.id,
           ended_reason: 'DELETED', // not a valid reason
         },
@@ -314,7 +316,7 @@ describe('publications (integration)', () => {
       ).rejects.toMatchObject({ code: '23503' });
       await expect(
         insertPublication(lessonId, {
-          ended_at: new Date(),
+          ended_at: later(),
           ended_by: randomUUID(),
           ended_reason: 'UNPUBLISHED',
         }),

@@ -40,6 +40,7 @@ class World {
   statusWrites: string[] = [];
   locks: string[] = [];
   failNextAppend = false;
+  runOptions: ({ lockTimeoutMs?: number } | undefined)[] = [];
   /** simulates a competing transition winning the race right after the lock was granted */
   stealStatusOnNextCas: ContentStatus | null = null;
 
@@ -116,7 +117,11 @@ function build(world = new World(), policy = NO_SEPARATION_OF_DUTIES) {
 
   // A transaction that undoes the fake world when the work throws, like a real rollback.
   const transactions = {
-    run: async (work: (m: EntityManager) => Promise<unknown>) => {
+    run: async (
+      work: (m: EntityManager) => Promise<unknown>,
+      options?: { lockTimeoutMs?: number },
+    ) => {
+      world.runOptions.push(options);
       const saved = world.snapshot();
       try {
         return await work({} as EntityManager);

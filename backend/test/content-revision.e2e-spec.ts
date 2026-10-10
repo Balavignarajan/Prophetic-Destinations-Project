@@ -7,6 +7,8 @@ import { AppModule } from './../src/app.module.js';
 import { AdminProvisioningService } from './../src/modules/identity/application/admin-provisioning.service.js';
 import { Role } from './../src/modules/identity/index.js';
 import { configureApp } from './../src/platform/configure-app.js';
+import { forceStatus } from './support/lesson-status.js';
+import { deleteWorkflowHistory } from './support/workflow-cleanup.js';
 
 // Audits every authoring mutation path through the real API: content_revision must move exactly once
 // for each effective change and not at all for no-ops, rejected requests, reordering lessons, or
@@ -94,6 +96,7 @@ describe('Lesson content revision (e2e)', () => {
     const like = `e2e-${runId}-%`;
     const modules = `SELECT m."id" FROM "course_modules" m JOIN "courses" c ON c."id" = m."course_id" WHERE c."title" LIKE $1`;
     const owned = `SELECT "id" FROM "lessons" WHERE "module_id" IN (${modules})`;
+    await deleteWorkflowHistory(dataSource, owned, [like]);
     await dataSource.query(
       `DELETE FROM "lesson_block_levels" WHERE "lesson_id" IN (${owned})`,
       [like],
@@ -520,10 +523,7 @@ describe('Lesson content revision (e2e)', () => {
             .send({ type: 'RICH_TEXT', sharedContent: rich('two') })
             .expect(201)
         ).body;
-        await dataSource.query(
-          `UPDATE "lessons" SET "status" = $2 WHERE "id" = $1`,
-          [lessonId, status],
-        );
+        await forceStatus(dataSource, lessonId, status);
 
         const lessonBefore = await getLesson(lessonId);
         const blocksBefore = (
@@ -639,10 +639,7 @@ describe('Lesson content revision (e2e)', () => {
           ],
         ];
         for (const [name, change] of changes) {
-          await dataSource.query(
-            `UPDATE "lessons" SET "status" = $2 WHERE "id" = $1`,
-            [lessonId, status],
-          );
+          await forceStatus(dataSource, lessonId, status);
           const before = await getLesson(lessonId);
           await change();
           const after = await getLesson(lessonId);

@@ -57,6 +57,7 @@ class World {
   events: WorkflowEvent[] = [];
   statusWrites: string[] = [];
   failAt: FailPoint | null = null;
+  runOptions: ({ lockTimeoutMs?: number } | undefined)[] = [];
   stealStatusOnNextCas: ContentStatus | null = null;
 
   addLesson(
@@ -286,7 +287,11 @@ function build(world = new World()) {
   } as unknown as WorkflowEventRepository;
 
   const transactions = {
-    run: async (work: (m: EntityManager) => Promise<unknown>) => {
+    run: async (
+      work: (m: EntityManager) => Promise<unknown>,
+      options?: { lockTimeoutMs?: number },
+    ) => {
+      world.runOptions.push(options);
       const saved = world.saved();
       try {
         return await work({} as EntityManager);
@@ -1026,6 +1031,22 @@ describe('publishing', () => {
       expect(edited.status).toBe('DRAFT');
       expect(edited.allowedActions).toEqual(['SUBMIT_FOR_REVIEW', 'UNPUBLISH']);
       expect(edited.activePublication!.sourceContentRevision).toBe(5);
+    });
+  });
+
+  describe('lock timeout', () => {
+    it('every transition asks the runner for a 10 second lock timeout', async () => {
+      const { world, service } = build();
+      const lessonId = world.addLesson('APPROVED');
+      await service.perform('PUBLISH', lessonId, admin());
+      await service.perform('UNPUBLISH', lessonId, admin());
+      world.edit(lessonId, (l) => (l.title = 'Edited'));
+      await service.perform('SUBMIT_FOR_REVIEW', lessonId, actor(Role.EDITOR));
+      await service.perform('APPROVE', lessonId, actor(Role.REVIEWER));
+      expect(world.runOptions).toHaveLength(4);
+      for (const options of world.runOptions) {
+        expect(options).toEqual({ lockTimeoutMs: 10_000 });
+      }
     });
   });
 });

@@ -48,39 +48,48 @@ export class SessionService {
     const tokenHash = hashRefreshToken(rawToken);
 
     // Decide inside the transaction, throw outside it: a throw would roll back the revocation.
-    const outcome = await this.transactions.run(async (manager) => {
-      const current = await this.tokens.findByHashForUpdate(tokenHash, manager);
-      if (!current) return null;
-
-      const now = new Date();
-      const decision = decideRefresh(current, now);
-
-      if (decision === 'reuse') {
-        await this.tokens.revokeFamily(
-          current.familyId,
-          'REUSE_DETECTED',
-          now,
+    const outcome = await this.transactions.run(
+      async (manager) => {
+        const current = await this.tokens.findByHashForUpdate(
+          tokenHash,
           manager,
         );
-        return null;
-      }
-      if (decision === 'reject') return null;
+        if (!current) return null;
 
-      const admin = await this.admins.findById(current.adminId, manager);
-      if (!admin || !canAuthenticate(admin)) {
-        await this.tokens.revokeFamily(
-          current.familyId,
-          'ACCOUNT_DISABLED',
-          now,
-          manager,
-        );
-        return null;
-      }
+        const now = new Date();
+        const decision = decideRefresh(current, now);
 
-      const next = await this.issue(admin.id, current.familyId, manager);
-      await this.tokens.markRotated(current.id, next.id, now, manager);
-      return { rawToken: next.rawToken, expiresAt: next.expiresAt, admin };
-    });
+        if (decision === 'reuse') {
+          await this.tokens.revokeFamily(
+            current.familyId,
+            'REUSE_DETECTED',
+            now,
+            manager,
+          );
+          return null;
+        }
+        if (decision === 'reject') return null;
+
+        const admin = await this.admins.findById(current.adminId, manager);
+        if (!admin || !canAuthenticate(admin)) {
+          await this.tokens.revokeFamily(
+            current.familyId,
+            'ACCOUNT_DISABLED',
+            now,
+            manager,
+          );
+          return null;
+        }
+
+        const next = await this.issue(admin.id, current.familyId, manager);
+        await this.tokens.markRotated(current.id, next.id, now, manager);
+        return { rawToken: next.rawToken, expiresAt: next.expiresAt, admin };
+      },
+      // A refresh is not "retry the same request": if a concurrent refresh already rotated this token,
+      // presenting it again is reuse and revokes the session. So a concurrency failure here is never
+      // reported as retryable; it propagates unchanged, as it did before the translation existed.
+      { translateConcurrencyErrors: false },
+    );
 
     if (!outcome) throw new UnauthorizedError('Authentication failed');
     return outcome;
