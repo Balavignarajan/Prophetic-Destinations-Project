@@ -1,12 +1,21 @@
 import { Injectable } from '@nestjs/common';
 import type { LearningLevel } from '../../../shared-kernel/index.js';
+import type {
+  LessonNavigation,
+  PublishedCourseView,
+} from '../domain/catalog-view.js';
 import type { ActiveSnapshotInfo } from '../domain/models.js';
 import { PublicationRepository } from '../persistence/publication.repository.js';
+import { PublishedCatalogService } from './published-catalog.service.js';
 
 /**
  * What other modules (the Delivery module) may ask Publishing: the published snapshot a learner
  * should get right now. Read-only, plain data, no entities, and it only ever reads the publication
  * tables: never the authoring tables, never a draft, never an ended publication.
+ *
+ * Lesson snapshots are available only while the lesson's module AND course are published as well
+ * (checked in the same query, on every call). The catalog reads below return the ACTIVE catalog snapshot
+ * of a course filtered by what is currently published, and the previous/next lesson derived from it.
  *
  * Two small steps so that a revalidation (`If-None-Match`) needs only the hash, not a snapshot of
  * up to 5 MiB:
@@ -17,7 +26,10 @@ import { PublicationRepository } from '../persistence/publication.repository.js'
  */
 @Injectable()
 export class PublishingFacade {
-  constructor(private readonly publications: PublicationRepository) {}
+  constructor(
+    private readonly publications: PublicationRepository,
+    private readonly catalog: PublishedCatalogService,
+  ) {}
 
   findActiveSnapshotInfo(
     lessonId: string,
@@ -31,5 +43,26 @@ export class PublishingFacade {
     level: LearningLevel,
   ): Promise<Record<string, unknown> | null> {
     return this.publications.findActiveSnapshotContent(publicationId, level);
+  }
+
+  /** Published courses with at least one currently eligible lesson at `level`, in first-published order. */
+  listPublishedCourses(level: LearningLevel): Promise<PublishedCourseView[]> {
+    return this.catalog.listCourses(level);
+  }
+
+  /** One published course at `level`, or null if it is not published or nothing in it is eligible there. */
+  findPublishedCourse(
+    courseId: string,
+    level: LearningLevel,
+  ): Promise<PublishedCourseView | null> {
+    return this.catalog.findCourse(courseId, level);
+  }
+
+  /** Previous/next eligible lesson of a deliverable lesson, or null if it has no place in a published catalog. */
+  findLessonNavigation(
+    lessonId: string,
+    level: LearningLevel,
+  ): Promise<LessonNavigation | null> {
+    return this.catalog.findNavigation(lessonId, level);
   }
 }

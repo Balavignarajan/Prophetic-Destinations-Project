@@ -11,19 +11,17 @@ import {
 import { ThrottlerGuard } from '@nestjs/throttler';
 import type { Response } from 'express';
 import { Public } from '../../../platform/public.decorator.js';
+import { CatalogDeliveryService } from '../application/catalog-delivery.service.js';
 import { LessonDeliveryService } from '../application/lesson-delivery.service.js';
+import { NavigationResponseDto } from './dto/catalog-delivery.dto.js';
 import {
   LessonDeliveryQueryDto,
   LessonSnapshotResponseDto,
 } from './dto/lesson-delivery.dto.js';
+import { PUBLISHED_CACHE_CONTROL, respond } from './respond.js';
 
-/**
- * Freshness policy of a published lesson: it MAY be stored by a cache but must be revalidated
- * (with the ETag) before every reuse. Published snapshots never change, so revalidation is cheap
- * (a 304 with no body), and a withdrawn lesson stops being served on the very next request instead
- * of lingering for a freshness lifetime. Errors are `no-store` (see no-store.middleware.ts).
- */
-export const LESSON_CACHE_CONTROL = 'public, no-cache';
+/** Kept under its old name for the lesson endpoint; the policy itself lives in respond.ts. */
+export const LESSON_CACHE_CONTROL = PUBLISHED_CACHE_CONTROL;
 
 /**
  * The anonymous learner endpoint. @Public() skips authentication only; the rate limiter below is
@@ -34,7 +32,10 @@ export const LESSON_CACHE_CONTROL = 'public, no-cache';
 @UseGuards(ThrottlerGuard)
 @Controller('lessons')
 export class LessonDeliveryController {
-  constructor(private readonly delivery: LessonDeliveryService) {}
+  constructor(
+    private readonly delivery: LessonDeliveryService,
+    private readonly catalog: CatalogDeliveryService,
+  ) {}
 
   /**
    * The active published snapshot of one lesson at one level, with a strong ETag.
@@ -61,5 +62,23 @@ export class LessonDeliveryController {
       return undefined;
     }
     return result.envelope;
+  }
+
+  /**
+   * The previous and next eligible lesson of a deliverable lesson, within its published course (see the
+   * architecture notes). The lesson endpoint's envelope is unchanged; the course id lives only here.
+   * 404 for anything that is not deliverable at that level or has no place in a published catalog.
+   */
+  @Get(':lessonId/navigation')
+  async navigation(
+    @Param('lessonId', ParseUUIDPipe) lessonId: string,
+    @Query() query: LessonDeliveryQueryDto,
+    @Headers('if-none-match') ifNoneMatch: string | undefined,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<NavigationResponseDto | undefined> {
+    return respond(
+      res,
+      await this.catalog.getNavigation(lessonId, query.level, ifNoneMatch),
+    );
   }
 }

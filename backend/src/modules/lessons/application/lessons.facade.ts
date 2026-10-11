@@ -121,6 +121,18 @@ export class LessonsFacade {
     return this.lessons.compareAndSetStatus(lessonId, from, to, manager);
   }
 
+  /**
+   * Where the lessons of the given modules sit: id, module and `position` within the module, ordered by
+   * module and then position. Plain ordering data only (no titles or content): Publishing combines it
+   * with PUBLISHED lesson data to build catalog snapshots.
+   */
+  listLessonPlacements(
+    moduleIds: readonly string[],
+    manager?: EntityManager,
+  ): Promise<{ lessonId: string; moduleId: string; position: number }[]> {
+    return this.lessons.listPlacements(moduleIds, manager);
+  }
+
   /** Ids of the lessons with a status, in id order after `afterId` (keyset paging; for consistency checks). */
   listLessonIdsByStatus(
     status: ContentStatus,

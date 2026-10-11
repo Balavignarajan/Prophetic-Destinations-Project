@@ -403,6 +403,120 @@ asserts it), so today `req.ip` is the address of the TCP peer and the forwarded-
 `test/architecture.spec.ts` and `delivery-boundaries.spec.ts`). Publishing's admin endpoints, workflow, snapshot format and transactions are unchanged.
 Not in this phase: course/module publishing or a catalog, Scripture, Media, Quizzes, further block contracts, reusable blocks, learner identity or progress.
 
+## Course/module publishing, catalog and lesson navigation (WP2 + WP7)
+
+Courses and modules are published through the same four-state workflow, role matrix and audit conventions as lessons, and learners read an
+**immutable catalog snapshot** of a course instead of the live curriculum tables. Lesson publications stay separate: a course being published never
+publishes a lesson, and a lesson is only served while its module AND course are published too.
+
+### Model
+
+- **Catalog publication** (`course_publications`, one per course version) is the unit: a course and its published modules, as one immutable record
+  with a version, an actor, and `ended_at` / `ended_reason` (`SUPERSEDED` or `UNPUBLISHED`). Exactly one is active per course (partial unique index).
+  Its per-level snapshots are `course_publication_levels` (one row per learning level that has at least one published lesson, each with a
+  SHA-256 content hash and size, like lesson snapshots). Its modules are `course_publication_modules` (the module membership and the module's
+  published title/description at that version). All three, and the workflow history `catalog_workflow_events`, are append-only/immutable in the
+  database (triggers) and every foreign key is RESTRICT, so a course or module with catalog history cannot be deleted (409).
+- **A course is published** when it has an active catalog publication. **A module is published** when it is listed in its course's active catalog
+  publication. A `status` on the row is the workflow state of the working copy, exactly as for lessons: editing a published course or module returns
+  it to DRAFT, while the older published version keeps serving until it is replaced or unpublished.
+- **New catalog versions** are created by exactly these workflow actions, each in one transaction that holds the course lock (a failure at any
+  step, including readiness, rolls everything back and leaves the previous active version serving):
+  - COURSE `PUBLISH` (course must be APPROVED): the course is published with its modules. A module is included when it is APPROVED or PUBLISHED **and**
+    either the previous catalog version listed it or it was never withdrawn. APPROVED ones become PUBLISHED, each with its own workflow event. A module
+    that was listed before but has been edited since (DRAFT / READY_FOR_REVIEW) keeps its previously published entry unchanged. A module that is not
+    included is reported in `modulesNotIncluded` with a `reason`: `NOT_APPROVED`, or `WITHDRAWN` (its latest workflow event is an UNPUBLISH, so it was
+    taken out on purpose; it returns only after it is edited, approved again and then included by a course publish, or published explicitly with a module PUBLISH).
+    Unpublishing and republishing a course therefore never brings back a module that was withdrawn.
+  - **Refresh** — COURSE `PUBLISH` of a course that is already PUBLISHED and listed: a new version from the approved current data and the lessons that are
+    published now, with no outage (the previous version keeps serving until the new one commits, and is then ended as `SUPERSEDED`). It is the same route,
+    the same ADMIN-only permission and the same readiness rules; the audit event is `PUBLISH` with `fromStatus = toStatus = PUBLISHED`. It is not a way
+    around review: a PUBLISHED course or module has not been edited since it was approved (any edit returns it to DRAFT). This is how a lesson published
+    (or published at a new level) after the last version is added to the catalog.
+  - MODULE `PUBLISH` (module must be APPROVED, or PUBLISHED and listed for a refresh of that module; its course must have an active catalog publication):
+    a new version that adds or refreshes that module and carries every other module over from the active version.
+  - MODULE `UNPUBLISH` (module must be listed in the active version): a new version without that module.
+  - COURSE `UNPUBLISH` ends the active catalog publication; nothing else changes (modules keep their status). Republishing the course follows the rules
+    of the course publish above.
+    In every case the lesson layer of the new version is rebuilt from the lessons' current ACTIVE lesson publications (published data only, never the
+    working copy).
+- **Order is part of what is approved.** Re-ordering the modules of a course is an edit of the course, and re-ordering the lessons of a module is an edit of
+  the module: a changed order (and only a changed order) returns the course / module to DRAFT and bumps its version, so it has to be submitted and approved
+  again like any other edit. When a version is built, the order of the previous version is kept for every module and lesson that is still included, and
+  entries that are new are inserted before their closest following entry that is already placed (last, if none follows). The current authoring order is
+  applied only in the version that publishes an approved subject: a COURSE `PUBLISH` of an APPROVED course applies the module order, and a course or
+  module publish applies the lesson order of each module that is being published from APPROVED. A module PUBLISH / UNPUBLISH of an unrelated module,
+  and a refresh of a PUBLISHED subject, never move the published order. The first version of a course uses the authoring order. A stored version is never
+  rewritten, and navigation is derived from the stored snapshot, not from live positions.
+- **Catalog snapshot per level `L`** (`schemaVersion` 1):
+  `{ schemaVersion, level, course: { id, title, description }, modules: [ { id, title, description, lessons: [ { id, title, shortTitle, subtitle, estimatedMinutes } ] } ] }`.
+  A lesson is listed at `L` only if it had an active lesson publication with a snapshot for `L` when the version was created; its summary fields come
+  from that published snapshot. The nested order IS the navigation order; there is no second ordering source. A level with no published lessons has no row.
+- **Readiness (authoritative, at publish):** a publish is refused with 422 and a full report (`code`, `message`) if the version would list no published
+  lesson at all (`NO_PUBLISHED_LESSONS`), a level snapshot would exceed 5 MiB (`SNAPSHOT_TOO_LARGE`), or (module publish) the course is not published.
+
+### Availability (what learners may see), enforced from database state on every request
+
+A lesson is served by `GET /api/v1/lessons/:lessonId?level=` only if ALL hold at the moment of the request: it has an active lesson publication with a
+snapshot for that level, **and** the ACTIVE catalog version of its course lists that lesson, under its own module, at that level (so its module and its
+course are published and the catalog knows the lesson). The active catalog snapshot is the single authority for what a learner can reach: a lesson it
+does not list is not delivered, even if the lesson itself is published, and a catalog entry alone never makes an unpublished lesson deliverable. This is
+one SQL condition, evaluated before a snapshot or a 304 is returned, so a withdrawn course or module, or an unlisted lesson, stops (or never starts)
+delivery on the very next request even if the client holds a matching ETag. Lesson snapshots and publication history are never changed.
+Course detail, the course list and navigation read the same active snapshot filtered by the same live rule (a listed lesson is shown only while it still has
+an active lesson publication at that level; modules left with no such lesson are omitted; a course with none at that level is not listed and its detail is
+a 404), so delivery, detail, list and navigation always agree on which lessons are available at a level. A lesson published (or published at a new level)
+after the active version only becomes available when a new version lists it, i.e. after a refresh.
+
+### Admin routes (`/api/v1/admin`, authenticated; roles as for lessons: ADMIN/EDITOR submit, ADMIN/REVIEWER request changes and approve, ADMIN publish and unpublish, all three read)
+
+| Route                                                                                                        | Purpose                                                                                                                |
+| ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| `GET courses/:courseId/workflow`                                                                             | state, version, allowed actions for the caller, active catalog publication, latest event                               |
+| `GET courses/:courseId/workflow/events`                                                                      | history, newest first (`limit`, `offset`)                                                                              |
+| `POST courses/:courseId/workflow/{submit,request-changes,approve,publish,unpublish}`                         | transitions (`request-changes` needs a note; optional `expectedVersion`; `publish` of a published course is a refresh) |
+| `GET courses/:courseId/modules/:moduleId/workflow` and `.../workflow/events`                                 | same, for a module                                                                                                     |
+| `POST courses/:courseId/modules/:moduleId/workflow/{submit,...,unpublish}`                                   | same transitions, for a module                                                                                         |
+| `GET courses/:courseId/publications`, `.../publications/:version`, `.../publications/:version/levels/:level` | catalog publication history and stored level snapshots (read-only)                                                     |
+
+A transition response is `{ courseId, moduleId?, fromStatus, status, version, event, publication?, supersededVersion?, modulesPublished?, modulesNotIncluded?: [{ moduleId, status, reason }] }`.
+Errors follow the lesson workflow: 403 role, 409 invalid transition / stale `expectedVersion` / lock timeout, 422 readiness report, 404 unknown id.
+
+### Public routes (anonymous, `@Public()`, same throttling, strong ETag and cache policy as the lesson endpoint)
+
+`level` is required and must be exactly `BEGINNER`, `INTERMEDIATE` or `ADVANCED`; ids must be UUIDs (400 otherwise). Every "not available" case on a route is the same
+404 with no details (`Course not found` on the course route, `Lesson not found` on the lesson and navigation routes). 200 and 304 carry `Cache-Control: public, no-cache` and a strong `ETag`; every error is `no-store`.
+
+- `GET /api/v1/courses?level=L` -> `{ level, courses: [ { courseId, catalogVersion, title, description, moduleCount, lessonCount } ] }`, ordered by when the
+  course was first published, then id. Only courses with at least one currently eligible lesson at `L`; counts are of eligible items only.
+- `GET /api/v1/courses/:courseId?level=L` -> `{ courseId, level, catalogVersion, title, description, moduleCount, lessonCount, modules: [ { moduleId, title,
+description, lessons: [ { lessonId, title, shortTitle, subtitle, estimatedMinutes, previousLessonId, nextLessonId } ] } ] }`.
+- `GET /api/v1/lessons/:lessonId/navigation?level=L` -> `{ lessonId, level, courseId, moduleId, catalogVersion, previous, next }` where `previous` / `next` are
+  `{ lessonId, moduleId, title, shortTitle, subtitle, estimatedMinutes }` or `null`. The lesson endpoint's own envelope is unchanged; the course id is not in it,
+  which is why navigation has its own read-only route.
+- **ETag** (all three): `sha256` of the canonical JSON of `[scheme, route kind, ids, level, response body]`, so it covers the complete representation,
+  including the live eligibility filter; a different course, level, version, eligible set or lesson never shares a tag. `If-None-Match` follows RFC 9110
+  exactly as for lessons; an ineligible resource is a 404 whatever validator is sent.
+
+### Navigation (WP7)
+
+Order = the catalog snapshot's module order, then lesson order, within ONE course. For a lesson served at `L`, `previous` / `next` are the nearest entries in
+that order that are currently eligible (listed at `L` and still with an active lesson publication at `L`), skipping ineligible ones, across module
+boundaries inside the course; `null` at either end. Navigation never leaves the course and never names an unpublished module, course or lesson. A lesson
+that the active catalog version does not list (for example one published after it was created) is not deliverable either, and its navigation is a 404
+until a refresh lists it. Manually authored related-lesson links do not exist.
+
+### Known limits and open decisions
+
+- A lesson published after a catalog version is not available (and not in the catalog or navigation) until a refresh creates a version that lists it; the
+  refresh is an explicit ADMIN action (a course or module PUBLISH of a PUBLISHED, listed subject). Nothing refreshes a catalog automatically.
+- Approval of an order change is represented by the existing edit, review and publish cycle of the course (module order) and of the module (lesson order);
+  there is no separate approval of "the order alone". An authoring reorder made directly in the database (not through the API) is not recorded as an
+  edit and is therefore never applied to a published order except by the rules above.
+- Counts, listings and navigation show only eligible items; an empty course or module is simply absent.
+- The summaries (titles) in a catalog version are those of the lesson snapshots that were active when the version was created; a lesson republished with
+  a new title shows the new title in the lesson itself and in the catalog after the next version.
+
 ## HTTP conventions
 
 - All routes are under `/api/v1`, except `GET /health` and `GET /health/db`.

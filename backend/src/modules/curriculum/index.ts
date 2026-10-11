@@ -2,5 +2,7 @@
 export { CurriculumModule } from './curriculum.module.js';
 export {
   CurriculumFacade,
+  type CourseWorkflowRef,
   type ModuleRef,
+  type ModuleWorkflowRef,
 } from './application/curriculum.facade.js';

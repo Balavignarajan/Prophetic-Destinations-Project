@@ -3,6 +3,7 @@ import type { EntityManager } from 'typeorm';
 import { NotFoundError } from '../../../shared-kernel/index.js';
 import type { CourseModule } from '../domain/models.js';
 import type { CourseModuleRepository } from '../persistence/course-module.repository.js';
+import type { CourseRepository } from '../persistence/course.repository.js';
 import { CurriculumFacade } from './curriculum.facade.js';
 
 const module = {
@@ -18,7 +19,7 @@ function facade(found: CourseModule | null) {
     findById: async () => found,
     findByIdForUpdate: async () => found,
   } as unknown as CourseModuleRepository;
-  return new CurriculumFacade(repo);
+  return new CurriculumFacade(repo, {} as unknown as CourseRepository);
 }
 
 describe('CurriculumFacade', () => {

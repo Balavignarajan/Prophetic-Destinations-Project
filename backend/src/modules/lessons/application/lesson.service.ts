@@ -216,10 +216,8 @@ export class LessonService {
       await this.lockModuleOf(courseId, moduleId, manager);
 
       const current = await this.lessons.listByModule(moduleId, manager);
-      checkReorder(
-        current.map((lesson) => lesson.id),
-        lessonIds,
-      );
+      const currentIds = current.map((lesson) => lesson.id);
+      checkReorder(currentIds, lessonIds);
 
       await this.lessons.applyPositions(
         moduleId,
@@ -227,6 +225,11 @@ export class LessonService {
         positionsFor(lessonIds),
         manager,
       );
+      // The lesson order is part of the module: changing it is an edit of the module (a published module goes
+      // back to DRAFT), so a new order is only published once the module has been approved again.
+      if (lessonIds.some((id, index) => id !== currentIds[index])) {
+        await this.curriculum.markModuleEdited(moduleId, manager);
+      }
       return this.lessons.listByModule(moduleId, manager);
     });
   }

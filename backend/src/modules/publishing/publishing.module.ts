@@ -1,10 +1,20 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { CurriculumModule } from '../curriculum/index.js';
 import { LessonsModule } from '../lessons/index.js';
+import { CatalogPublicationsController } from './api/catalog-publications.controller.js';
+import {
+  CourseWorkflowController,
+  ModuleWorkflowController,
+} from './api/catalog-workflow.controller.js';
 import { ConsistencyController } from './api/consistency.controller.js';
 import { PublicationsController } from './api/publications.controller.js';
 import { ReadinessController } from './api/readiness.controller.js';
 import { WorkflowController } from './api/workflow.controller.js';
+import { CatalogHistoryService } from './application/catalog-history.service.js';
+import { CatalogPublicationService } from './application/catalog-publication.service.js';
+import { CatalogWorkflowService } from './application/catalog-workflow.service.js';
+import { PublishedCatalogService } from './application/published-catalog.service.js';
 import { ConsistencyService } from './application/consistency.service.js';
 import { PublishingFacade } from './application/publishing.facade.js';
 import { PublicationService } from './application/publication.service.js';
@@ -19,6 +29,9 @@ import {
   SEPARATION_OF_DUTIES_POLICY,
 } from './domain/separation-of-duties.js';
 import { LessonWorkflowEventEntity } from './persistence/lesson-workflow-event.entity.js';
+import { CatalogEventRepository } from './persistence/catalog-event.repository.js';
+import { CatalogPublicationRepository } from './persistence/catalog-publication.repository.js';
+import { PublishedCatalogRepository } from './persistence/published-catalog.repository.js';
 import { ConsistencyRepository } from './persistence/consistency.repository.js';
 import { PublicationRepository } from './persistence/publication.repository.js';
 import { WorkflowEventRepository } from './persistence/workflow-event.repository.js';
@@ -32,9 +45,13 @@ import { WorkflowEventRepository } from './persistence/workflow-event.repository
   imports: [
     TypeOrmModule.forFeature([LessonWorkflowEventEntity]),
     LessonsModule,
+    CurriculumModule,
   ],
   controllers: [
     WorkflowController,
+    CourseWorkflowController,
+    ModuleWorkflowController,
+    CatalogPublicationsController,
     ConsistencyController,
     PublicationsController,
     ReadinessController,
@@ -43,6 +60,13 @@ import { WorkflowEventRepository } from './persistence/workflow-event.repository
     WorkflowEventRepository,
     PublicationRepository,
     PublishingFacade,
+    CatalogPublicationRepository,
+    CatalogEventRepository,
+    PublishedCatalogRepository,
+    CatalogPublicationService,
+    CatalogWorkflowService,
+    CatalogHistoryService,
+    PublishedCatalogService,
     ConsistencyRepository,
     ConsistencyService,
     PublicationService,

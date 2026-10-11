@@ -74,13 +74,38 @@ export class CourseRepository {
     return toCourse(await repo.findOneOrFail({ where: { id } }));
   }
 
+  /**
+   * Moves the status from `from` to `to` only if it is still `from`; returns whether it did. A workflow
+   * transition is not an edit: `version` is untouched (this is raw SQL, so the version column does not move).
+   */
+  async compareAndSetStatus(
+    id: string,
+    from: ContentStatus,
+    to: ContentStatus,
+    manager: EntityManager,
+  ): Promise<boolean> {
+    // A CTE wrapped in a SELECT, because TypeORM returns a different shape ([rows, count]) for a bare UPDATE.
+    const [result]: { applied: number }[] = await manager.query(
+      `WITH updated AS (
+         UPDATE "courses" SET "status" = $3, "updated_at" = now()
+          WHERE "id" = $1 AND "status" = $2
+          RETURNING "id"
+       )
+       SELECT count(*)::int AS "applied" FROM updated`,
+      [id, from, to],
+    );
+    return result.applied > 0;
+  }
+
   async delete(id: string, manager?: EntityManager): Promise<void> {
     try {
       await this.repo(manager).delete({ id });
     } catch (error) {
       // Backstop for the foreign key (ON DELETE RESTRICT) if modules appeared concurrently.
       if (isForeignKeyViolation(error)) {
-        throw new ConflictError('Course still has modules');
+        throw new ConflictError(
+          'This course cannot be deleted: it still has modules, or it has workflow or publication history.',
+        );
       }
       throw error;
     }

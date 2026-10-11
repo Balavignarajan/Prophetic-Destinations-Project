@@ -393,6 +393,25 @@ describe('ModuleService', () => {
     expect(again.map((m) => m.title)).toEqual(['C', 'A', 'B']);
   });
 
+  it('treats a real reorder as an edit of the course (back to DRAFT, version moves), a no-op reorder as nothing', async () => {
+    const { moduleService, courses, course } = await courseWith(['A', 'B']);
+    const [a, b] = await moduleService.list(course.id);
+    await courses.update(course.id, { status: 'PUBLISHED' });
+    const before = (await courses.findById(course.id))!;
+
+    await moduleService.reorder(course.id, [a.id, b.id]); // same order
+    expect(await courses.findById(course.id)).toMatchObject({
+      status: 'PUBLISHED',
+      version: before.version,
+    });
+
+    await moduleService.reorder(course.id, [b.id, a.id]);
+    expect(await courses.findById(course.id)).toMatchObject({
+      status: 'DRAFT',
+      version: before.version + 1,
+    });
+  });
+
   it('rejects an incomplete, duplicated or foreign reorder and changes nothing', async () => {
     const { courseService, moduleService, modules, course } = await courseWith([
       'A',

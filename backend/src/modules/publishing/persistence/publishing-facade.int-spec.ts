@@ -1,6 +1,7 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { Test } from '@nestjs/testing';
 import { DataSource } from 'typeorm';
+import { deleteCatalogHistory } from '../../../../test/support/catalog-cleanup.js';
 import { deleteWorkflowHistory } from '../../../../test/support/workflow-cleanup.js';
 import { ConfigModule } from '../../../config/index.js';
 import { DatabaseModule } from '../../../database/database.module.js';
@@ -31,6 +32,11 @@ describe('PublishingFacade (integration)', () => {
 
   const cleanup = async () => {
     const like = `int-${runId}-%`;
+    await deleteCatalogHistory(
+      dataSource,
+      `SELECT "id" FROM "courses" WHERE "title" LIKE $1`,
+      [like],
+    );
     await deleteWorkflowHistory(dataSource, lessonsOfRun, [like]);
     for (const table of [
       'lesson_block_levels',
@@ -74,6 +80,12 @@ describe('PublishingFacade (integration)', () => {
   });
 
   /** An APPROVED, publishable lesson with one text block visible at the given levels. */
+  /** Where each test lesson sits, so a published course/module can be set up around it. */
+  const placement = new Map<
+    string,
+    { courseId: string; moduleId: string; name: string }
+  >();
+
   const newLesson = async (name: string, levels: string[] = ALL_LEVELS) => {
     const [course] = await dataSource.query(
       `INSERT INTO "courses" ("title") VALUES ($1) RETURNING "id"`,
@@ -103,8 +115,105 @@ describe('PublishingFacade (integration)', () => {
         [block.id, lesson.id, level],
       );
     }
+    placement.set(lesson.id, {
+      courseId: course.id,
+      moduleId: module.id,
+      name,
+    });
     return lesson.id as string;
   };
+
+  /**
+   * Publishes the lesson's course with its module, as the catalog workflow would, by writing the catalog
+   * rows directly (the services are covered by catalog.int-spec). Idempotent: does nothing if the course has
+   * an active catalog publication.
+   */
+  const ensureCatalog = async (lessonId: string, listLesson = true) => {
+    const where = placement.get(lessonId)!;
+    const [active] = await dataSource.query(
+      `SELECT "id" FROM "course_publications" WHERE "course_id" = $1 AND "ended_at" IS NULL`,
+      [where.courseId],
+    );
+    if (active) return;
+    const [{ next }] = await dataSource.query(
+      `SELECT COALESCE(MAX("version"), 0) + 1 AS "next" FROM "course_publications" WHERE "course_id" = $1`,
+      [where.courseId],
+    );
+    const [publication] = await dataSource.query(
+      `INSERT INTO "course_publications"
+         ("course_id", "version", "cause", "snapshot_schema_version", "course_title", "source_course_version", "published_by")
+       VALUES ($1, $2, 'COURSE_PUBLISH', 1, $3, 1, $4) RETURNING "id"`,
+      [where.courseId, next, title(where.name), admins.admin.id],
+    );
+    await dataSource.query(
+      `INSERT INTO "course_publication_modules" ("publication_id", "course_id", "module_id", "position", "title")
+       VALUES ($1, $2, $3, 1, $4)`,
+      [
+        publication.id,
+        where.courseId,
+        where.moduleId,
+        title(`${where.name}-module`),
+      ],
+    );
+    // the catalog snapshot lists the lesson at every level it is published at (the delivery gate reads it)
+    const levels: { level: string }[] = await dataSource.query(
+      `SELECT l."level" FROM "lesson_publications" p
+         JOIN "lesson_publication_levels" l ON l."publication_id" = p."id"
+        WHERE p."lesson_id" = $1 AND p."ended_at" IS NULL`,
+      [lessonId],
+    );
+    for (const { level } of levels) {
+      const content = {
+        schemaVersion: 1,
+        level,
+        course: {
+          id: where.courseId,
+          title: title(where.name),
+          description: null,
+        },
+        modules: [
+          {
+            id: where.moduleId,
+            title: title(`${where.name}-module`),
+            description: null,
+            lessons: listLesson
+              ? [
+                  {
+                    id: lessonId,
+                    title: title(where.name),
+                    shortTitle: null,
+                    subtitle: null,
+                    estimatedMinutes: null,
+                  },
+                ]
+              : [],
+          },
+        ],
+      };
+      const json = JSON.stringify(content);
+      await dataSource.query(
+        `INSERT INTO "course_publication_levels" ("publication_id", "course_id", "level", "content", "content_hash", "content_bytes")
+         VALUES ($1, $2, $3, $4::jsonb, $5, $6)`,
+        [
+          publication.id,
+          where.courseId,
+          level,
+          json,
+          createHash('sha256').update(json).digest('hex'),
+          Buffer.byteLength(json),
+        ],
+      );
+    }
+  };
+
+  /** Withdraws the lesson's course from the catalog (ends its active catalog publication). */
+  const withdrawCatalog = (lessonId: string) =>
+    dataSource.query(
+      `UPDATE "course_publications"
+          SET "ended_at" = clock_timestamp(), "ended_by" = $2, "ended_reason" = 'UNPUBLISHED'
+        WHERE "course_id" = $1 AND "ended_at" IS NULL`,
+      [placement.get(lessonId)!.courseId, admins.admin.id],
+    );
 
   /** What an authoring edit does (the lessons module's job): back to DRAFT, content revision + 1. */
   const simulateEdit = (lessonId: string) =>
@@ -113,8 +222,11 @@ describe('PublishingFacade (integration)', () => {
       [lessonId],
     );
 
-  const publish = (lessonId: string) =>
-    workflow.perform('PUBLISH', lessonId, admins.admin);
+  const publish = async (lessonId: string) => {
+    const result = await workflow.perform('PUBLISH', lessonId, admins.admin);
+    await ensureCatalog(lessonId); // a lesson is only served inside a published module and course
+    return result;
+  };
   const unpublish = (lessonId: string) =>
     workflow.perform('UNPUBLISH', lessonId, admins.admin);
   const republishAfterEdit = async (lessonId: string) => {
@@ -355,5 +467,93 @@ describe('PublishingFacade (integration)', () => {
     expect(
       await facade.readActiveSnapshotContent(before.publicationId, 'BEGINNER'),
     ).not.toBeNull();
+  });
+
+  describe('course and module gate', () => {
+    it("serves nothing while the lesson's course and module are not published, even if the lesson is", async () => {
+      const lessonId = await newLesson('gate-unpublished-course');
+      await workflow.perform('PUBLISH', lessonId, admins.admin); // no catalog publication
+      for (const level of ALL_LEVELS) {
+        expect(await facade.findActiveSnapshotInfo(lessonId, level)).toBeNull();
+      }
+    });
+
+    it('serves it once the module is in an active catalog publication, and stops the moment that ends', async () => {
+      const lessonId = await newLesson('gate-withdraw');
+      await publish(lessonId);
+      const info = (await facade.findActiveSnapshotInfo(lessonId, 'BEGINNER'))!;
+      expect(info).not.toBeNull();
+      expect(
+        await facade.readActiveSnapshotContent(info.publicationId, 'BEGINNER'),
+      ).not.toBeNull();
+
+      await withdrawCatalog(lessonId);
+
+      // the lesson's own publication is still active ...
+      const [still] = await dataSource.query(
+        `SELECT 1 FROM "lesson_publications" WHERE "lesson_id" = $1 AND "ended_at" IS NULL`,
+        [lessonId],
+      );
+      expect(still).toBeDefined();
+      // ... but neither the info nor the content is available any more
+      expect(
+        await facade.findActiveSnapshotInfo(lessonId, 'BEGINNER'),
+      ).toBeNull();
+      expect(
+        await facade.readActiveSnapshotContent(info.publicationId, 'BEGINNER'),
+      ).toBeNull();
+
+      await ensureCatalog(lessonId); // republished: a new catalog version
+      expect(await facade.findActiveSnapshotInfo(lessonId, 'BEGINNER')).toEqual(
+        info,
+      );
+    });
+
+    it('does not serve a lesson the active catalog version does not list, even though its module is listed', async () => {
+      const lessonId = await newLesson('gate-unlisted');
+      await workflow.perform('PUBLISH', lessonId, admins.admin);
+      await ensureCatalog(lessonId, false); // module listed, lesson not in the snapshot
+      for (const level of ALL_LEVELS) {
+        expect(await facade.findActiveSnapshotInfo(lessonId, level)).toBeNull();
+      }
+      const [row] = await dataSource.query(
+        `SELECT p."id" FROM "lesson_publications" p WHERE p."lesson_id" = $1 AND p."ended_at" IS NULL`,
+        [lessonId],
+      );
+      expect(
+        await facade.readActiveSnapshotContent(row.id, 'BEGINNER'),
+      ).toBeNull();
+      // a new catalog version that lists it makes it deliverable
+      await withdrawCatalog(lessonId);
+      await ensureCatalog(lessonId);
+      expect(
+        await facade.findActiveSnapshotInfo(lessonId, 'BEGINNER'),
+      ).not.toBeNull();
+    });
+
+    it('does not serve a lesson whose module is missing from the active catalog version', async () => {
+      const lessonId = await newLesson('gate-other-module');
+      await workflow.perform('PUBLISH', lessonId, admins.admin);
+      // the course is published, but with a different module only
+      const where = placement.get(lessonId)!;
+      const [other] = await dataSource.query(
+        `INSERT INTO "course_modules" ("course_id","title","position") VALUES ($1,$2,2) RETURNING "id"`,
+        [where.courseId, title('gate-other-module-two')],
+      );
+      const [publication] = await dataSource.query(
+        `INSERT INTO "course_publications"
+           ("course_id", "version", "cause", "snapshot_schema_version", "course_title", "source_course_version", "published_by")
+         VALUES ($1, 1, 'COURSE_PUBLISH', 1, 'c', 1, $2) RETURNING "id"`,
+        [where.courseId, admins.admin.id],
+      );
+      await dataSource.query(
+        `INSERT INTO "course_publication_modules" ("publication_id", "course_id", "module_id", "position", "title")
+         VALUES ($1, $2, $3, 1, 'other')`,
+        [publication.id, where.courseId, other.id],
+      );
+      expect(
+        await facade.findActiveSnapshotInfo(lessonId, 'BEGINNER'),
+      ).toBeNull();
+    });
   });
 });

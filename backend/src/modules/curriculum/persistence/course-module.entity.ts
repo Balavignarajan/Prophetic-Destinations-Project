@@ -17,6 +17,8 @@ import { CourseEntity } from './course.entity.js';
 @Unique('UQ_course_modules_course_id_position', ['courseId', 'position'], {
   deferrable: 'INITIALLY IMMEDIATE',
 })
+// Lets rows that name a module AND a course (catalog publications, workflow events) prove they agree.
+@Unique('UQ_course_modules_id_course_id', ['id', 'courseId'])
 @Check('chk_course_modules_position', `"position" >= 1`)
 @Check(
   'chk_course_modules_title',

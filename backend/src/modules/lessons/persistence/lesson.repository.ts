@@ -70,6 +70,27 @@ export class LessonRepository {
     return toLesson(row, levels.get(row.id) ?? []);
   }
 
+  /** Lesson ids with their module and place, for the given modules, in module then lesson order. */
+  async listPlacements(
+    moduleIds: readonly string[],
+    manager?: EntityManager,
+  ): Promise<{ lessonId: string; moduleId: string; position: number }[]> {
+    if (moduleIds.length === 0) return [];
+    const rows: { id: string; module_id: string; position: number }[] = await (
+      manager ?? this.repo().manager
+    ).query(
+      `SELECT "id", "module_id", "position" FROM "lessons"
+          WHERE "module_id" = ANY($1::uuid[])
+          ORDER BY "module_id", "position"`,
+      [moduleIds],
+    );
+    return rows.map((row) => ({
+      lessonId: row.id,
+      moduleId: row.module_id,
+      position: row.position,
+    }));
+  }
+
   /** Ids of lessons with the given status, in id order, after `afterId` (keyset paging for consistency checks). */
   async idsByStatus(
     status: ContentStatus,

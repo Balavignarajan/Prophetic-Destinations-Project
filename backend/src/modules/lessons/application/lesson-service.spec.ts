@@ -126,6 +126,10 @@ class FakeBlockLevels {
 class FakeCurriculum {
   modules = new Map<string, { id: string; courseId: string }>();
   locked: string[] = [];
+  edited: string[] = [];
+  async markModuleEdited(id: string) {
+    this.edited.push(id);
+  }
   add(courseId: string) {
     const module = { id: randomUUID(), courseId };
     this.modules.set(module.id, module);
@@ -585,11 +589,9 @@ describe('delete', () => {
 
 describe('reorder', () => {
   it('applies the order deterministically', async () => {
-    const { service, lessons, courseId, module } = await moduleWith([
-      'A',
-      'B',
-      'C',
-    ]);
+    const { service, lessons, curriculum, courseId, module } = await moduleWith(
+      ['A', 'B', 'C'],
+    );
     const [a, b, c] = await service.list(courseId, module.id);
 
     const result = await service.reorder(courseId, module.id, [
@@ -602,12 +604,15 @@ describe('reorder', () => {
       [2, 'A'],
       [3, 'B'],
     ]);
+    // a real reorder is an edit of the module; the identical order again is not
+    expect(curriculum.edited).toEqual([module.id]);
     const again = await service.reorder(courseId, module.id, [
       c.id,
       a.id,
       b.id,
     ]);
     expect(again.map((l) => l.title)).toEqual(['C', 'A', 'B']);
+    expect(curriculum.edited).toEqual([module.id]);
     expect(lessons.layout(module.id)).toEqual([
       [1, 'C'],
       [2, 'A'],

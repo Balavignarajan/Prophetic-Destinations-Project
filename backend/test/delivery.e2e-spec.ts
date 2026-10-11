@@ -8,6 +8,7 @@ import { AdminProvisioningService } from './../src/modules/identity/application/
 import { Role } from './../src/modules/identity/index.js';
 import { canonicalJson } from './../src/modules/publishing/domain/snapshot-payload.js';
 import { configureApp } from './../src/platform/configure-app.js';
+import { deleteCatalogHistory } from './support/catalog-cleanup.js';
 import { deleteWorkflowHistory } from './support/workflow-cleanup.js';
 
 // The public learner endpoint, end to end and anonymous: GET /api/v1/lessons/:lessonId?level=
@@ -38,6 +39,8 @@ const rich = (text: string) => ({
     content: [{ type: 'paragraph', content: [{ type: 'text', text }] }],
   },
 });
+
+vi.setConfig({ testTimeout: 120_000 }); // fixtures publish lessons, modules and courses over a remote database
 
 describe('Public lesson delivery (e2e)', () => {
   let app: INestApplication;
@@ -95,7 +98,42 @@ describe('Public lesson delivery (e2e)', () => {
         .send({ type: 'RICH_TEXT', sharedContent: rich(text), levels })
         .expect(201)
     ).body;
-    return { lessonId: lesson.id as string, blockId: block.id as string };
+    return {
+      lessonId: lesson.id as string,
+      blockId: block.id as string,
+      courseId: course.id as string,
+      moduleId: module.id as string,
+    };
+  };
+
+  /** Takes a workflow route (course or module) through submit, approve; optionally publish. */
+  const catalogCycle = async (base: string, publishToo: boolean) => {
+    await http()
+      .post(`${base}/submit`)
+      .set('Authorization', as(Role.EDITOR))
+      .send({})
+      .expect(200);
+    await http()
+      .post(`${base}/approve`)
+      .set('Authorization', as(Role.REVIEWER))
+      .send({})
+      .expect(200);
+    if (publishToo) {
+      await http()
+        .post(`${base}/publish`)
+        .set('Authorization', as(Role.ADMIN))
+        .send({})
+        .expect(200);
+    }
+  };
+
+  /** Publishes the lesson's module and course (a lesson is only served inside both). */
+  const publishCatalog = async (courseId: string, moduleId: string) => {
+    await catalogCycle(
+      `${COURSES}/${courseId}/modules/${moduleId}/workflow`,
+      false,
+    );
+    await catalogCycle(`${COURSES}/${courseId}/workflow`, true);
   };
 
   const approve = async (id: string) => {
@@ -114,6 +152,7 @@ describe('Public lesson delivery (e2e)', () => {
     const created = await newLesson(name, levels, text);
     await approve(created.lessonId);
     await publish(created.lessonId).expect(200);
+    await publishCatalog(created.courseId, created.moduleId);
     return created;
   };
 
@@ -136,6 +175,11 @@ describe('Public lesson delivery (e2e)', () => {
     const like = `e2e-${runId}-%`;
     const modules = `SELECT m."id" FROM "course_modules" m JOIN "courses" c ON c."id" = m."course_id" WHERE c."title" LIKE $1`;
     const owned = `SELECT "id" FROM "lessons" WHERE "module_id" IN (${modules})`;
+    await deleteCatalogHistory(
+      dataSource,
+      `SELECT "id" FROM "courses" WHERE "title" LIKE $1`,
+      [like],
+    );
     await deleteWorkflowHistory(dataSource, owned, [like]);
     for (const table of [
       'lesson_block_levels',
@@ -306,7 +350,6 @@ describe('Public lesson delivery (e2e)', () => {
         `${API}/lessons/${lessonId}/workflow`,
         `${API}/lessons/${lessonId}/download?level=BEGINNER`,
         `${API}/lessons/search?q=text`,
-        `${API}/courses`,
         `${API}/modules`,
         `${API}/catalog`,
         `${API}/sync`,
@@ -732,17 +775,75 @@ describe('Public lesson delivery (e2e)', () => {
      * different lessons or levels can never share a hash (the hashed payload contains the lesson id and
      * the level); this crafts the case the validator must stay correct for anyway.
      */
+    /** An active catalog publication containing the lesson's module (so the availability gate is open). */
+    const craftCatalog = async (lessonId: string, levels: string[]) => {
+      const [where] = await dataSource.query(
+        `SELECT m."id" AS "moduleId", m."course_id" AS "courseId" FROM "lessons" l
+           JOIN "course_modules" m ON m."id" = l."module_id" WHERE l."id" = $1`,
+        [lessonId],
+      );
+      const [publication] = await dataSource.query(
+        `INSERT INTO "course_publications"
+           ("course_id", "version", "cause", "snapshot_schema_version", "course_title", "source_course_version", "published_by")
+         VALUES ($1, 1, 'COURSE_PUBLISH', 1, 'crafted', 1, $2) RETURNING "id"`,
+        [where.courseId, adminIds[0]],
+      );
+      await dataSource.query(
+        `INSERT INTO "course_publication_modules" ("publication_id", "course_id", "module_id", "position", "title")
+         VALUES ($1, $2, $3, 1, 'crafted')`,
+        [publication.id, where.courseId, where.moduleId],
+      );
+      // the catalog snapshot lists the lesson at each level (the delivery gate reads it)
+      for (const level of levels) {
+        const content = JSON.stringify({
+          schemaVersion: 1,
+          level,
+          course: { id: where.courseId, title: 'crafted', description: null },
+          modules: [
+            {
+              id: where.moduleId,
+              title: 'crafted',
+              description: null,
+              lessons: [
+                {
+                  id: lessonId,
+                  title: 'crafted',
+                  shortTitle: null,
+                  subtitle: null,
+                  estimatedMinutes: null,
+                },
+              ],
+            },
+          ],
+        });
+        await dataSource.query(
+          `INSERT INTO "course_publication_levels" ("publication_id", "course_id", "level", "content", "content_hash", "content_bytes")
+           VALUES ($1, $2, $3, $4::jsonb, $5, $6)`,
+          [
+            publication.id,
+            where.courseId,
+            level,
+            content,
+            createHash('sha256').update(content).digest('hex'),
+            Buffer.byteLength(content),
+          ],
+        );
+      }
+      return where.moduleId as string;
+    };
+
     const craftPublication = async (
       lessonId: string,
       levels: string[],
       hash: string,
       version = 1,
     ) => {
+      const moduleId = await craftCatalog(lessonId, levels);
       const [publication] = await dataSource.query(
         `INSERT INTO "lesson_publications"
            ("lesson_id", "version", "module_id", "source_content_revision", "snapshot_schema_version", "published_by")
          VALUES ($1, $2, $3, 1, 1, $4) RETURNING "id"`,
-        [lessonId, version, randomUUID(), adminIds[0]],
+        [lessonId, version, moduleId, adminIds[0]],
       );
       for (const level of levels) {
         await dataSource.query(

@@ -55,12 +55,31 @@ describe('Delivery module boundaries (Phase 4A)', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('exposes exactly one controller route: GET lessons/:lessonId', () => {
+  it('exposes only the approved read-only routes and nothing that writes', () => {
     const controllers = files.filter((f) => f.endsWith('.controller.ts'));
-    expect(controllers).toHaveLength(1);
-    const text = readFileSync(controllers[0], 'utf8');
-    expect(text.match(/@(Get|Post|Put|Patch|Delete)\(/g)).toEqual(['@Get(']);
-    expect(text).toContain("@Controller('lessons')");
-    expect(text).toContain("@Get(':lessonId')");
+    const routes = controllers.flatMap((file) => {
+      const text = readFileSync(file, 'utf8');
+      const base = /@Controller\('([^']*)'\)/.exec(text)![1];
+      return [...text.matchAll(/@(Get|Post|Put|Patch|Delete)\(([^)]*)\)/g)].map(
+        (m) =>
+          `${m[1].toUpperCase()} /${base}${m[2] ? `/${m[2].replaceAll("'", '')}` : ''}`,
+      );
+    });
+    expect(routes.sort()).toEqual(
+      [
+        'GET /courses',
+        'GET /courses/:courseId',
+        'GET /lessons/:lessonId',
+        'GET /lessons/:lessonId/navigation',
+      ].sort(),
+    );
+  });
+
+  it('keeps every controller anonymous and rate limited', () => {
+    for (const file of files.filter((f) => f.endsWith('.controller.ts'))) {
+      const text = readFileSync(file, 'utf8');
+      expect(text, file).toContain('@Public()');
+      expect(text, file).toContain('@UseGuards(ThrottlerGuard)');
+    }
   });
 });

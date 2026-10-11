@@ -116,13 +116,11 @@ export class ModuleService {
     moduleIds: readonly string[],
   ): Promise<CourseModule[]> {
     return this.transactions.run(async (manager) => {
-      await this.lockCourse(courseId, manager);
+      const course = await this.lockCourse(courseId, manager);
 
       const current = await this.modules.listByCourse(courseId, manager);
-      checkReorder(
-        current.map((module) => module.id),
-        moduleIds,
-      );
+      const currentIds = current.map((module) => module.id);
+      checkReorder(currentIds, moduleIds);
 
       await this.modules.applyPositions(
         courseId,
@@ -130,6 +128,15 @@ export class ModuleService {
         positionsFor(moduleIds),
         manager,
       );
+      // The order of the modules is part of the course: changing it is an edit, so a published course goes
+      // back to DRAFT and the new order only becomes public once it has been approved and published.
+      if (moduleIds.some((id, index) => id !== currentIds[index])) {
+        await this.courses.update(
+          courseId,
+          { status: statusAfterEdit(course.status) },
+          manager,
+        );
+      }
       return this.modules.listByCourse(courseId, manager);
     });
   }
@@ -138,13 +145,10 @@ export class ModuleService {
     if (!(await this.courses.findById(courseId))) throw courseNotFound();
   }
 
-  private async lockCourse(
-    courseId: string,
-    manager: EntityManager,
-  ): Promise<void> {
-    if (!(await this.courses.findByIdForUpdate(courseId, manager))) {
-      throw courseNotFound();
-    }
+  private async lockCourse(courseId: string, manager: EntityManager) {
+    const course = await this.courses.findByIdForUpdate(courseId, manager);
+    if (!course) throw courseNotFound();
+    return course;
   }
 }
 

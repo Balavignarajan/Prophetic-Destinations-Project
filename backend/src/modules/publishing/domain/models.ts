@@ -3,6 +3,10 @@ import type {
   LearningLevel,
 } from '../../../shared-kernel/index.js';
 import type { Role } from '../../identity/index.js';
+import type {
+  CatalogLevelContent,
+  PublishedModuleEntry,
+} from './catalog-snapshot.js';
 import type { WorkflowAction } from './workflow.js';
 
 /** One recorded workflow transition of a lesson. History is append-only. */
@@ -73,4 +77,61 @@ export interface ActiveSnapshotInfo {
   publicationVersion: number;
   /** sha256 (hex) of the stored snapshot's canonical serialization. */
   contentHash: string;
+}
+
+// ---- catalog (course/module) publishing ----
+
+/** What created a catalog version. */
+export type CatalogCause =
+  'COURSE_PUBLISH' | 'MODULE_PUBLISH' | 'MODULE_UNPUBLISH';
+
+/**
+ * One immutable catalog version of a course. Active while `endedAt` is null. History is retained
+ * indefinitely. `modules` are the modules this version lists, with their published title/description.
+ */
+export interface CatalogPublication {
+  id: string;
+  courseId: string;
+  /** Per course, starting at 1, never reused. */
+  version: number;
+  cause: CatalogCause;
+  snapshotSchemaVersion: number;
+  courseTitle: string;
+  courseDescription: string | null;
+  /** courses.version when this version was created (audit). */
+  sourceCourseVersion: number;
+  publishedAt: Date;
+  publishedBy: string;
+  endedAt: Date | null;
+  endedBy: string | null;
+  endedReason: PublicationEndReason | null;
+  modules: PublishedModuleEntry[];
+  levels: PublicationLevelSummary[];
+}
+
+/** The stored catalog snapshot of one level of one catalog version. */
+export interface CatalogLevelSnapshot extends PublicationLevelSummary {
+  publicationId: string;
+  courseId: string;
+  version: number;
+  content: CatalogLevelContent;
+}
+
+/** One recorded transition of a course or (when `moduleId` is set) of one of its modules. Append-only. */
+export interface CatalogWorkflowEvent {
+  id: string;
+  seq: number;
+  courseId: string;
+  moduleId: string | null;
+  action: WorkflowAction;
+  fromStatus: ContentStatus;
+  toStatus: ContentStatus;
+  actorAdminId: string;
+  actorRole: Role;
+  note: string | null;
+  /** The course's / module's own version at the time. */
+  subjectVersion: number;
+  /** The catalog version this action created (publish; module actions) or ended (course unpublish). */
+  publicationId: string | null;
+  createdAt: Date;
 }

@@ -6,16 +6,19 @@ import {
 import { ThrottlerModule } from '@nestjs/throttler';
 import { APP_CONFIG, type AppConfig } from '../../config/index.js';
 import { PublishingModule } from '../publishing/index.js';
+import { CourseDeliveryController } from './api/course-delivery.controller.js';
 import { LessonDeliveryController } from './api/lesson-delivery.controller.js';
 import { noStore } from './api/no-store.middleware.js';
+import { CatalogDeliveryService } from './application/catalog-delivery.service.js';
 import { LessonDeliveryService } from './application/lesson-delivery.service.js';
 
 /**
  * The learner-facing read API. It owns no tables and no authoring knowledge: it serves what
  * Publishing says is currently published, through Publishing's facade only.
  *
- * Phase 4A: one anonymous endpoint, `GET /api/v1/lessons/:lessonId?level=`. There are deliberately
- * no listing, search, catalog, sync or download endpoints yet.
+ * Anonymous, read-only routes only: `GET /api/v1/lessons/:lessonId?level=` (Phase 4A), the published catalog
+ * `GET /api/v1/courses?level=` and `GET /api/v1/courses/:courseId?level=`, and the lesson navigation
+ * `GET /api/v1/lessons/:lessonId/navigation?level=`. There are deliberately no search, sync or download endpoints.
  */
 @Module({
   imports: [
@@ -34,11 +37,13 @@ import { LessonDeliveryService } from './application/lesson-delivery.service.js'
       }),
     }),
   ],
-  controllers: [LessonDeliveryController],
-  providers: [LessonDeliveryService],
+  controllers: [LessonDeliveryController, CourseDeliveryController],
+  providers: [LessonDeliveryService, CatalogDeliveryService],
 })
 export class DeliveryModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(noStore).forRoutes(LessonDeliveryController);
+    consumer
+      .apply(noStore)
+      .forRoutes(LessonDeliveryController, CourseDeliveryController);
   }
 }

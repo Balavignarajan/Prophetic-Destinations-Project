@@ -3,6 +3,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, type EntityManager } from 'typeorm';
 import type { LearningLevel } from '../../../shared-kernel/index.js';
+import type { LessonSummary } from '../domain/catalog-snapshot.js';
 import type {
   ActiveSnapshotInfo,
   LevelSnapshot,
@@ -48,6 +49,24 @@ interface LevelSummaryRow {
   content_hash: string;
   content_bytes: number;
 }
+
+/**
+ * The catalog half of the delivery gate, for a query that aliases the lesson publication as `p` and its level
+ * snapshot as `l`: the lesson is listed, under its own module, at this level in the ACTIVE catalog version of its
+ * course (so its module and its course are published). The active catalog snapshot is the one authority for what
+ * a learner can reach; a lesson it does not list is not delivered, whatever its own publication says.
+ */
+const LISTED_IN_ACTIVE_CATALOG = `EXISTS (
+    SELECT 1 FROM "course_publication_modules" cm
+      JOIN "course_publications" cp
+        ON cp."id" = cm."publication_id" AND cp."ended_at" IS NULL
+      JOIN "course_publication_levels" cl
+        ON cl."publication_id" = cp."id" AND cl."level" = l."level"
+     WHERE cm."module_id" = p."module_id"
+       AND cl."content" @> jsonb_build_object('modules', jsonb_build_array(
+             jsonb_build_object('id', p."module_id"::text, 'lessons', jsonb_build_array(
+               jsonb_build_object('id', p."lesson_id"::text)))))
+  )`;
 
 const PUBLICATION_COLUMNS = `p."id", p."lesson_id", p."version", p."module_id", p."source_content_revision",
   p."snapshot_schema_version", p."published_at", p."published_by", p."ended_at", p."ended_by", p."ended_reason"`;
@@ -148,7 +167,8 @@ export class PublicationRepository {
   /**
    * The snapshot a learner gets now for one level of one lesson: the lesson's ACTIVE publication
    * (`ended_at IS NULL`) and that level's row within it, in a single statement, so it is one
-   * consistent committed view. Null when the lesson has no active publication or that publication
+   * consistent committed view. The lesson's module must ALSO be listed in its course's active catalog
+   * publication (so the module and the course are published), checked in the same statement. Null when the lesson has no active publication or that publication
    * has no snapshot for the level: there is no fallback to another level or an older version.
    * Reads the two publication tables only; the authoring tables are never consulted.
    */
@@ -166,7 +186,8 @@ export class PublicationRepository {
       `SELECT p."id" AS "publication_id", p."lesson_id", p."version", l."level", l."content_hash"
          FROM "lesson_publications" p
          JOIN "lesson_publication_levels" l ON l."publication_id" = p."id"
-        WHERE p."lesson_id" = $1 AND p."ended_at" IS NULL AND l."level" = $2`,
+        WHERE p."lesson_id" = $1 AND p."ended_at" IS NULL AND l."level" = $2
+          AND ${LISTED_IN_ACTIVE_CATALOG}`,
       [lessonId, level],
     );
     const row = rows[0];
@@ -183,7 +204,8 @@ export class PublicationRepository {
 
   /**
    * The stored snapshot content of one level of a publication, but only while that publication is
-   * still active: once it has been ended (unpublished or replaced) this returns null. The content is
+   * still active AND its module is still listed in an active catalog publication: once either has
+   * ended (unpublished, replaced, or its module or course withdrawn) this returns null. The content is
    * exactly what was stored; it is never rebuilt or transformed.
    */
   async findActiveSnapshotContent(
@@ -195,10 +217,68 @@ export class PublicationRepository {
         `SELECT l."content"
            FROM "lesson_publication_levels" l
            JOIN "lesson_publications" p ON p."id" = l."publication_id"
-          WHERE l."publication_id" = $1 AND l."level" = $2 AND p."ended_at" IS NULL`,
+          WHERE l."publication_id" = $1 AND l."level" = $2 AND p."ended_at" IS NULL
+            AND ${LISTED_IN_ACTIVE_CATALOG}`,
         [publicationId, level],
       );
     return rows[0]?.content ?? null;
+  }
+
+  /**
+   * The published summaries (title, short title, subtitle, estimated minutes) of the given lessons at every
+   * level they are currently published at, read from the stored lesson snapshots. Published data only: the
+   * authoring tables are never consulted.
+   */
+  async findActiveSummaries(
+    lessonIds: readonly string[],
+    manager?: EntityManager,
+  ): Promise<Map<string, Map<LearningLevel, LessonSummary>>> {
+    const result = new Map<string, Map<LearningLevel, LessonSummary>>();
+    if (lessonIds.length === 0) return result;
+    const rows: {
+      lesson_id: string;
+      level: LearningLevel;
+      lesson: {
+        title: string;
+        shortTitle: string | null;
+        subtitle: string | null;
+        estimatedMinutes: number | null;
+      };
+    }[] = await this.db(manager).query(
+      `SELECT p."lesson_id", l."level", l."content" -> 'lesson' AS "lesson"
+         FROM "lesson_publications" p
+         JOIN "lesson_publication_levels" l ON l."publication_id" = p."id"
+        WHERE p."ended_at" IS NULL AND p."lesson_id" = ANY($1::uuid[])`,
+      [lessonIds],
+    );
+    for (const row of rows) {
+      const levels = result.get(row.lesson_id) ?? new Map();
+      levels.set(row.level, {
+        title: row.lesson.title,
+        shortTitle: row.lesson.shortTitle ?? null,
+        subtitle: row.lesson.subtitle ?? null,
+        estimatedMinutes: row.lesson.estimatedMinutes ?? null,
+      });
+      result.set(row.lesson_id, levels);
+    }
+    return result;
+  }
+
+  /** Of the given lessons, the ones that have an active lesson publication with a snapshot at `level` right now. */
+  async findEligibleLessonIds(
+    level: LearningLevel,
+    lessonIds: readonly string[],
+    manager?: EntityManager,
+  ): Promise<Set<string>> {
+    if (lessonIds.length === 0) return new Set();
+    const rows: { lesson_id: string }[] = await this.db(manager).query(
+      `SELECT DISTINCT p."lesson_id"
+         FROM "lesson_publications" p
+         JOIN "lesson_publication_levels" l ON l."publication_id" = p."id"
+        WHERE p."ended_at" IS NULL AND l."level" = $1 AND p."lesson_id" = ANY($2::uuid[])`,
+      [level, lessonIds],
+    );
+    return new Set(rows.map((row) => row.lesson_id));
   }
 
   /**

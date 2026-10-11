@@ -73,3 +73,44 @@ export function ifNoneMatchMatches(
 function opaque(entityTag: string): string {
   return entityTag.startsWith('W/') ? entityTag.slice(2) : entityTag;
 }
+
+/** JSON with object keys sorted at every depth (arrays keep their order), so equal values serialize identically. */
+export function stableStringify(value: unknown): string {
+  return JSON.stringify(sortKeys(value));
+}
+
+function sortKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortKeys);
+  if (typeof value === 'object' && value !== null) {
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort()
+        .map((key) => [key, sortKeys((value as Record<string, unknown>)[key])]),
+    );
+  }
+  return value;
+}
+
+export const REPRESENTATION_ETAG_SCHEME =
+  'prophetic-destinations/catalog-representation-etag/1';
+
+/**
+ * Strong entity tag of a catalog representation (course list, course, lesson navigation): the SHA-256 of one
+ * unambiguous serialization of `[scheme, kind, identity..., body]`. It is computed over the response body
+ * that will actually be sent, which already reflects the live eligibility filter, so it covers the COMPLETE
+ * representation: a different course, level, catalog version, eligible set or lesson never shares a tag, and an
+ * unchanged representation always gets the same one. Nothing volatile goes in.
+ */
+export function representationEtag(
+  kind: 'course-list' | 'course' | 'navigation',
+  identity: readonly (string | number)[],
+  body: unknown,
+): string {
+  const text = stableStringify([
+    REPRESENTATION_ETAG_SCHEME,
+    kind,
+    ...identity,
+    body,
+  ]);
+  return `"${createHash('sha256').update(text, 'utf8').digest('hex')}"`;
+}

@@ -1,5 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { ETAG_SCHEME, ifNoneMatchMatches, snapshotEtag } from './etag.js';
+import {
+  ETAG_SCHEME,
+  ifNoneMatchMatches,
+  representationEtag,
+  snapshotEtag,
+  stableStringify,
+} from './etag.js';
 
 const HASH_A = 'a'.repeat(64);
 const HASH_B = 'b'.repeat(64);
@@ -207,5 +213,57 @@ describe('ifNoneMatchMatches', () => {
   it('copes with tags that contain commas', () => {
     expect(ifNoneMatchMatches(`"a,b", ${current}`, current)).toBe(true);
     expect(ifNoneMatchMatches(`"a,b"`, `"a,b"`)).toBe(true);
+  });
+});
+
+describe('stableStringify and representationEtag', () => {
+  const body = { level: 'BEGINNER', courses: [{ courseId: 'a', n: 1 }] };
+
+  it('sorts object keys at every depth and keeps array order', () => {
+    expect(stableStringify({ b: 1, a: { d: 1, c: [3, 1, 2] } })).toBe(
+      '{"a":{"c":[3,1,2],"d":1},"b":1}',
+    );
+  });
+
+  it('is stable for an identical body, whatever its key order', () => {
+    const tag = representationEtag('course-list', ['BEGINNER'], body);
+    expect(tag).toMatch(/^"[0-9a-f]{64}"$/);
+    expect(
+      representationEtag('course-list', ['BEGINNER'], {
+        courses: [{ n: 1, courseId: 'a' }],
+        level: 'BEGINNER',
+      }),
+    ).toBe(tag);
+  });
+
+  it('differs for another kind, identity or body', () => {
+    const base = representationEtag('course', ['c1', 'BEGINNER'], body);
+    expect(representationEtag('navigation', ['c1', 'BEGINNER'], body)).not.toBe(
+      base,
+    );
+    expect(representationEtag('course', ['c2', 'BEGINNER'], body)).not.toBe(
+      base,
+    );
+    expect(representationEtag('course', ['c1', 'ADVANCED'], body)).not.toBe(
+      base,
+    );
+    expect(
+      representationEtag('course', ['c1', 'BEGINNER'], {
+        ...body,
+        level: 'ADVANCED',
+      }),
+    ).not.toBe(base);
+    expect(
+      representationEtag('course', ['c1', 'BEGINNER'], {
+        ...body,
+        courses: [],
+      }),
+    ).not.toBe(base);
+  });
+
+  it('cannot be confused by moving text between identity parts', () => {
+    expect(representationEtag('course', ['ab', 'c'], body)).not.toBe(
+      representationEtag('course', ['a', 'bc'], body),
+    );
   });
 });
