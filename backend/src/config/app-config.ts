@@ -14,11 +14,22 @@ export interface AppConfig {
   publicRateWindowSeconds: number;
   /** Cookies get the Secure flag in production only (local dev runs on http). */
   secureCookies: boolean;
+  /** Where the local-filesystem media adapter keeps uploaded files (relative paths resolve against the working directory). */
+  mediaStorageRoot: string;
+  /** Largest accepted media upload, in bytes. */
+  mediaMaxBytes: number;
+  /** MIME types accepted for upload. The media module checks them against the types it can verify. */
+  mediaAllowedTypes: string[];
 }
 
 export const APP_CONFIG = Symbol('APP_CONFIG');
 
 const NODE_ENVS = ['development', 'test', 'production'] as const;
+
+/** Conservative media defaults: 5 MiB, common raster image types only (no SVG, which can carry script). */
+const DEFAULT_MEDIA_MAX_BYTES = 5 * 1024 * 1024;
+const HARD_MEDIA_MAX_BYTES = 100 * 1024 * 1024;
+const DEFAULT_MEDIA_ALLOWED_TYPES = 'image/png,image/jpeg,image/webp';
 
 /**
  * Validates raw environment variables and returns typed config.
@@ -84,6 +95,28 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
     problems,
   );
 
+  const mediaStorageRoot = env.MEDIA_STORAGE_ROOT?.trim() || './storage/media';
+  const mediaMaxBytes = positiveInt(
+    env,
+    'MEDIA_MAX_BYTES',
+    DEFAULT_MEDIA_MAX_BYTES,
+    problems,
+  );
+  if (mediaMaxBytes > HARD_MEDIA_MAX_BYTES) {
+    problems.push(
+      `MEDIA_MAX_BYTES must not exceed ${HARD_MEDIA_MAX_BYTES} (100 MiB)`,
+    );
+  }
+  const mediaAllowedTypes = (
+    env.MEDIA_ALLOWED_TYPES ?? DEFAULT_MEDIA_ALLOWED_TYPES
+  )
+    .split(',')
+    .map((type) => type.trim().toLowerCase())
+    .filter(Boolean);
+  if (mediaAllowedTypes.length === 0) {
+    problems.push('MEDIA_ALLOWED_TYPES must list at least one MIME type');
+  }
+
   if (problems.length > 0) {
     throw new Error(
       `Invalid environment configuration:\n- ${problems.join('\n- ')}`,
@@ -103,6 +136,9 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
     publicRateLimit,
     publicRateWindowSeconds,
     secureCookies: nodeEnv === 'production',
+    mediaStorageRoot,
+    mediaMaxBytes,
+    mediaAllowedTypes,
   };
 }
 

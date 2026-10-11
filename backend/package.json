@@ -26,6 +26,7 @@
     "migration:drift": "nest build && typeorm schema:log -d dist/database/data-source.js",
     "seed:admin": "nest build && node dist/modules/identity/cli/seed-admin.js",
     "seed:demo": "nest build && node --env-file-if-exists=.env dist/cli/seed-demo.js",
+    "demo:setup": "nest build && node dist/modules/identity/cli/seed-admin.js && node --env-file-if-exists=.env dist/cli/seed-demo.js",
     "test:int": "vitest run --config ./vitest.config.int.ts",
     "migration:revert": "nest build && typeorm migration:revert -d dist/database/data-source.js"
   },

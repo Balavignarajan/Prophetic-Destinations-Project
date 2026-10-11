@@ -20,7 +20,31 @@ describe('parseConfig', () => {
       publicRateLimit: 120,
       publicRateWindowSeconds: 60,
       secureCookies: false,
+      mediaStorageRoot: './storage/media',
+      mediaMaxBytes: 5 * 1024 * 1024,
+      mediaAllowedTypes: ['image/png', 'image/jpeg', 'image/webp'],
     });
+  });
+
+  it('parses and validates the media settings', () => {
+    const config = parseConfig({
+      ...valid,
+      MEDIA_STORAGE_ROOT: ' /var/data/media ',
+      MEDIA_MAX_BYTES: '1048576',
+      MEDIA_ALLOWED_TYPES: 'IMAGE/PNG, application/pdf ,',
+    });
+    expect(config.mediaStorageRoot).toBe('/var/data/media');
+    expect(config.mediaMaxBytes).toBe(1048576);
+    expect(config.mediaAllowedTypes).toEqual(['image/png', 'application/pdf']);
+    expect(() => parseConfig({ ...valid, MEDIA_MAX_BYTES: '0' })).toThrow(
+      /MEDIA_MAX_BYTES/,
+    );
+    expect(() =>
+      parseConfig({ ...valid, MEDIA_MAX_BYTES: String(101 * 1024 * 1024) }),
+    ).toThrow(/100 MiB/);
+    expect(() => parseConfig({ ...valid, MEDIA_ALLOWED_TYPES: ' , ' })).toThrow(
+      /MEDIA_ALLOWED_TYPES/,
+    );
   });
 
   it('parses port, environment and CORS origins', () => {

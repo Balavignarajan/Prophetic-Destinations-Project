@@ -33,7 +33,7 @@ async function main(): Promise<number> {
     console.log(
       created
         ? `Created ADMIN account for ${email.toLowerCase()}.`
-        : `An account for ${email.toLowerCase()} already exists. Nothing changed.`,
+        : `An account for ${email.toLowerCase()} already exists. Nothing changed (its password is NOT reset by this command).`,
     );
     return 0;
   } catch (error) {

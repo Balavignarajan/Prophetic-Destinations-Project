@@ -600,6 +600,40 @@ it does not enable the `SCRIPTURE_PASSAGE` / `SCRIPTURE_CONNECTION` block types 
 - **Facade (`ScriptureFacade`, exported through `modules/scripture/index.ts`):** `parse`, `requireReference`, `format`, `listBooks`, `findBook`, `getBook`.
   Resolving the text of a reference and checking that it exists will be added to this facade once a data set is approved, so callers will not change.
 
+## Media (local storage)
+
+The media library stores uploaded files and their metadata. It is an **admin tool only**: nothing about media is public, and no lesson, block or snapshot
+refers to media yet (the lesson cover is still rejected, and no media-using block type is enabled). Public delivery of media comes with the block contracts
+that need it, as an explicit route, together with the reference check that stops a referenced file being deleted.
+
+- **Storage interface.** The module talks to `MediaStorage` (`put`, `open`, `delete`, keyed by an opaque server-generated key); only `media.module.ts` knows
+  which adapter is used. Development uses `LocalMediaStorage`; an S3-style adapter is a new class implementing the same three methods plus one
+  `useFactory`, with no change to the service, controller or database.
+- **Metadata** (`media_assets`): id, the sanitised original file name (display only), the detected content type, size, SHA-256, uploader, time, and the
+  storage key (never returned by the API). Migration `CreateMediaAssets1791700000000`.
+- **Routes** (all `/api/v1/admin/media`, signed-in admins only): `POST` (multipart field `file`; ADMIN, EDITOR), `GET` (list, `limit`/`offset`), `GET :mediaId`
+  (metadata), `GET :mediaId/content` (the bytes; all three roles), `DELETE :mediaId` (204; ADMIN, EDITOR). REVIEWER can read but not change, as for lessons.
+  Responses never contain a storage key or a path.
+- **Configuration** (environment; defaults are conservative): `MEDIA_STORAGE_ROOT` (default `./storage/media`), `MEDIA_MAX_BYTES` (default 5 MiB, at most
+  100 MiB), `MEDIA_ALLOWED_TYPES` (default `image/png,image/jpeg,image/webp`). The module can verify `png`, `jpeg`, `gif`, `webp` and `pdf`; listing any other
+  type stops the application at start-up. SVG is not supported because it can carry script; audio and video are not supported until decided.
+- **What is trusted.** Only the bytes. The type is detected from the file's own signature and must be in the allow-list; the client's Content-Type and
+  extension are ignored, and the client's file name is cleaned (directories, control characters, length) and kept for display only. The storage key is
+  `ab/<128 random bits in hex>`; the local adapter refuses any other key before building a path and re-checks the path stays inside the root.
+- **Limits.** The size limit is enforced while the upload is read (413), so an oversized body is refused without being buffered whole. Empty files, a missing
+  `file` field, other fields, several files, unsupported types: 422 / 400, and nothing is stored.
+- **Serving.** `GET :mediaId/content` streams the stored bytes to an authenticated reader with the detected type, `nosniff`, a `default-src 'none'; sandbox`
+  policy, `private, no-store`, and `inline` only for images (PDF would be `attachment`).
+- **Consistency.** Upload writes the file first and the row second, and removes the file again if the row cannot be saved. Delete removes the row first and
+  the file second; if only the file removal fails the delete still succeeds and the orphan is logged by media id (never by path). A row whose file has
+  vanished answers 404 on `content` while its metadata stays readable. Uploading the same bytes twice creates two assets; deleting twice is 404.
+- **Files on disk.** Under `MEDIA_STORAGE_ROOT`: `<ab>/<key>` per object plus a `.tmp` directory for in-flight writes (a stray file there after a crash is
+  safe to delete). Directories are `0750`, files `0640`. `/storage/` is in `.gitignore`, so uploads are never committed. **Back up** the storage root together
+  with the database: the database says which assets exist, the directory holds their bytes, and restoring one without the other leaves rows without files or
+  files without rows. Rolling back the `CreateMediaAssets` migration drops the table but leaves the files.
+- **Open decisions (D4):** the production storage provider, allowed audio/video types, size limits per type, alt text / captions / credits, image
+  variants, and whether and how media is delivered publicly.
+
 ## HTTP conventions
 
 - All routes are under `/api/v1`, except `GET /health` and `GET /health/db`.

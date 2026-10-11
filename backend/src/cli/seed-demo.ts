@@ -9,9 +9,16 @@
  * Environment (read from the shell or .env by the caller):
  *   SEED_ADMIN_EMAIL, SEED_ADMIN_PASSWORD   an existing ADMIN account (see `npm run seed:admin`)
  *   DEMO_API_URL                            default http://localhost:3001/api/v1
+ *   DEMO_ALLOW_REMOTE / DEMO_ALLOW_PRODUCTION   =true, only to seed a server that is not on this machine / a production-mode
+ *                                           environment ON PURPOSE (the command refuses otherwise)
  *
  * All text is synthetic filler. It is not Scripture and is labelled as such.
  */
+
+import {
+  demoEnvironmentProblem,
+  loginFailureHint,
+} from './demo-environment.js';
 
 const COURSE_TITLE = '[DEMO] Synthetic course for backend demonstration';
 const BASE = (
@@ -85,12 +92,30 @@ async function main(): Promise<number> {
     return 1;
   }
 
-  const session = await call(
-    'POST',
-    '/admin/auth/login',
-    { email, password },
-    false,
-  );
+  const problem = demoEnvironmentProblem(process.env, BASE);
+  if (problem) {
+    console.error(`Refusing to seed demo content: ${problem}`);
+    return 1;
+  }
+
+  let session: Json;
+  try {
+    session = await call(
+      'POST',
+      '/admin/auth/login',
+      { email, password },
+      false,
+    );
+  } catch (error) {
+    console.error(loginFailureHint(error));
+    return 1;
+  }
+  if (session.admin && (session.admin as Json).passwordChangeRequired) {
+    console.error(
+      'This account must change its password first (POST /admin/auth/password) before it can create content.',
+    );
+    return 1;
+  }
   token = session.accessToken as string;
 
   const existing = await findDemoCourse();
