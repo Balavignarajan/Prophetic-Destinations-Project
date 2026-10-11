@@ -517,6 +517,31 @@ until a refresh lists it. Manually authored related-lesson links do not exist.
 - The summaries (titles) in a catalog version are those of the lesson snapshots that were active when the version was created; a lesson republished with
   a new title shows the new title in the lesson itself and in the catalog after the next version.
 
+## Scripture references (parser and facade)
+
+The Scripture module currently provides **reference syntax only**. It holds no Bible text, no verse or chapter counts, no database tables and no routes, and
+it does not enable the `SCRIPTURE_PASSAGE` / `SCRIPTURE_CONNECTION` block types (their contracts and the data source are still undecided; see
+[scripture-source-research.md](./scripture-source-research.md)).
+
+- **Supported forms:** a single verse (`John 3:16`) and a verse range inside one chapter (`John 3:16-18`). Several references in one string, ranges across
+  chapters, whole chapters and single-chapter shorthand (`Jude 5`) are rejected as `MALFORMED`.
+- **Result:** `{ bookId, chapter, startVerse, endVerse }`; for a single verse `startVerse` equals `endVerse`. `ScriptureFacade.format` writes it back as
+  `Genesis 1:1` / `1 John 3:16-18`.
+- **Book identifiers:** the OSIS abbreviations (`Gen`, `1Sam`, `Song`, `Phlm`, ... `Rev`) for the 66-book Protestant canon, in canonical order. OSIS is an open
+  published standard and does not depend on any data set, so it can be adopted before a source is approved. Whether the confirmed KJV edition needs more
+  books (the Apocrypha) is not decided; the table has none.
+- **Names and whitespace:** book names are matched case-insensitively, ignoring periods and spaces; `1 John`, `1John`, `I John` and `1 Jn.` are the same. The display
+  name, the OSIS id and a list of common abbreviations are accepted. An abbreviation shared by two books (for example `Jud`) is not accepted, and the table refuses to
+  load if an alias is ever duplicated. Spaces around `:` and `-` are allowed, and the range dash may be an en dash. Numbers are plain ASCII digits without leading zeros.
+- **Errors** (`parse` returns them; `requireReference` throws a 422 business-rule error with `details: { code }`): `EMPTY`, `MALFORMED`, `UNKNOWN_BOOK`,
+  `INVALID_NUMBER` (zero, leading zero, over the sanity limit), `REVERSED_RANGE`. Checks run in the order shape, book, numbers, range order; the first problem is
+  reported. Input over 80 characters is rejected before matching.
+- **What a successful parse does not mean:** the text is well formed and the book is supported, nothing more. Chapter and verse **existence is not validated**,
+  because no authoritative data is available: `Obadiah 9:1` or `John 3:99` parse. The only numeric limits are sanity bounds (chapter 1-150, verse 1-176) that
+  stop absurd input and do not make smaller numbers valid.
+- **Facade (`ScriptureFacade`, exported through `modules/scripture/index.ts`):** `parse`, `requireReference`, `format`, `listBooks`, `findBook`, `getBook`.
+  Resolving the text of a reference and checking that it exists will be added to this facade once a data set is approved, so callers will not change.
+
 ## HTTP conventions
 
 - All routes are under `/api/v1`, except `GET /health` and `GET /health/db`.

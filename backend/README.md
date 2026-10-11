@@ -1,124 +1,67 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Prophetic Destinations — backend
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+NestJS + TypeScript + PostgreSQL (TypeORM, migrations only). A modular monolith: identity, curriculum, lessons, publishing, delivery (public API), and
+Scripture reference parsing (no Bible text), and placeholder shells for media and quizzes.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+- Architecture and rules: [docs/architecture.md](docs/architecture.md)
+- Route index and quick contracts: [docs/api-reference.md](docs/api-reference.md)
+- Scripture source/licensing status: [docs/scripture-source-research.md](docs/scripture-source-research.md) (unresolved; no Bible text is bundled)
 
-## Description
+## Setup
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
-
-## Project setup
+Prerequisites: Node.js 22+, a PostgreSQL database (the project uses Neon; use the pooled connection string).
 
 ```bash
-$ npm install
+npm install
+cp .env.example .env     # then fill in the values below
+npm run migration:run    # applies all migrations (they build first)
+npm run seed:admin       # creates the first ADMIN from SEED_ADMIN_EMAIL / SEED_ADMIN_PASSWORD
+npm run start:dev        # http://localhost:3001 (set PORT to change)
 ```
 
-## Compile and run the project
+Required in `.env`: `DATABASE_URL`, `JWT_ACCESS_SECRET` (at least 32 random characters). For `seed:admin`: `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD`
+(at least 12 characters). Optional settings (ports, token lifetimes, rate limits, CORS) are listed in `.env.example`. Never commit real values.
+
+Check it is up: `GET /health` and `GET /health/db`.
+
+## Demo
+
+With the server running and an ADMIN account seeded:
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+npm run seed:demo
 ```
 
-## Run tests
+It signs in through the API and creates one clearly synthetic course (`[DEMO] …`, two modules, three lessons, placeholder text that says it is not
+Scripture), takes every lesson, module and the course through submit → approve → publish, and prints the public URLs. Re-running it changes nothing.
+`DEMO_API_URL` overrides the default `http://localhost:3001/api/v1`.
 
-```bash
-# unit tests
-$ npm run test
+A suggested walkthrough:
 
-# e2e tests
-$ npm run test:e2e
+1. Sign in: `POST /api/v1/admin/auth/login` with the ADMIN email and password; use the `accessToken` as `Authorization: Bearer …`.
+2. Browse the authored content: `GET /api/v1/admin/courses`, then the course, its modules, lessons and `…/workflow` state.
+3. See the immutable publications: `GET /api/v1/admin/lessons/:lessonId/publications/1/levels/BEGINNER` and `GET /api/v1/admin/courses/:courseId/publications`.
+4. As a learner (no token): `GET /api/v1/courses?level=BEGINNER`, the course, a lesson, and `…/navigation` for previous/next.
+5. Revalidate: repeat a public request with `If-None-Match: <ETag>` and get `304`.
+6. Unpublish the course (`POST …/workflow/unpublish`) and see the same public requests return `404`, even with the old ETag; publish it again to restore it.
 
-# test coverage
-$ npm run test:cov
-```
+## Scripts
 
-## Deployment
+| Script                                      | Purpose                                                          |
+| ------------------------------------------- | ---------------------------------------------------------------- |
+| `npm run build` / `npm run lint`            | production build / lint                                          |
+| `npm run migration:show` / `run` / `revert` | migration status / apply / revert the last                       |
+| `npm run seed:admin` / `npm run seed:demo`  | first ADMIN / synthetic demo course                              |
+| `npm test`                                  | unit tests and the architecture test                             |
+| `npm run test:int` / `npm run test:e2e`     | integration / end-to-end tests (they use the database in `.env`) |
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+The integration and end-to-end tests create their own rows and clean them up, but they run against the database in `DATABASE_URL`, so point that at a
+development database.
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+## What is and is not implemented
 
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
-```
+Implemented: admin authentication and roles; courses, modules and lessons; `RICH_TEXT` blocks with per-level variants; the review, approval and publishing
+workflow for lessons, modules and courses; immutable lesson and catalog snapshots; the public catalog, lesson and navigation API with ETags.
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
-
-## Observability
-
-In production applications, observability is essential for understanding how your system behaves, detecting issues early, and maintaining reliable performance.
-
-[NestJS Observe](https://observe.nestjs.com) automatically instruments your NestJS application, giving you deep visibility into your system with minimal setup:
-
-- **Distributed tracing:** Follow requests across services and understand how they flow through your system.
-- **Waterfall analysis:** Visualize request execution and identify slow operations, bottlenecks, and unexpected delays.
-- **Performance analysis:** Analyze application performance in real time and quickly pinpoint areas that need optimization.
-- **Metrics:** Track key application and infrastructure metrics to understand system health and performance trends.
-- **Logging:** Centralize and correlate logs with traces and other telemetry to make debugging easier.
-- **Error tracking:** Detect errors quickly and investigate their root causes with the surrounding context.
-- **SLA monitoring:** Track service-level objectives and identify when your application is approaching or exceeding defined thresholds.
-- **Alarms and alerts:** Set up alerts for critical errors, performance degradation, SLA violations, and other anomalies so your team can react quickly.
-
-To add it to this project:
-
-```bash
-$ npm install @nestjs/observe
-```
-
-Then follow the [setup guide](https://docs.nestjs.com/observability/overview) - it takes a single import and an app key.
-
-The free plan needs no payment details and covers 300,000 events a month. You can also browse the [live demo](https://www.observe-demo.nestjs.com/dashboard) first - the whole dashboard over a busy service's data, with nothing to install.
-
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Auto-instrument your application with [NestJS Observe](https://observe.nestjs.com). Distributed tracing, metrics, and logging made easy. Error tracking and performance monitoring for your NestJS applications.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+Not implemented (waiting on specifications or decisions): Scripture/KJV data and its two block types, Media, Quizzes, the other block contracts, admin
+account management, learner accounts and progress.
