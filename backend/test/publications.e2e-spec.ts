@@ -1003,11 +1003,11 @@ describe('Publishing and unpublishing (e2e)', () => {
         .expect(204);
     });
 
-    it('exposes no public delivery of lessons, drafts or snapshots', async () => {
+    it('exposes no public delivery route other than the Phase 4A lesson endpoint', async () => {
       const { lessonId } = await approvedLesson('no-delivery');
       await publish(lessonId).expect(200);
+      // (`GET /api/v1/lessons/:id?level=` is the one approved public route: see delivery.e2e-spec.ts)
       for (const url of [
-        `/api/v1/lessons/${lessonId}`,
         `/api/v1/lessons/${lessonId}/levels/BEGINNER`,
         `/api/v1/public/lessons/${lessonId}`,
         `/api/v1/delivery/lessons/${lessonId}`,

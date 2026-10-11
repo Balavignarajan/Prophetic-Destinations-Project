@@ -17,6 +17,8 @@ describe('parseConfig', () => {
       refreshTokenTtlDays: 14,
       authRateLimit: 5,
       authRateWindowSeconds: 60,
+      publicRateLimit: 120,
+      publicRateWindowSeconds: 60,
       secureCookies: false,
     });
   });
@@ -62,6 +64,28 @@ describe('parseConfig', () => {
       /AUTH_RATE_LIMIT/,
     );
   });
+
+  it('reads the public learner API rate limit', () => {
+    expect(
+      parseConfig({
+        ...valid,
+        PUBLIC_RATE_LIMIT: '30',
+        PUBLIC_RATE_WINDOW_SECONDS: '10',
+      }),
+    ).toMatchObject({ publicRateLimit: 30, publicRateWindowSeconds: 10 });
+  });
+
+  it.each(['PUBLIC_RATE_LIMIT', 'PUBLIC_RATE_WINDOW_SECONDS'])(
+    'rejects a non-positive %s',
+    (name) => {
+      expect(() => parseConfig({ ...valid, [name]: '0' })).toThrow(
+        new RegExp(name),
+      );
+      expect(() => parseConfig({ ...valid, [name]: 'many' })).toThrow(
+        new RegExp(name),
+      );
+    },
+  );
 
   it('reports every problem at once', () => {
     expect(() =>

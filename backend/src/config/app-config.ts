@@ -9,6 +9,9 @@ export interface AppConfig {
   /** Login/refresh attempts allowed per client IP within the window. */
   authRateLimit: number;
   authRateWindowSeconds: number;
+  /** Requests allowed per client IP within the window on the public learner API (Delivery). */
+  publicRateLimit: number;
+  publicRateWindowSeconds: number;
   /** Cookies get the Secure flag in production only (local dev runs on http). */
   secureCookies: boolean;
 }
@@ -73,6 +76,14 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
     problems,
   );
 
+  const publicRateLimit = positiveInt(env, 'PUBLIC_RATE_LIMIT', 120, problems);
+  const publicRateWindowSeconds = positiveInt(
+    env,
+    'PUBLIC_RATE_WINDOW_SECONDS',
+    60,
+    problems,
+  );
+
   if (problems.length > 0) {
     throw new Error(
       `Invalid environment configuration:\n- ${problems.join('\n- ')}`,
@@ -89,6 +100,8 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
     refreshTokenTtlDays,
     authRateLimit,
     authRateWindowSeconds,
+    publicRateLimit,
+    publicRateWindowSeconds,
     secureCookies: nodeEnv === 'production',
   };
 }

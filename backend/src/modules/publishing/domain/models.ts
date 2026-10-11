@@ -61,3 +61,16 @@ export interface LevelSnapshot extends PublicationLevelSummary {
   version: number;
   content: Record<string, unknown>;
 }
+
+/**
+ * What identifies the snapshot a learner would get right now for one level of one lesson:
+ * the lesson's active publication and that level's stored snapshot hash. No content.
+ */
+export interface ActiveSnapshotInfo {
+  lessonId: string;
+  level: LearningLevel;
+  publicationId: string;
+  publicationVersion: number;
+  /** sha256 (hex) of the stored snapshot's canonical serialization. */
+  contentHash: string;
+}

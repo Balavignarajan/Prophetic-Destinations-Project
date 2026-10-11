@@ -302,6 +302,107 @@ Exactly one call site opts out: `SessionService.rotate`, which backs `POST /api/
 
 **Migration-only constraints.** The workflow-events transition-shape CHECK, the deferred consistency triggers and the append-only/immutability triggers exist only in migrations (the entities cannot express them), so `migration:drift` lists them (or their surrounding indexes and foreign keys) as differences. They are intentional and are not to be removed to quiet the drift report.
 
+## Delivery: public lesson API (slice 4A)
+
+The first learner-facing endpoint. The Delivery module owns no tables and no authoring knowledge: it serves what Publishing says is
+currently published, through `PublishingFacade` only (the one thing `publishing/index.ts` exports for other modules). Anonymous: no learner
+accounts, no login, no server-side progress.
+
+```
+GET /api/v1/lessons/:lessonId?level=BEGINNER
+```
+
+- `:lessonId` must be a UUID (otherwise 400 `BAD_REQUEST`). `level` is required and must be exactly `BEGINNER`, `INTERMEDIATE` or `ADVANCED`
+  (otherwise 400 `VALIDATION_FAILED`: missing, empty, lower-case, repeated and unknown query parameters are all rejected).
+- The route is `@Public()` (no authentication; any `Authorization` header sent is ignored), and rate limited (below).
+- This is the only Delivery route. There is deliberately no listing, search, catalog, sync or download endpoint yet (a learner needs a lesson id
+  from elsewhere until course/module publishing exists), and no write route.
+
+**Response (200).** A fixed envelope around the stored snapshot:
+
+```json
+{
+  "lessonId": "0b5c1c0e-…",
+  "level": "BEGINNER",
+  "publicationVersion": 3,
+  "contentHash": "9f2b…(64 hex chars)",
+  "snapshot": { "schemaVersion": 1, "level": "BEGINNER", "lesson": { … }, "blocks": [ … ] }
+}
+```
+
+`snapshot` is the immutable payload stored when the lesson was published, passed through unchanged (its own `schemaVersion` and structure are
+whatever was stored; it is never rebuilt from authoring data). `contentHash` is the stored SHA-256 of that payload's canonical serialization (JSON with
+object keys sorted at every depth, array order kept), so a client can verify it. Note that PostgreSQL's `jsonb` does not keep key order, so a client
+must sort keys before re-hashing; the body is not byte-identical to the canonical form. Nothing in the body depends on time or on the request, and nothing
+administrative is included (no actors, workflow data, timestamps or internal publication ids).
+
+**What is served.** Only the lesson's ACTIVE publication (`ended_at IS NULL`), and only the snapshot of exactly the requested level within it:
+
+- No fallback to another level, an older version, a preview or the working copy. After an authoring edit the older publication stays active, so learners
+  keep getting it until it is replaced or unpublished; once a lesson is unpublished the next request is a 404 (no waiting for a cache to expire).
+- A draft, a lesson in review, an approved-but-unpublished lesson, a withdrawn lesson, a level the active publication does not have, and an id that does
+  not exist all give the same answer: 404 `NOT_FOUND`, message `Lesson not found`, no details. Nothing distinguishes them.
+- It reads the two publication tables only (`lesson_publications`, `lesson_publication_levels`), in two steps: first which publication/version/hash is
+  active for the lesson and level, then the stored content of that exact publication and level, but only if it is still active at that moment
+  (snapshots never change, so a publication ending between the steps is the only thing that can differ; the service then looks again, at most three times).
+  A conditional request needs only the first step, so a 304 never reads a snapshot of up to 5 MiB.
+
+**ETag and conditional requests.** Every 200 and 304 carries a strong, opaque ETag: the SHA-256 (hex) of one unambiguous serialization of the
+representation's identity, e.g. `"3f6c…(64 hex chars)"`.
+
+- **What it identifies.** The COMPLETE representation, i.e. the whole envelope, not just the snapshot payload. Every value that identifies it goes in
+  explicitly: `lessonId`, `level`, `publicationVersion` and the stored `contentHash`. So a different lesson, a different level, a different version or
+  different content always gets a different tag, even if some of the other values are identical (for example two lessons whose stored hash and
+  publication version happen to be equal). Today the stored hash is computed over a payload that itself contains the lesson id and level, so such a
+  coincidence cannot arise through the real publish path; the validator does not depend on that.
+- **Construction** (`delivery/domain/etag.ts`): `sha256(JSON.stringify([scheme, lessonId, level, publicationVersion, contentHash]))`, where `scheme`
+  is the fixed label `prophetic-destinations/lesson-snapshot-etag/2`. A JSON array quotes and escapes every string, so values cannot run into each
+  other (joining them with a separator would let `("ab","c")` and `("a","bc")` collide). Nothing volatile goes in, so an identical representation always
+  has the same tag. Republishing identical content as a new version changes the tag, because `publicationVersion` is in the envelope and must not be
+  answered with 304. If the envelope or this construction ever changes, bump the scheme label so old tags stop matching. Clients must treat the tag as opaque.
+- **`If-None-Match`** follows RFC 9110: weak comparison (`W/"x"` matches `"x"`), a comma-separated list matches if any member matches, `*` matches any
+  current representation, and a malformed header is ignored (the full response is sent). A match returns `304 Not Modified` with no body and the same
+  `ETag` and `Cache-Control`. A validator from another lesson, level or version, or for a withdrawn publication, never matches; a withdrawn or
+  unpublished lesson is a 404 whatever validator the client sends.
+- Error responses carry no snapshot validator. (Express adds its own weak ETag to JSON bodies; on an error that tag is meaningless, the response is `no-store`,
+  and a conditional request on an error is never answered with 304.)
+
+**Cache policy.** `Cache-Control: public, no-cache` on 200 and 304; `Cache-Control: no-store` on every error (400, 404, 429, 500). `no-cache` lets a
+browser or shared cache keep a copy but forces it to revalidate with the ETag before reusing it, so a withdrawn lesson stops being served on the very
+next request while an unchanged one costs only a bodiless 304. There is no `max-age`, `s-maxage`, `immutable` or `stale-*` on purpose, and no
+`Last-Modified`/`Expires`. A client that ignores these headers is outside the server's control. No CDN or external cache is part of this phase; if one
+is added later it must honour `no-cache` revalidation (or purge on unpublish) to keep withdrawal immediate.
+
+**Rate limit.** The route has its own limiter, separate from login/refresh (their counters do not affect each other), applied by an explicit
+`ThrottlerGuard` on the controller, per client address. Defaults: 120 requests per 60 seconds, configurable with `PUBLIC_RATE_LIMIT` and
+`PUBLIC_RATE_WINDOW_SECONDS`. Every request counts, whatever its outcome (200, 304, 400, 404), because the limiter runs before the route does any work.
+Over the limit: `429` with the standard error body (`code: TOO_MANY_REQUESTS`) and a `Retry-After` header. The key is the client address as Express
+reports it (`req.ip`; IPv6 addresses are grouped by their /64 prefix). Many users behind one carrier or office NAT share an address, which is why the
+default is generous. Read the next section before deploying.
+
+**Deployment behind a reverse proxy.** The limiter is only as good as the client address it sees. Express `trust proxy` is deliberately NOT enabled (a test
+asserts it), so today `req.ip` is the address of the TCP peer and the forwarded-address headers a client sends (`X-Forwarded-For`, `Forwarded`,
+`X-Real-IP`, ...) are ignored. A test asserts that inventing those headers does not evade the limit.
+
+- **Why client-supplied forwarded headers must not be trusted.** Any client can send any value. Trusting them would let a caller pick its own limiter key
+  (rotate it to dodge the limit entirely) or claim someone else's address to use up that person's allowance, and would poison any log that records the
+  address. `trust proxy` must therefore never be switched on blindly (`true` trusts every hop, including the client).
+- **What happens behind a proxy if nothing is done.** The TCP peer is then the proxy, so every learner shares one limiter bucket and the default of 120 per
+  minute would throttle all of them together. The same setting also affects the login/refresh limiter.
+- **What to do before going live behind a proxy or load balancer.** Configure `trust proxy` explicitly with the real proxy: its exact address or network
+  (or an exact number of hops), never `true`. Nothing is hard-coded or configurable for this yet because the deployment is not known; it is a one-line change
+  in `configureApp` once it is. The proxy must itself sanitize the headers: overwrite (not append to) `X-Forwarded-For` with the address it actually saw, and
+  drop client-supplied `Forwarded` and `X-Real-IP`. The backend should accept connections only from the proxy, so nobody can reach it directly and send
+  forged headers.
+- **In-memory counters.** Limits are kept in each process's memory: they reset when the process restarts or redeploys, and each instance counts
+  separately, so with several instances the effective limit is up to the per-instance limit times the number of instances (depending on how requests
+  are balanced). If a consistent global limit is needed, a shared rate-limit store must be introduced (for example Redis). That is not part of this
+  phase, and no such infrastructure is included.
+
+**Boundaries.** Delivery imports only `publishing/index.js`; it never touches lessons, curriculum, identity or any entity or repository (enforced by
+`test/architecture.spec.ts` and `delivery-boundaries.spec.ts`). Publishing's admin endpoints, workflow, snapshot format and transactions are unchanged.
+Not in this phase: course/module publishing or a catalog, Scripture, Media, Quizzes, further block contracts, reusable blocks, learner identity or progress.
+
 ## HTTP conventions
 
 - All routes are under `/api/v1`, except `GET /health` and `GET /health/db`.

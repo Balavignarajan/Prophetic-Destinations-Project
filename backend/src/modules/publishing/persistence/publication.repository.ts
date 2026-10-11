@@ -4,6 +4,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, type EntityManager } from 'typeorm';
 import type { LearningLevel } from '../../../shared-kernel/index.js';
 import type {
+  ActiveSnapshotInfo,
   LevelSnapshot,
   Publication,
   PublicationEndReason,
@@ -142,6 +143,62 @@ export class PublicationRepository {
           contentBytes: row.content_bytes,
         }
       : null;
+  }
+
+  /**
+   * The snapshot a learner gets now for one level of one lesson: the lesson's ACTIVE publication
+   * (`ended_at IS NULL`) and that level's row within it, in a single statement, so it is one
+   * consistent committed view. Null when the lesson has no active publication or that publication
+   * has no snapshot for the level: there is no fallback to another level or an older version.
+   * Reads the two publication tables only; the authoring tables are never consulted.
+   */
+  async findActiveSnapshotInfo(
+    lessonId: string,
+    level: LearningLevel,
+  ): Promise<ActiveSnapshotInfo | null> {
+    const rows: {
+      publication_id: string;
+      lesson_id: string;
+      version: number;
+      level: LearningLevel;
+      content_hash: string;
+    }[] = await this.dataSource.query(
+      `SELECT p."id" AS "publication_id", p."lesson_id", p."version", l."level", l."content_hash"
+         FROM "lesson_publications" p
+         JOIN "lesson_publication_levels" l ON l."publication_id" = p."id"
+        WHERE p."lesson_id" = $1 AND p."ended_at" IS NULL AND l."level" = $2`,
+      [lessonId, level],
+    );
+    const row = rows[0];
+    return row
+      ? {
+          lessonId: row.lesson_id,
+          level: row.level,
+          publicationId: row.publication_id,
+          publicationVersion: row.version,
+          contentHash: row.content_hash.trim(),
+        }
+      : null;
+  }
+
+  /**
+   * The stored snapshot content of one level of a publication, but only while that publication is
+   * still active: once it has been ended (unpublished or replaced) this returns null. The content is
+   * exactly what was stored; it is never rebuilt or transformed.
+   */
+  async findActiveSnapshotContent(
+    publicationId: string,
+    level: LearningLevel,
+  ): Promise<Record<string, unknown> | null> {
+    const rows: { content: Record<string, unknown> }[] =
+      await this.dataSource.query(
+        `SELECT l."content"
+           FROM "lesson_publication_levels" l
+           JOIN "lesson_publications" p ON p."id" = l."publication_id"
+          WHERE l."publication_id" = $1 AND l."level" = $2 AND p."ended_at" IS NULL`,
+        [publicationId, level],
+      );
+    return rows[0]?.content ?? null;
   }
 
   /**

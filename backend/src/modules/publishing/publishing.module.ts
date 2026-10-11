@@ -6,6 +6,7 @@ import { PublicationsController } from './api/publications.controller.js';
 import { ReadinessController } from './api/readiness.controller.js';
 import { WorkflowController } from './api/workflow.controller.js';
 import { ConsistencyService } from './application/consistency.service.js';
+import { PublishingFacade } from './application/publishing.facade.js';
 import { PublicationService } from './application/publication.service.js';
 import { ReadinessService } from './application/readiness.service.js';
 import {
@@ -41,6 +42,7 @@ import { WorkflowEventRepository } from './persistence/workflow-event.repository
   providers: [
     WorkflowEventRepository,
     PublicationRepository,
+    PublishingFacade,
     ConsistencyRepository,
     ConsistencyService,
     PublicationService,
@@ -54,5 +56,7 @@ import { WorkflowEventRepository } from './persistence/workflow-event.repository
     // Policy S0: nothing is enforced; actors are recorded. A stricter policy replaces this provider.
     { provide: SEPARATION_OF_DUTIES_POLICY, useValue: NO_SEPARATION_OF_DUTIES },
   ],
+  // The only thing other modules (Delivery) may use from here: see publishing.facade.ts.
+  exports: [PublishingFacade],
 })
 export class PublishingModule {}
