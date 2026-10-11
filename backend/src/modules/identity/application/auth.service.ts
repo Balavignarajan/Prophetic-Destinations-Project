@@ -50,6 +50,15 @@ export class AuthService {
     }
 
     const admin = toAuthenticatedAdmin(account);
+    const refresh = await this.sessions.start(admin.id, {
+      passwordHash: account.passwordHash,
+      mustChangePassword: account.mustChangePassword,
+    });
+    return this.buildSession(admin, refresh.rawToken, refresh.expiresAt);
+  }
+
+  /** Starts a new session for an admin who was just authenticated another way (after a password change). */
+  async startSessionFor(admin: AuthenticatedAdmin): Promise<AuthSession> {
     const refresh = await this.sessions.start(admin.id);
     return this.buildSession(admin, refresh.rawToken, refresh.expiresAt);
   }

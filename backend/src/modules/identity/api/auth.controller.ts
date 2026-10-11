@@ -17,11 +17,14 @@ import { Public } from '../../../platform/public.decorator.js';
 import { UnauthorizedError } from '../../../shared-kernel/index.js';
 import { AuthService } from '../application/auth.service.js';
 import type { AuthenticatedAdmin } from '../domain/admin-account.js';
+import { AccountService } from '../application/account.service.js';
+import { AllowPasswordChangePending } from '../guards/allow-password-change-pending.decorator.js';
 import { CurrentAdmin } from '../guards/current-admin.decorator.js';
 import {
   AdminSummaryDto,
   AuthSessionResponseDto,
 } from './dto/auth-responses.dto.js';
+import { ChangePasswordDto } from './dto/change-password.dto.js';
 import { LoginDto } from './dto/login.dto.js';
 import {
   clearRefreshCookie,
@@ -34,6 +37,7 @@ import {
 export class AuthController {
   constructor(
     private readonly auth: AuthService,
+    private readonly accounts: AccountService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
@@ -95,6 +99,37 @@ export class AuthController {
     clearRefreshCookie(res, this.config.secureCookies);
   }
 
+  /**
+   * Changes the signed-in admin's own password. All their sessions end (including other devices' refresh tokens);
+   * the caller receives a fresh session in the response and cookie. Rate limited like login, because it checks the
+   * current password.
+   */
+  @AllowPasswordChangePending()
+  @UseGuards(ThrottlerGuard)
+  @Post('password')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  async changePassword(
+    @CurrentAdmin() admin: AuthenticatedAdmin,
+    @Body() dto: ChangePasswordDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<AuthSessionResponseDto> {
+    const changed = await this.accounts.changeOwnPassword(
+      admin.id,
+      dto.currentPassword,
+      dto.newPassword,
+    );
+    const session = await this.auth.startSessionFor(changed);
+    setRefreshCookie(
+      res,
+      session.refreshToken,
+      session.refreshTokenExpiresAt,
+      this.config.secureCookies,
+    );
+    return AuthSessionResponseDto.from(session);
+  }
+
+  @AllowPasswordChangePending()
   @Get('me')
   @Header('Cache-Control', 'no-store')
   me(@CurrentAdmin() admin: AuthenticatedAdmin): AdminSummaryDto {

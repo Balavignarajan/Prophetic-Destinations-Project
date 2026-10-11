@@ -6,8 +6,12 @@ import {
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
 import { IS_PUBLIC_KEY } from '../../../platform/public.decorator.js';
-import { UnauthorizedError } from '../../../shared-kernel/index.js';
+import {
+  ForbiddenError,
+  UnauthorizedError,
+} from '../../../shared-kernel/index.js';
 import { AuthService } from '../application/auth.service.js';
+import { ALLOW_PASSWORD_CHANGE_PENDING_KEY } from './allow-password-change-pending.decorator.js';
 import { setRequestAdmin } from './request-admin.js';
 
 /**
@@ -32,7 +36,20 @@ export class JwtAuthGuard implements CanActivate {
     const token = bearerToken(req);
     if (!token) throw new UnauthorizedError('Authentication required');
 
-    setRequestAdmin(req, await this.auth.authenticate(token));
+    const admin = await this.auth.authenticate(token);
+    if (admin.passwordChangeRequired) {
+      const allowed = this.reflector.getAllAndOverride<boolean | undefined>(
+        ALLOW_PASSWORD_CHANGE_PENDING_KEY,
+        [context.getHandler(), context.getClass()],
+      );
+      if (!allowed) {
+        throw new ForbiddenError(
+          'You must change your password before you can continue',
+          { reason: 'PASSWORD_CHANGE_REQUIRED' },
+        );
+      }
+    }
+    setRequestAdmin(req, admin);
     return true;
   }
 }

@@ -210,6 +210,8 @@ describe('Public lesson delivery (e2e)', () => {
   beforeAll(async () => {
     process.env.AUTH_RATE_LIMIT = '1000';
     process.env.PUBLIC_RATE_LIMIT = '10000';
+    // The suite runs longer than the 15 minute default token lifetime on a slow remote database.
+    process.env.JWT_ACCESS_TTL_SECONDS = '7200';
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();

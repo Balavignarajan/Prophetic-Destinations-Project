@@ -1,6 +1,6 @@
 # API reference (backend)
 
-All routes live under `/api/v1`, except `GET /health` and `GET /health/db`. This is the consolidated route index (67 routes). The detailed behaviour, envelopes
+All routes live under `/api/v1`, except `GET /health` and `GET /health/db`. This is the consolidated route index (76 routes). The detailed behaviour, envelopes
 and rules of each area are in [architecture.md](./architecture.md); this page is the map and the quick contract. The route list was produced from the
 controllers on 2026-10-11 and is checked by reading them again whenever routes change.
 
@@ -19,14 +19,32 @@ REVIEWER · **publish / unpublish** = ADMIN.
 
 ## Health and authentication
 
-| Method | Route                 | Access        | Purpose                                                 |
-| ------ | --------------------- | ------------- | ------------------------------------------------------- |
-| GET    | `/health`             | public        | process is up                                           |
-| GET    | `/health/db`          | public        | database reachable                                      |
-| POST   | `/admin/auth/login`   | public        | `{ email, password }` → access token (+ refresh cookie) |
-| POST   | `/admin/auth/refresh` | public        | rotates the refresh cookie, returns a new access token  |
-| POST   | `/admin/auth/logout`  | public        | revokes the refresh token                               |
-| GET    | `/admin/auth/me`      | authenticated | the signed-in admin                                     |
+| Method | Route                  | Access        | Purpose                                                                     |
+| ------ | ---------------------- | ------------- | --------------------------------------------------------------------------- |
+| GET    | `/health`              | public        | process is up                                                               |
+| GET    | `/health/db`           | public        | database reachable                                                          |
+| POST   | `/admin/auth/login`    | public        | `{ email, password }` → access token (+ refresh cookie)                     |
+| POST   | `/admin/auth/refresh`  | public        | rotates the refresh cookie, returns a new access token                      |
+| POST   | `/admin/auth/logout`   | public        | revokes the refresh token                                                   |
+| GET    | `/admin/auth/me`       | authenticated | the signed-in admin                                                         |
+| POST   | `/admin/auth/password` | authenticated | `{ currentPassword, newPassword }` → ends all sessions, returns a fresh one |
+
+## Account management (ADMIN only)
+
+| Method | Route                                       | Purpose                                                                                                    |
+| ------ | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| POST   | `/admin/accounts`                           | create `{ email, role, temporaryPassword }` (must change the password at first use)                        |
+| GET    | `/admin/accounts`                           | list (`limit`, `offset`); no secrets                                                                       |
+| GET    | `/admin/accounts/:accountId`                | one account                                                                                                |
+| GET    | `/admin/accounts/:accountId/events`         | audit trail, newest first                                                                                  |
+| PUT    | `/admin/accounts/:accountId/role`           | `{ role }`                                                                                                 |
+| POST   | `/admin/accounts/:accountId/disable`        | disable; ends all sessions immediately                                                                     |
+| POST   | `/admin/accounts/:accountId/enable`         | enable                                                                                                     |
+| POST   | `/admin/accounts/:accountId/password-reset` | `{ temporaryPassword }` (mandatory) — replaces the password, ends all sessions; the account must change it |
+
+While an account must change its password every route except `/admin/auth/me` and `/admin/auth/password` answers 403 with
+`details.reason: "PASSWORD_CHANGE_REQUIRED"`. The last active ADMIN cannot be disabled or demoted (409), and no ADMIN can disable, demote or force a reset
+of their own account. Details: [architecture.md](./architecture.md#account-management-admin-only).
 
 ## Curriculum (courses and modules)
 
@@ -116,4 +134,4 @@ A lesson is delivered only while it is published **and** listed by its course's 
 ## Not implemented (isolated, awaiting decisions)
 
 Scripture/KJV data and the two Scripture block contracts (source licensing unresolved, see [scripture-source-research.md](./scripture-source-research.md)),
-Media, Quizzes, the remaining 17 block contracts, admin account management (only `npm run seed:admin` creates accounts), learner accounts and progress.
+Media, Quizzes, the remaining 17 block contracts, learner accounts and progress. (Admin accounts are created through the account-management API, or by `npm run seed:admin` for the first ADMIN.)

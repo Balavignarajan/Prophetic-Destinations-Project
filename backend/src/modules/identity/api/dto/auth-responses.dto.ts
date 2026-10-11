@@ -7,9 +7,18 @@ export class AdminSummaryDto {
   id: string;
   email: string;
   role: Role;
+  /** Present (true) only while the account must change its password before doing anything else. */
+  passwordChangeRequired?: true;
 
   static from(admin: AuthenticatedAdmin): AdminSummaryDto {
-    return { id: admin.id, email: admin.email, role: admin.role };
+    return {
+      id: admin.id,
+      email: admin.email,
+      role: admin.role,
+      ...(admin.passwordChangeRequired
+        ? { passwordChangeRequired: true as const }
+        : {}),
+    };
   }
 }
 

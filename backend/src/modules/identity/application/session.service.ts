@@ -34,9 +34,32 @@ export class SessionService {
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
-  /** Starts a new session (a new token family) for an admin who just logged in. */
-  async start(adminId: string): Promise<IssuedRefreshToken> {
-    return this.issue(adminId, randomUUID());
+  /**
+   * Starts a new session (a new token family) for an admin who just authenticated.
+   *
+   * The account is re-read under a SHARE lock in the same transaction that creates the token, and the session is
+   * refused if it is no longer active or (when `verified` is given) its password, or its must-change flag, is no
+   * longer what the login just saw. Without this, a login that had already checked the password could create a session
+   * AFTER a concurrent disable, forced reset or password change had revoked every session, and that session would
+   * outlive the revocation.
+   */
+  async start(
+    adminId: string,
+    verified?: { passwordHash: string; mustChangePassword: boolean },
+  ): Promise<IssuedRefreshToken> {
+    return this.transactions.run(async (manager) => {
+      const account = await this.admins.findByIdForShare(adminId, manager);
+      if (
+        !account ||
+        !canAuthenticate(account) ||
+        (verified !== undefined &&
+          (account.passwordHash !== verified.passwordHash ||
+            account.mustChangePassword !== verified.mustChangePassword))
+      ) {
+        throw new UnauthorizedError('Authentication failed');
+      }
+      return this.issue(adminId, randomUUID(), manager);
+    });
   }
 
   /**

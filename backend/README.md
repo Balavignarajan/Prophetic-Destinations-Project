@@ -60,8 +60,7 @@ development database.
 
 ## What is and is not implemented
 
-Implemented: admin authentication and roles; courses, modules and lessons; `RICH_TEXT` blocks with per-level variants; the review, approval and publishing
+Implemented: admin authentication and roles, and admin account management (temporary passwords, role changes, disable/enable, forced resets, audit trail); courses, modules and lessons; `RICH_TEXT` blocks with per-level variants; the review, approval and publishing
 workflow for lessons, modules and courses; immutable lesson and catalog snapshots; the public catalog, lesson and navigation API with ETags.
 
-Not implemented (waiting on specifications or decisions): Scripture/KJV data and its two block types, Media, Quizzes, the other block contracts, admin
-account management, learner accounts and progress.
+Not implemented (waiting on specifications or decisions): Scripture/KJV data and its two block types, Media, Quizzes, the other block contracts, learner accounts and progress.

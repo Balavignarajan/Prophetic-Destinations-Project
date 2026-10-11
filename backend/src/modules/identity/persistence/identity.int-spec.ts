@@ -71,6 +71,7 @@ describe('identity persistence (integration)', () => {
         passwordHash: '$argon2id$fake',
         role: 'REVIEWER',
         status: 'ACTIVE',
+        mustChangePassword: false,
       });
       expect(await admins.findByEmail(email('basic'))).toEqual(created);
       expect(await admins.findById(created.id)).toEqual(created);

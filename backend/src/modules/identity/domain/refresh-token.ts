@@ -1,7 +1,12 @@
 import { createHash, randomBytes } from 'node:crypto';
 
 export type RevokedReason =
-  'ROTATED' | 'LOGOUT' | 'REUSE_DETECTED' | 'ACCOUNT_DISABLED';
+  | 'ROTATED'
+  | 'LOGOUT'
+  | 'REUSE_DETECTED'
+  | 'ACCOUNT_DISABLED'
+  | 'PASSWORD_CHANGED'
+  | 'PASSWORD_RESET';
 
 /**
  * One refresh token. Tokens that descend from the same login share a familyId;

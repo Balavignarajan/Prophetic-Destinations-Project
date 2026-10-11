@@ -37,6 +37,9 @@ interface Built {
   modules: { moduleId: string; lessonIds: string[] }[];
 }
 
+// Each test authors and publishes whole courses over a remote database: allow for round-trip latency.
+vi.setConfig({ testTimeout: 180_000 });
+
 describe('Course/module publishing and the public catalog (e2e)', () => {
   let app: INestApplication;
   let dataSource: DataSource;
@@ -175,6 +178,8 @@ describe('Course/module publishing and the public catalog (e2e)', () => {
   beforeAll(async () => {
     process.env.AUTH_RATE_LIMIT = '1000';
     process.env.PUBLIC_RATE_LIMIT = '10000';
+    // The suite runs longer than the 15 minute default token lifetime on a slow remote database.
+    process.env.JWT_ACCESS_TTL_SECONDS = '7200';
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();

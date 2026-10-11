@@ -34,6 +34,9 @@ class FakeAdmins {
   async findById(id: string) {
     return this.accounts.find((a) => a.id === id) ?? null;
   }
+  findByIdForShare(id: string) {
+    return this.findById(id);
+  }
   async create(admin: NewAdmin) {
     if (this.accounts.some((a) => a.email === admin.email)) {
       throw new ConflictError('duplicate');
@@ -41,6 +44,7 @@ class FakeAdmins {
     const account: AdminAccount = {
       id: randomUUID(),
       status: 'ACTIVE',
+      mustChangePassword: false,
       ...admin,
     };
     this.accounts.push(account);

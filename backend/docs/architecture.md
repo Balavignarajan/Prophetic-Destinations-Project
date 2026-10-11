@@ -60,12 +60,70 @@ Admins are invite-only; there is no signup endpoint. The first ADMIN comes from 
   scoped to `/api/v1/admin/auth`. Tokens from one login form a _family_ (the session); replaying a rotated token revokes the family.
 - Login and refresh are rate limited per IP (`AUTH_RATE_LIMIT` per `AUTH_RATE_WINDOW_SECONDS`).
 
-| Endpoint                          | Auth                                |
-| --------------------------------- | ----------------------------------- |
-| `POST /api/v1/admin/auth/login`   | public, throttled                   |
-| `POST /api/v1/admin/auth/refresh` | public (refresh cookie), throttled  |
-| `POST /api/v1/admin/auth/logout`  | public (refresh cookie); always 204 |
-| `GET  /api/v1/admin/auth/me`      | any authenticated admin             |
+| Endpoint                           | Auth                                |
+| ---------------------------------- | ----------------------------------- |
+| `POST /api/v1/admin/auth/login`    | public, throttled                   |
+| `POST /api/v1/admin/auth/refresh`  | public (refresh cookie), throttled  |
+| `POST /api/v1/admin/auth/logout`   | public (refresh cookie); always 204 |
+| `GET  /api/v1/admin/auth/me`       | any authenticated admin             |
+| `POST /api/v1/admin/auth/password` | any authenticated admin, throttled  |
+
+### Account management (ADMIN only)
+
+Accounts are managed through `/api/v1/admin/accounts`. Every route is ADMIN only: the role is enforced by `@Roles(Role.ADMIN)`, and each write
+re-checks inside its transaction that the acting account is still an active ADMIN (so a demoted or disabled ADMIN cannot finish a request that was
+already in flight). Responses never contain a password, a hash or a token and are sent `no-store`.
+
+| Route                                         | Purpose                                                                                                                   |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `POST /admin/accounts`                        | create `{ email, role, temporaryPassword }`; the account must change the password at first use                            |
+| `GET /admin/accounts` (`limit`, `offset`)     | list: `{ items: [{ id, email, role, status, mustChangePassword, createdAt, updatedAt, version }], total, limit, offset }` |
+| `GET /admin/accounts/:id`, `.../events`       | one account; its audit trail, newest first                                                                                |
+| `PUT /admin/accounts/:id/role`                | `{ role }`                                                                                                                |
+| `POST /admin/accounts/:id/disable`, `/enable` | disable (ends every session now) / enable                                                                                 |
+| `POST /admin/accounts/:id/password-reset`     | `{ temporaryPassword }` (mandatory): replaces the password, ends every session and requires a password change             |
+| `POST /admin/auth/password`                   | an admin changes their own password: `{ currentPassword, newPassword }`; returns a fresh session                          |
+
+- **Temporary passwords, no email.** There is no invitation or email delivery. The ADMIN chooses a temporary password (the normal password policy applies)
+  and hands it over out of band. An account with `mustChangePassword` can sign in, but the global auth guard then refuses every route with 403 and
+  `details.reason = "PASSWORD_CHANGE_REQUIRED"` except `GET /admin/auth/me` and `POST /admin/auth/password` (marked `@AllowPasswordChangePending()`).
+  `/me` and the login response show `passwordChangeRequired: true` only while it applies.
+- **Sessions.** Disabling revokes every refresh token (reason `ACCOUNT_DISABLED`) and, because every request re-reads the account, the access token
+  stops working immediately. A forced reset or a password change revokes every refresh token (`PASSWORD_RESET` / `PASSWORD_CHANGED`); after a reset
+  the old access token is refused at once by the pending-change rule, after a self-service change it lives on until its 15 minute expiry (the caller is
+  given a new session). Refresh-token rotation, cookies and JWT are unchanged.
+  A new session is opened in a transaction that re-reads the account under a SHARE lock and refuses it if the account was disabled, or its password or
+  must-change flag changed, since the login checked them. Revocations hold the row FOR UPDATE, so a login racing with a disable, reset or password change can
+  never create a session that outlives the revocation. A refresh racing with a revocation contends for the same row; the database aborts one side
+  (deadlock), so either the revocation commits and no token is left, or it is refused with 409 and nothing is half applied.
+- **Last active ADMIN.** Every operation locks the actor, the target and all active ADMINs in one statement in id order, so concurrent operations queue and
+  cannot both remove the last one; a change that would leave no active ADMIN is refused with 409 (`LAST_ACTIVE_ADMIN`). On top of that, an ADMIN cannot
+  disable themselves, change their own role or force a reset of their own password (409): self-service is the password change only. This is a safeguard
+  beyond the minimum, chosen so nobody can lock themselves out by mistake.
+- **Audit trail** (`admin_account_events`, append-only by trigger, foreign keys RESTRICT): account created, role changed (from/to), disabled, enabled,
+  password reset required, password changed; with the acting account and time. It stores no password, hash or token.
+- **A forced reset always replaces the password.** `temporaryPassword` is mandatory (policy applies, 400 if missing, 422 if weak). The new password is
+  hashed, `mustChangePassword` is set, every refresh token is revoked (`PASSWORD_RESET`) and the audit event is recorded, all in one transaction. Because the
+  old password stops working at once, a reset also cuts off anyone who knew it, so it is the correct response to a suspected compromise.
+
+### Break-glass admin recovery (no ADMIN can sign in)
+
+There is deliberately no public recovery endpoint and no password-reset-by-email. If every ADMIN has lost access, someone with **server and database
+access** (the people who already hold `DATABASE_URL` and `JWT_ACCESS_SECRET`) creates a new ADMIN with the existing seed command:
+
+1. On a trusted machine, set a one-off strong password for a **new** email address in the environment for this command only (not in `.env`, not in shell
+   history or tickets): `SEED_ADMIN_EMAIL=recovery.admin@example.org SEED_ADMIN_PASSWORD=... npm run seed:admin`. The command prints only whether it created
+   the account, never the password. It never changes an existing account (so it cannot be used to take over one), which is why a new address is required.
+2. Sign in with it and **immediately change the password** with `POST /admin/auth/password`.
+3. Review `GET /admin/accounts`, disable or reset (with a temporary password) every account that may be compromised, and create accounts for the people who
+   need access. Those actions are audited.
+4. Disable the recovery account when it is no longer needed, and clear the variables from the shell.
+
+The recovery account is created by the CLI, so it has no creation event in the audit trail; record the recovery (who, when, why) in your operations log. The
+procedure works only because the people running it already control the database; protect `DATABASE_URL` accordingly.
+
+- **Not included (open decisions):** account deletion (disable instead), email-based invitations or reset links, lockout after repeated failed
+  sign-ins beyond the existing login rate limit, and per-account optimistic `version` checks on these routes.
 
 ## Curriculum (courses and modules)
 
@@ -559,6 +617,17 @@ it does not enable the `SCRIPTURE_PASSAGE` / `SCRIPTURE_CONNECTION` block types 
 - Multi-write use cases run through `TransactionRunner.run(manager => ...)` and pass `manager` explicitly to repositories.
 - Migration commands (each builds first): `npm run migration:show | migration:run | migration:revert`.
   Scaffold one with `npm run migration:create -- src/database/migrations/<Name>`, then write the SQL by hand and inspect it before running.
+- **Rollback is not always lossless.** `migration:revert` runs the latest migration's `down()`.
+  - A migration that _creates_ a table (including the append-only history tables: lesson workflow events, lesson and catalog publications, catalog workflow
+    events, and account events) drops it on revert, and everything in it. That is the repository convention; nothing guards it.
+  - **`AddAdminAccountManagement` (1791690000000):** reverting it drops the `admin_account_events` audit history, drops `admins.must_change_password` (accounts
+    that still had a temporary password would then keep it as an ordinary password), and narrows the refresh-token reason CHECK again. That last step
+    fails, changing nothing, if a token was revoked with `PASSWORD_CHANGED` or `PASSWORD_RESET`, so in practice a revert is refused once any account has
+    used a password change or reset.
+  - Migrations that only _widen a CHECK_ (for example `AllowCatalogRefreshEvent`) refuse to roll back if a row uses the new shape.
+  - So: do not revert in a shared or production database without exporting the affected tables first (audit history cannot be rebuilt), and treat revert as
+    a development tool. A destructive-rollback guard was deliberately not added: it would be a new convention for table-creating migrations and should be
+    decided for all of them together.
 - `npm run migration:drift` prints what TypeORM thinks differs between entities and the database. Expect two known false
   positives: it re-sets the `gen_random_uuid()` id defaults, re-creates foreign keys and the `idx_courses_created_at_id` index, and proposes dropping `lessons.module_id`'s foreign key and the composite foreign keys of `lesson_block_levels` (it targets another module's table, so it is intentionally not modelled in the entity). Triggers such as `trg_lesson_blocks_type_immutable` are not modelled in entities either. Anything else is real drift.
 

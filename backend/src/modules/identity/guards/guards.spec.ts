@@ -7,6 +7,7 @@ import {
 } from '../../../shared-kernel/index.js';
 import type { AuthService } from '../application/auth.service.js';
 import { Role } from '../domain/role.js';
+import { ALLOW_PASSWORD_CHANGE_PENDING_KEY } from './allow-password-change-pending.decorator.js';
 import { CurrentAdmin } from './current-admin.decorator.js';
 import { JwtAuthGuard } from './jwt-auth.guard.js';
 import { getRequestAdmin, setRequestAdmin } from './request-admin.js';
@@ -167,5 +168,57 @@ describe('CurrentAdmin', () => {
 
   it('throws when used on a route without an authenticated admin', () => {
     expect(() => resolve({ headers: {} })).toThrow(UnauthorizedError);
+  });
+});
+
+describe('JwtAuthGuard while a password change is pending', () => {
+  const authenticate = vi.fn();
+  const guard = new JwtAuthGuard(new Reflector(), {
+    authenticate,
+  } as unknown as AuthService);
+  const pending = { ...admin, passwordChangeRequired: true };
+
+  beforeEach(() => {
+    authenticate.mockReset();
+    authenticate.mockResolvedValue(pending);
+  });
+
+  function contextWith(allow: boolean) {
+    const handler = () => undefined;
+    class Controller {}
+    if (allow) {
+      Reflect.defineMetadata(ALLOW_PASSWORD_CHANGE_PENDING_KEY, true, handler);
+    }
+    const req = { headers: { authorization: 'Bearer tok' } };
+    return {
+      req,
+      context: {
+        getHandler: () => handler,
+        getClass: () => Controller,
+        switchToHttp: () => ({ getRequest: () => req }),
+      } as unknown as ExecutionContext,
+    };
+  }
+
+  it('refuses every route that does not allow it, with a machine-readable reason', async () => {
+    const { context, req } = contextWith(false);
+    const error = await guard.canActivate(context).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ForbiddenError);
+    expect((error as ForbiddenError).details).toEqual({
+      reason: 'PASSWORD_CHANGE_REQUIRED',
+    });
+    expect(getRequestAdmin(req as never)).toBeUndefined();
+  });
+
+  it('lets the routes that allow it through', async () => {
+    const { context, req } = contextWith(true);
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    expect(getRequestAdmin(req as never)).toEqual(pending);
+  });
+
+  it('does not affect an admin who has nothing pending', async () => {
+    authenticate.mockResolvedValue(admin);
+    const { context } = contextWith(false);
+    await expect(guard.canActivate(context)).resolves.toBe(true);
   });
 });
