@@ -1,0 +1,202 @@
+import React from 'react';
+
+interface ModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+  maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl';
+}
+
+export function Modal({
+  isOpen,
+  onClose,
+  title,
+  description,
+  children,
+  maxWidth = 'md',
+}: ModalProps) {
+  if (!isOpen) return null;
+
+  const maxWidthClass = {
+    sm: 'max-w-sm',
+    md: 'max-w-md',
+    lg: 'max-w-lg',
+    xl: 'max-w-xl',
+    '2xl': 'max-w-2xl',
+  }[maxWidth];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+      <div
+        className={`w-full ${maxWidthClass} bg-white rounded-xl shadow-2xl border border-slate-200 overflow-hidden transform transition-all animate-in fade-in zoom-in-95`}
+      >
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/50">
+          <div>
+            <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
+            {description && (
+              <p className="text-sm text-slate-500 mt-0.5">{description}</p>
+            )}
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+            aria-label="Close"
+          >
+            <svg
+              className="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M6 18L18 6M6 6l12 12"
+              />
+            </svg>
+          </button>
+        </div>
+        <div className="p-6 max-h-[80vh] overflow-y-auto">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+interface ConfirmDialogProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  isDestructive?: boolean;
+  isLoading?: boolean;
+}
+
+export function ConfirmDialog({
+  isOpen,
+  onClose,
+  onConfirm,
+  title,
+  message,
+  confirmLabel = 'Confirm',
+  cancelLabel = 'Cancel',
+  isDestructive = false,
+  isLoading = false,
+}: ConfirmDialogProps) {
+  if (!isOpen) return null;
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title={title} maxWidth="sm">
+      <div className="space-y-4">
+        <p className="text-sm text-slate-600 leading-relaxed">{message}</p>
+        <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={isLoading}
+            className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 focus:outline-hidden focus:ring-2 focus:ring-slate-300 disabled:opacity-50"
+          >
+            {cancelLabel}
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={isLoading}
+            className={`px-4 py-2 text-sm font-medium text-white rounded-lg focus:outline-hidden focus:ring-2 disabled:opacity-50 flex items-center gap-2 ${
+              isDestructive
+                ? 'bg-rose-600 hover:bg-rose-700 focus:ring-rose-400'
+                : 'bg-slate-900 hover:bg-slate-800 focus:ring-slate-400'
+            }`}
+          >
+            {isLoading && (
+              <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            )}
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+export function StatusBadge({ status }: { status: string }) {
+  const getBadgeStyle = () => {
+    switch (status) {
+      case 'PUBLISHED':
+        return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+      case 'APPROVED':
+        return 'bg-amber-50 text-amber-700 border-amber-200';
+      case 'READY_FOR_REVIEW':
+        return 'bg-blue-50 text-blue-700 border-blue-200';
+      case 'DRAFT':
+      default:
+        return 'bg-slate-50 text-slate-600 border-slate-200';
+    }
+  };
+
+  const getLabel = () => {
+    switch (status) {
+      case 'READY_FOR_REVIEW':
+        return 'Ready for Review';
+      default:
+        return status.charAt(0) + status.slice(1).toLowerCase();
+    }
+  };
+
+  return (
+    <span
+      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${getBadgeStyle()}`}
+    >
+      {getLabel()}
+    </span>
+  );
+}
+
+export function LoadingSpinner({ text }: { text?: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center p-8 gap-3">
+      <div className="w-8 h-8 border-3 border-amber-500/20 border-t-amber-600 rounded-full animate-spin" />
+      {text && <p className="text-sm font-medium text-slate-500">{text}</p>}
+    </div>
+  );
+}
+
+export function EmptyState({
+  title,
+  description,
+  action,
+}: {
+  title: string;
+  description: string;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center p-12 text-center bg-white border border-dashed border-slate-300 rounded-xl">
+      <div className="w-12 h-12 mb-3 text-slate-400 bg-slate-50 rounded-full flex items-center justify-center border border-slate-200">
+        <svg
+          className="w-6 h-6"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={1.5}
+            d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"
+          />
+        </svg>
+      </div>
+      <h4 className="text-base font-semibold text-slate-900">{title}</h4>
+      <p className="text-sm text-slate-500 max-w-sm mt-1 mb-4 leading-relaxed">
+        {description}
+      </p>
+      {action && <div>{action}</div>}
+    </div>
+  );
+}
