@@ -11,7 +11,7 @@ describe('parseConfig', () => {
       nodeEnv: 'development',
       port: 3001,
       databaseUrl: valid.DATABASE_URL,
-      corsOrigins: [],
+      corsOrigins: ['http://localhost:3000'],
       jwtAccessSecret: valid.JWT_ACCESS_SECRET,
       jwtAccessTtlSeconds: 900,
       refreshTokenTtlDays: 14,
@@ -60,6 +60,12 @@ describe('parseConfig', () => {
       'http://localhost:3000',
       'https://admin.example.com',
     ]);
+
+    const prodDefault = parseConfig({
+      ...valid,
+      NODE_ENV: 'production',
+    });
+    expect(prodDefault.corsOrigins).toEqual([]);
   });
 
   it('requires DATABASE_URL', () => {

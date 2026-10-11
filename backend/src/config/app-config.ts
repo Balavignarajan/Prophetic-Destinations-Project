@@ -55,10 +55,13 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
     problems.push('DATABASE_URL must be a postgres:// or postgresql:// URL');
   }
 
-  const corsOrigins = (env.CORS_ORIGINS ?? '')
-    .split(',')
-    .map((origin) => origin.trim())
-    .filter(Boolean);
+  const corsOrigins = env.CORS_ORIGINS !== undefined
+    ? env.CORS_ORIGINS.split(',')
+        .map((origin) => origin.trim())
+        .filter(Boolean)
+    : nodeEnv === 'production'
+      ? []
+      : ['http://localhost:3000'];
 
   const jwtAccessSecret = env.JWT_ACCESS_SECRET ?? '';
   if (jwtAccessSecret.length < 32) {
