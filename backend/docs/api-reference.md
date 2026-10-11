@@ -1,6 +1,6 @@
 # API reference (backend)
 
-All routes live under `/api/v1`, except `GET /health` and `GET /health/db`. This is the consolidated route index (81 routes). The detailed behaviour, envelopes
+All routes live under `/api/v1`, except `GET /health` and `GET /health/db`. This is the consolidated route index (90 routes). The detailed behaviour, envelopes
 and rules of each area are in [architecture.md](./architecture.md); this page is the map and the quick contract. The route list was produced from the
 controllers on 2026-10-11 and is checked by reading them again whenever routes change.
 
@@ -144,7 +144,21 @@ A lesson is delivered only while it is published **and** listed by its course's 
 413 for a file over `MEDIA_MAX_BYTES`, 422 for an empty file or a type that is not allowed (the type is decided from the bytes), 404 if the asset or its
 stored file is missing. No response contains a storage key or a path. Details and configuration: [architecture.md](./architecture.md#media-local-storage).
 
+## Quizzes (basic; assumptions, see architecture.md)
+
+| Method | Route                              | Access        | Purpose                                                                                                        |
+| ------ | ---------------------------------- | ------------- | -------------------------------------------------------------------------------------------------------------- |
+| POST   | `/admin/quizzes`                   | ADMIN, EDITOR | create a draft: `{ title, description?, questions: [{ prompt, explanation?, options: [{ text, correct }] }] }` |
+| GET    | `/admin/quizzes`                   | read          | list with status and question count                                                                            |
+| GET    | `/admin/quizzes/:quizId`           | read          | the full quiz including the correct options (staff only)                                                       |
+| PUT    | `/admin/quizzes/:quizId`           | ADMIN, EDITOR | replace the content of a draft (`version` optional); 409 if published or stale                                 |
+| POST   | `/admin/quizzes/:quizId/publish`   | ADMIN         | needs at least one question; 422 otherwise                                                                     |
+| POST   | `/admin/quizzes/:quizId/unpublish` | ADMIN         |                                                                                                                |
+| DELETE | `/admin/quizzes/:quizId`           | ADMIN, EDITOR | drafts only (204)                                                                                              |
+| GET    | `/quizzes/:quizId`                 | public        | a published quiz without correct answers or explanations                                                       |
+| POST   | `/quizzes/:quizId/submissions`     | public        | `{ answers: [{ questionId, optionId }] }` → `{ quizId, score, total, results[] }`; stateless                   |
+
 ## Not implemented (isolated, awaiting decisions)
 
 Scripture/KJV data and the two Scripture block contracts (source licensing unresolved, see [scripture-source-research.md](./scripture-source-research.md)),
-Quizzes, public media delivery and media-using blocks, the remaining 17 block contracts, learner accounts and progress. (Admin accounts are created through the account-management API, or by `npm run seed:admin` for the first ADMIN.)
+The quiz lesson block and lesson integration of quizzes, public media delivery and media-using blocks, the remaining 17 block contracts, learner accounts and progress. (Admin accounts are created through the account-management API, or by `npm run seed:admin` for the first ADMIN.)

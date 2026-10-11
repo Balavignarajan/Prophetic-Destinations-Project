@@ -634,6 +634,38 @@ that need it, as an explicit route, together with the reference check that stops
 - **Open decisions (D4):** the production storage provider, allowed audio/video types, size limits per type, alt text / captions / credits, image
   variants, and whether and how media is delivered publicly.
 
+## Quizzes (basic)
+
+**Everything in this section is a documented ASSUMPTION, not a confirmed requirement** (decisions D5.1-D5.4 about question types, where answers are checked,
+level eligibility and scoring are still open). It is the smallest contract that lets the backend demonstrate a quiz, and it is meant to be revised.
+
+- **Standalone, not in lessons.** The `QUIZ` lesson-block type is not enabled (it has no approved content contract), so no lesson and no published lesson
+  snapshot refers to a quiz. When that contract exists, a lesson snapshot will embed the quiz as published at that moment (the same way a catalog snapshot
+  is built), and the standalone learner routes below become optional. Delivery may not import quizzes (its boundary test enforces this), which is why the
+  learner routes live in the quizzes module.
+- **Question format.** One type, `SINGLE_CHOICE`, plain text (no markup): a prompt (1-1000 characters), 2-6 options (1-300 characters, unique ignoring case),
+  exactly one correct, and an optional explanation (up to 1000). Up to 50 questions, title up to 200, description up to 2000. The stored `type` column and its
+  CHECK are where further types would be added.
+- **Lifecycle.** `DRAFT` or `PUBLISHED`; no review workflow. Publishing needs at least one question and is ADMIN only. A published quiz cannot be edited or
+  deleted; unpublish first. The database also refuses any change to the questions or options of a published quiz (trigger).
+- **Authoring routes** (`/api/v1/admin/quizzes`, `no-store`): `POST` (ADMIN, EDITOR; the whole quiz in one body), `GET` list, `GET :quizId` (staff see which
+  option is correct and the explanation), `PUT :quizId` (ADMIN, EDITOR; replaces the whole content of a draft; optional `version` for a stale-edit 409),
+  `POST :quizId/publish` and `/unpublish` (ADMIN), `DELETE :quizId` (ADMIN, EDITOR; drafts only). REVIEWER reads only. Invalid content is 422 with every
+  problem listed; malformed shapes and unknown fields are 400.
+- **Learner routes** (anonymous, rate limited with the public limiter, `no-store`): `GET /api/v1/quizzes/:quizId` and
+  `POST /api/v1/quizzes/:quizId/submissions` with `{ answers: [{ questionId, optionId }] }`. A draft, an unpublished quiz and an unknown id are the same 404.
+- **No answer leakage.** The learner payload is built by a mapper that has no field for the correct option or the explanation (a test inspects every key and
+  the raw text). The correct option and the explanations appear only in the result of a submission, one point per correct answer: `{ quizId, score, total,
+results: [{ questionId, answeredOptionId, correct, correctOptionId, explanation }] }`. Unanswered questions score 0; answers for unknown questions or
+  options, or a question answered twice, are refused as a whole (422).
+- **Stateless.** A submission is scored and returned; nothing is stored (no learner accounts, no attempts, no analytics). Because the result reveals the
+  answers, a learner can retry freely; limiting attempts would need learner identity, which is out of scope.
+- **Storage.** `quizzes`, `quiz_questions`, `quiz_options` (migration `CreateQuizzes1791710000000`). A question points at its correct option through a
+  deferred composite foreign key, so a question always has exactly one correct option and it is one of its own options. Writes are one transaction that locks
+  the quiz row first, so concurrent edits queue and a stale version is refused.
+- **Open decisions (D5):** question types beyond single choice, where answers are checked (device or server) and whether the key may ever be shipped with the
+  quiz, level eligibility, scoring and pass marks, attempt limits, rich text or media in questions, and how a lesson embeds a quiz.
+
 ## HTTP conventions
 
 - All routes are under `/api/v1`, except `GET /health` and `GET /health/db`.
