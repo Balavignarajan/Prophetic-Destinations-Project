@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useCallback } from 'react';
+import Link from 'next/link';
 import { api } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { ConsistencyReport } from '../../lib/types';
@@ -9,6 +10,7 @@ import { LoadingSpinner } from '../../components/ui';
 export default function PublishingPage() {
   const { user } = useAuth();
   const [report, setReport] = useState<ConsistencyReport | null>(null);
+  const [lastScannedAt, setLastScannedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [verifySnapshots, setVerifySnapshots] = useState(false);
@@ -22,6 +24,7 @@ export default function PublishingPage() {
         `/admin/publishing/consistency?verifySnapshots=${verifySnapshots}&limit=100`
       );
       setReport(res);
+      setLastScannedAt(new Date().toLocaleTimeString());
     } catch (err: unknown) {
       const e = err as { message?: string };
       setError(e.message || 'Failed to generate publication consistency report.');
@@ -76,7 +79,7 @@ export default function PublishingPage() {
           <button
             onClick={fetchConsistency}
             disabled={loading}
-            className="px-4 py-2 text-xs font-semibold bg-slate-950 hover:bg-slate-800 text-white rounded-lg shadow-xs transition-colors flex items-center gap-2"
+            className="px-4 py-2 text-xs font-semibold bg-slate-950 hover:bg-slate-800 text-white rounded-lg shadow-xs transition-colors flex items-center gap-2 cursor-pointer disabled:opacity-50"
           >
             {loading ? (
               <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -116,37 +119,54 @@ export default function PublishingPage() {
                   ) : (
                     <span className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full text-sm font-semibold bg-rose-50 text-rose-700 border border-rose-200">
                       <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
-                      {report.failedChecks} Consistency Failures Detected
+                      {report.issues.length} Consistency Issues Detected
                     </span>
                   )}
                 </div>
               </div>
 
-              <div className="flex items-center gap-8 text-xs text-slate-500">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-6 text-xs text-slate-500">
                 <div>
-                  <div className="font-semibold text-slate-700 text-sm">{report.totalChecks}</div>
-                  <div>Invariants Checked</div>
-                </div>
-                <div>
-                  <div className="font-semibold text-slate-700 text-sm">{report.failedChecks}</div>
+                  <div className="font-semibold text-slate-700 text-sm">{report.issues.length}</div>
                   <div>Issues Found</div>
                 </div>
                 <div>
-                  <div className="font-mono text-slate-700">{new Date(report.timestamp).toLocaleTimeString()}</div>
+                  <div className="font-semibold text-slate-700 text-sm">{report.limitPerCheck}</div>
+                  <div>Limit Per Check</div>
+                </div>
+                <div>
+                  <div className="font-semibold text-slate-700 text-sm">
+                    {report.snapshotsVerified ? 'Deep Verified' : 'Fast Scan'}
+                  </div>
+                  <div>Snapshots</div>
+                </div>
+                <div>
+                  <div className="font-mono text-slate-700 text-sm">{lastScannedAt || '—'}</div>
                   <div>Scan Timestamp</div>
                 </div>
               </div>
             </div>
+
+            {report.truncated && (
+              <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
+                Notice: At least one invariant check reached its configured issue limit ({report.limitPerCheck}). Additional issues may exist.
+              </div>
+            )}
           </div>
 
           {/* Details / Findings */}
           <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs space-y-4">
-            <h3 className="font-serif text-base font-bold text-slate-900">
-              Audit Findings
-            </h3>
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="font-serif text-base font-bold text-slate-900">
+                Audit Findings
+              </h3>
+              <span className="text-xs text-slate-500 font-medium">
+                {report.issues.length} issue{report.issues.length === 1 ? '' : 's'} recorded
+              </span>
+            </div>
 
-            {report.failedChecks === 0 ? (
-              <div className="p-6 bg-slate-50 border border-slate-200/80 rounded-xl text-center">
+            {report.issues.length === 0 ? (
+              <div className="p-8 bg-slate-50 border border-slate-200/80 rounded-xl text-center">
                 <svg className="w-8 h-8 text-emerald-500 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
@@ -156,13 +176,44 @@ export default function PublishingPage() {
                 </p>
               </div>
             ) : (
-              <div className="space-y-3">
-                <p className="text-xs text-rose-700 font-semibold">
-                  Detected anomalies in published versions:
-                </p>
-                <pre className="p-4 bg-slate-950 text-slate-200 rounded-xl text-xs font-mono overflow-x-auto">
-                  {JSON.stringify(report.details, null, 2)}
-                </pre>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs text-slate-600">
+                  <thead className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wider text-slate-500 border-b border-slate-200">
+                    <tr>
+                      <th className="px-4 py-3">Invariant Code</th>
+                      <th className="px-4 py-3">Lesson ID</th>
+                      <th className="px-4 py-3">Publication ID</th>
+                      <th className="px-4 py-3">Level</th>
+                      <th className="px-4 py-3 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 font-mono">
+                    {report.issues.map((issue, idx) => (
+                      <tr key={`${issue.code}-${issue.lessonId}-${idx}`} className="hover:bg-slate-50/60">
+                        <td className="px-4 py-3 font-semibold text-rose-700">
+                          {issue.code}
+                        </td>
+                        <td className="px-4 py-3 text-slate-800 truncate max-w-xs" title={issue.lessonId}>
+                          {issue.lessonId}
+                        </td>
+                        <td className="px-4 py-3 text-slate-500 truncate max-w-xs" title={issue.publicationId || ''}>
+                          {issue.publicationId || '—'}
+                        </td>
+                        <td className="px-4 py-3 text-slate-600 font-sans">
+                          {issue.level || 'All'}
+                        </td>
+                        <td className="px-4 py-3 text-right font-sans">
+                          <Link
+                            href={`/lessons/${issue.lessonId}`}
+                            className="text-amber-700 hover:text-amber-900 font-medium underline"
+                          >
+                            Inspect Lesson &rarr;
+                          </Link>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>

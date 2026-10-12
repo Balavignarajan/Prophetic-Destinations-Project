@@ -179,25 +179,35 @@ export interface AccountItem {
   id: string;
   email: string;
   role: Role;
-  disabled: boolean;
-  passwordChangeRequired: boolean;
+  status: 'ACTIVE' | 'DISABLED';
+  mustChangePassword: boolean;
   createdAt: string;
   updatedAt: string;
-  lastLoginAt: string | null;
+  version: number;
 }
 
 export interface AccountEvent {
   id: string;
-  type: string;
-  actorId: string;
-  details?: Record<string, unknown>;
+  seq: number;
+  subjectAdminId: string;
+  actorAdminId: string;
+  action: string;
+  fromValue: string | null;
+  toValue: string | null;
   createdAt: string;
 }
 
+export interface ConsistencyIssue {
+  code: string;
+  lessonId: string;
+  publicationId: string | null;
+  level?: string;
+}
+
 export interface ConsistencyReport {
-  timestamp: string;
   consistent: boolean;
-  totalChecks: number;
-  failedChecks: number;
-  details?: unknown[];
+  limitPerCheck: number;
+  snapshotsVerified: boolean;
+  truncated: boolean;
+  issues: ConsistencyIssue[];
 }

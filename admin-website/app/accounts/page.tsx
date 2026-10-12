@@ -167,7 +167,8 @@ export default function AccountsPage() {
     setTogglingDisable(true);
     setToggleError(null);
 
-    const endpoint = toggleDisableAccount.disabled ? 'enable' : 'disable';
+    const isCurrentlyDisabled = toggleDisableAccount.status === 'DISABLED';
+    const endpoint = isCurrentlyDisabled ? 'enable' : 'disable';
 
     try {
       await api.request(
@@ -299,7 +300,7 @@ export default function AccountsPage() {
                           </td>
                           <td className="px-4 py-4">
                             <div className="space-y-1">
-                              {acc.disabled ? (
+                              {acc.status === 'DISABLED' ? (
                                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200">
                                   Disabled
                                 </span>
@@ -308,7 +309,7 @@ export default function AccountsPage() {
                                   Active
                                 </span>
                               )}
-                              {acc.passwordChangeRequired && (
+                              {acc.mustChangePassword && (
                                 <div className="text-[10px] text-amber-700 font-medium">
                                   Password change pending
                                 </div>
@@ -344,12 +345,12 @@ export default function AccountsPage() {
                                   <button
                                     onClick={() => setToggleDisableAccount(acc)}
                                     className={`text-xs font-medium px-2 py-1 rounded-md ${
-                                      acc.disabled
+                                      acc.status === 'DISABLED'
                                         ? 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100'
                                         : 'text-rose-700 bg-rose-50 hover:bg-rose-100'
                                     }`}
                                   >
-                                    {acc.disabled ? 'Enable' : 'Disable'}
+                                    {acc.status === 'DISABLED' ? 'Enable' : 'Disable'}
                                   </button>
                                 </>
                               )}
@@ -391,17 +392,25 @@ export default function AccountsPage() {
                     {events.map((evt) => (
                       <div
                         key={evt.id}
-                        className="p-3 bg-slate-50 border border-slate-200/80 rounded-lg text-xs space-y-1"
+                        className="p-3 bg-slate-50 border border-slate-200/80 rounded-lg text-xs space-y-1.5"
                       >
                         <div className="flex items-center justify-between font-semibold text-slate-800">
-                          <span>{evt.type}</span>
+                          <span className="font-mono text-[11px] bg-slate-200 text-slate-800 px-1.5 py-0.5 rounded">
+                            {evt.action}
+                          </span>
                           <span className="text-[10px] font-normal text-slate-400">
                             {new Date(evt.createdAt).toLocaleDateString()}
                           </span>
                         </div>
-                        <p className="text-[11px] text-slate-500 font-mono">
-                          Actor: {evt.actorId.slice(0, 8)}...
-                        </p>
+                        <div className="flex items-center justify-between text-[11px] text-slate-500 font-mono">
+                          <span>Actor: {evt.actorAdminId.slice(0, 8)}...</span>
+                          <span className="text-[10px] text-slate-400">Seq #{evt.seq}</span>
+                        </div>
+                        {(evt.fromValue || evt.toValue) && (
+                          <p className="text-[10px] text-slate-600 bg-white p-1.5 rounded border border-slate-200 mt-1">
+                            <span className="font-medium text-slate-500">Change:</span> {evt.fromValue || '—'} &rarr; {evt.toValue || '—'}
+                          </p>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -596,16 +605,16 @@ export default function AccountsPage() {
         isOpen={Boolean(toggleDisableAccount)}
         onClose={() => setToggleDisableAccount(null)}
         onConfirm={handleToggleDisable}
-        title={`${toggleDisableAccount?.disabled ? 'Enable' : 'Disable'} Account`}
+        title={`${toggleDisableAccount?.status === 'DISABLED' ? 'Enable' : 'Disable'} Account`}
         message={`Are you sure you want to ${
-          toggleDisableAccount?.disabled ? 'enable' : 'disable'
+          toggleDisableAccount?.status === 'DISABLED' ? 'enable' : 'disable'
         } the account for ${toggleDisableAccount?.email}? ${
-          toggleDisableAccount?.disabled
+          toggleDisableAccount?.status === 'DISABLED'
             ? 'The account will regain access immediately.'
             : 'All active sessions will be terminated immediately. Note: The last active ADMIN cannot be disabled.'
         }`}
-        confirmLabel={toggleDisableAccount?.disabled ? 'Enable' : 'Disable'}
-        isDestructive={!toggleDisableAccount?.disabled}
+        confirmLabel={toggleDisableAccount?.status === 'DISABLED' ? 'Enable' : 'Disable'}
+        isDestructive={toggleDisableAccount?.status !== 'DISABLED'}
         isLoading={togglingDisable}
       />
     </div>
