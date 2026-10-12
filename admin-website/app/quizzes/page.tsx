@@ -12,6 +12,10 @@ export default function QuizzesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Search & filter
+  const [quizSearch, setQuizSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'DRAFT' | 'PUBLISHED'>('ALL');
+
   // Active quiz view & edit
   const [activeQuiz, setActiveQuiz] = useState<AdminQuiz | null>(null);
   const [loadingQuizDetails, setLoadingQuizDetails] = useState(false);
@@ -73,6 +77,24 @@ export default function QuizzesPage() {
   useEffect(() => {
     fetchQuizzes();
   }, [fetchQuizzes]);
+
+  // Unsaved changes protection
+  useEffect(() => {
+    const isDirty = Boolean(
+      (createModalOpen && (newTitle.trim() || newQuestions.some((q) => q.prompt.trim()))) ||
+      (editModalOpen && (editTitle.trim() || editQuestions.some((q) => q.prompt.trim())))
+    );
+
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isDirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [createModalOpen, newTitle, newQuestions, editModalOpen, editTitle, editQuestions]);
 
   const fetchQuizDetails = async (quizId: string) => {
     setLoadingQuizDetails(true);
@@ -267,6 +289,39 @@ export default function QuizzesPage() {
     }
   };
 
+  const handleDuplicateQuiz = async (quiz: AdminQuiz) => {
+    try {
+      await api.request('/admin/quizzes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: `${quiz.title} (Copy)`,
+          description: quiz.description,
+          questions: quiz.questions.map((q) => ({
+            prompt: q.prompt,
+            explanation: q.explanation,
+            options: q.options.map((o) => ({
+              text: o.text,
+              correct: o.correct,
+            })),
+          })),
+        }),
+      });
+      fetchQuizzes();
+    } catch (err: unknown) {
+      const e = err as { payload?: { message?: string }; message?: string };
+      setError(e.payload?.message || e.message || 'Failed to duplicate quiz.');
+    }
+  };
+
+  const filteredQuizzes = quizzes.filter((q) => {
+    const matchesSearch =
+      q.title.toLowerCase().includes(quizSearch.toLowerCase()) ||
+      (q.description && q.description.toLowerCase().includes(quizSearch.toLowerCase()));
+    const matchesStatus = statusFilter === 'ALL' || q.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
+
   const canWrite = user?.role === 'ADMIN' || user?.role === 'EDITOR';
   const canPublish = user?.role === 'ADMIN';
 
@@ -314,20 +369,41 @@ export default function QuizzesPage() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Quizzes List (Left Column) */}
         <div className="lg:col-span-5 space-y-3">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-            Quizzes Catalog ({quizzes.length})
-          </h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+              Quizzes Catalog ({filteredQuizzes.length})
+            </h2>
+          </div>
+
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder="Search quizzes..."
+              value={quizSearch}
+              onChange={(e) => setQuizSearch(e.target.value)}
+              className="flex-1 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs placeholder-slate-400 focus:outline-hidden focus:ring-1 focus:ring-amber-500"
+            />
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as 'ALL' | 'DRAFT' | 'PUBLISHED')}
+              className="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-hidden"
+            >
+              <option value="ALL">All Status</option>
+              <option value="DRAFT">Draft</option>
+              <option value="PUBLISHED">Published</option>
+            </select>
+          </div>
 
           {loading ? (
             <LoadingSpinner text="Loading quizzes..." />
-          ) : quizzes.length === 0 ? (
+          ) : filteredQuizzes.length === 0 ? (
             <EmptyState
               title="No Quizzes Available"
-              description="Create single-choice draft quizzes for learner assessments."
+              description="No quizzes match your search criteria."
             />
           ) : (
             <div className="space-y-2.5">
-              {quizzes.map((quiz) => (
+              {filteredQuizzes.map((quiz) => (
                 <div
                   key={quiz.id}
                   onClick={() => fetchQuizDetails(quiz.id)}
@@ -392,6 +468,16 @@ export default function QuizzesPage() {
                       className="px-3 py-1.5 text-xs font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors"
                     >
                       Edit Draft
+                    </button>
+                  )}
+
+                  {canWrite && (
+                    <button
+                      onClick={() => handleDuplicateQuiz(activeQuiz)}
+                      className="px-3 py-1.5 text-xs font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors"
+                      title="Duplicate this quiz as a new draft"
+                    >
+                      Duplicate
                     </button>
                   )}
 

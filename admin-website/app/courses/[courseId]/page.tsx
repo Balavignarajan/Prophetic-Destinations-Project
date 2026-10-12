@@ -77,6 +77,27 @@ export default function CourseDetailPage() {
     fetchCourseData();
   }, [fetchCourseData]);
 
+  // Unsaved changes protection
+  useEffect(() => {
+    const isDirty = Boolean(
+      (createModuleModalOpen && newModuleTitle.trim().length > 0) ||
+      (editCourseModalOpen && course && (
+        editTitle !== course.title ||
+        editDescription !== (course.description || '')
+      ))
+    );
+
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isDirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [createModuleModalOpen, newModuleTitle, editCourseModalOpen, course, editTitle, editDescription]);
+
   const handleUpdateCourse = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!course) return;

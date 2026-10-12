@@ -42,6 +42,8 @@ export default function ModuleDetailPage() {
   const [newLessonTitle, setNewLessonTitle] = useState('');
   const [newShortTitle, setNewShortTitle] = useState('');
   const [newSubtitle, setNewSubtitle] = useState('');
+  const [newIntroduction, setNewIntroduction] = useState('');
+  const [newEstimatedMinutes, setNewEstimatedMinutes] = useState<string>('');
   const [newLevels, setNewLevels] = useState<LearningLevel[]>([
     'BEGINNER',
     'INTERMEDIATE',
@@ -101,6 +103,27 @@ export default function ModuleDetailPage() {
     fetchModuleData();
   }, [fetchModuleData]);
 
+  // Unsaved changes protection
+  useEffect(() => {
+    const isDirty = Boolean(
+      (createLessonModalOpen && newLessonTitle.trim().length > 0) ||
+      (editModuleModalOpen && moduleData && (
+        editTitle !== moduleData.title ||
+        editDescription !== (moduleData.description || '')
+      ))
+    );
+
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isDirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [createLessonModalOpen, newLessonTitle, editModuleModalOpen, moduleData, editTitle, editDescription]);
+
   const handleUpdateModule = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!moduleData) return;
@@ -153,6 +176,8 @@ export default function ModuleDetailPage() {
             title: newLessonTitle.trim(),
             shortTitle: newShortTitle.trim() || undefined,
             subtitle: newSubtitle.trim() || undefined,
+            introduction: newIntroduction.trim() || undefined,
+            estimatedMinutes: newEstimatedMinutes ? parseInt(newEstimatedMinutes, 10) : undefined,
             levels: newLevels,
           }),
         }
@@ -162,6 +187,8 @@ export default function ModuleDetailPage() {
       setNewLessonTitle('');
       setNewShortTitle('');
       setNewSubtitle('');
+      setNewIntroduction('');
+      setNewEstimatedMinutes('');
       fetchModuleData();
     } catch (err: unknown) {
       const e = err as { payload?: { message?: string }; message?: string };
@@ -644,6 +671,34 @@ export default function ModuleDetailPage() {
                 className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500"
               />
             </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5">
+              Introduction (Optional)
+            </label>
+            <textarea
+              rows={2}
+              value={newIntroduction}
+              onChange={(e) => setNewIntroduction(e.target.value)}
+              placeholder="Multi-paragraph orientation to the lesson theme..."
+              className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5">
+              Estimated Duration (Minutes, Optional)
+            </label>
+            <input
+              type="number"
+              min={1}
+              max={600}
+              value={newEstimatedMinutes}
+              onChange={(e) => setNewEstimatedMinutes(e.target.value)}
+              placeholder="e.g. 25"
+              className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500"
+            />
           </div>
 
           <div>

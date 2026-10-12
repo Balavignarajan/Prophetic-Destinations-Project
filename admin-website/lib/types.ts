@@ -56,11 +56,14 @@ export interface LessonSummary {
   title: string;
   shortTitle: string | null;
   subtitle: string | null;
+  introduction: string | null;
+  estimatedMinutes: number | null;
   position: number;
   levels: LearningLevel[];
   coverMediaId: string | null;
   status: 'DRAFT' | 'READY_FOR_REVIEW' | 'APPROVED' | 'PUBLISHED';
   version: number;
+  contentRevision?: number;
   createdAt: string;
   updatedAt: string;
 }

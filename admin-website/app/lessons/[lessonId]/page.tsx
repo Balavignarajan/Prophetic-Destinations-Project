@@ -14,6 +14,7 @@ import {
   ReadinessReport,
 } from '../../../lib/types';
 import { LoadingSpinner, StatusBadge, EmptyState, Modal, ConfirmDialog } from '../../../components/ui';
+import { validateScriptureReference, CANONICAL_BOOKS, ParseResult } from '../../../lib/scripture';
 
 export default function LessonAuthoringPage() {
   const params = useParams();
@@ -53,6 +54,8 @@ export default function LessonAuthoringPage() {
   const [editTitle, setEditTitle] = useState('');
   const [editShortTitle, setEditShortTitle] = useState('');
   const [editSubtitle, setEditSubtitle] = useState('');
+  const [editIntroduction, setEditIntroduction] = useState('');
+  const [editEstimatedMinutes, setEditEstimatedMinutes] = useState<string>('');
   const [updatingMetadata, setUpdatingMetadata] = useState(false);
   const [updateMetaError, setUpdateMetaError] = useState<string | null>(null);
 
@@ -78,14 +81,20 @@ export default function LessonAuthoringPage() {
   // Block Level Variant editing
   const [variantModalBlock, setVariantModalBlock] = useState<LessonBlock | null>(null);
   const [variantLevel, setVariantLevel] = useState<LearningLevel>('BEGINNER');
+  const [variantMode, setVariantMode] = useState<'shared' | 'variant' | 'hidden'>('shared');
   const [variantText, setVariantText] = useState('');
-  const [isUsingShared, setIsUsingShared] = useState(true);
   const [savingVariant, setSavingVariant] = useState(false);
   const [variantError, setVariantError] = useState<string | null>(null);
 
   // Delete Block
   const [deleteBlockId, setDeleteBlockId] = useState<string | null>(null);
   const [deletingBlock, setDeletingBlock] = useState(false);
+
+  // Scripture reference validator & helper
+  const [scriptureModalOpen, setScriptureModalOpen] = useState(false);
+  const [scriptureInput, setScriptureInput] = useState('');
+  const [scriptureTarget, setScriptureTarget] = useState<'create' | 'edit' | 'variant' | null>(null);
+  const [scriptureValidation, setScriptureValidation] = useState<ParseResult | null>(null);
 
   // Workflow transition
   const [transitionAction, setTransitionAction] = useState<string | null>(null);
@@ -119,6 +128,8 @@ export default function LessonAuthoringPage() {
       setEditTitle(lessonRes.title);
       setEditShortTitle(lessonRes.shortTitle || '');
       setEditSubtitle(lessonRes.subtitle || '');
+      setEditIntroduction(lessonRes.introduction || '');
+      setEditEstimatedMinutes(lessonRes.estimatedMinutes ? String(lessonRes.estimatedMinutes) : '');
       setEditLevels(lessonRes.levels);
       if (lessonRes.levels.length > 0 && !lessonRes.levels.includes(selectedLevel)) {
         setSelectedLevel(lessonRes.levels[0]);
@@ -134,6 +145,45 @@ export default function LessonAuthoringPage() {
   useEffect(() => {
     fetchLessonData();
   }, [fetchLessonData]);
+
+  // Unsaved changes warning for dirty modal forms
+  useEffect(() => {
+    const isDirty = Boolean(
+      (createBlockModalOpen && newBlockText.trim().length > 0) ||
+      (editingBlock && editingContentText.trim().length > 0) ||
+      (variantModalBlock && variantMode === 'variant' && variantText.trim().length > 0) ||
+      (editLessonModalOpen && lesson && (
+        editTitle !== lesson.title ||
+        editShortTitle !== (lesson.shortTitle || '') ||
+        editSubtitle !== (lesson.subtitle || '') ||
+        editIntroduction !== (lesson.introduction || '')
+      ))
+    );
+
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isDirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [
+    createBlockModalOpen,
+    newBlockText,
+    editingBlock,
+    editingContentText,
+    variantModalBlock,
+    variantMode,
+    variantText,
+    editLessonModalOpen,
+    lesson,
+    editTitle,
+    editShortTitle,
+    editSubtitle,
+    editIntroduction,
+  ]);
 
   // Convert plain text paragraph to standard backend RICH_TEXT ProseMirror doc structure
   const textToRichTextDoc = (text: string) => {
@@ -169,6 +219,41 @@ export default function LessonAuthoringPage() {
       .join('\n\n');
   };
 
+  const openScriptureModal = (target: 'create' | 'edit' | 'variant') => {
+    setScriptureTarget(target);
+    setScriptureInput('');
+    setScriptureValidation(null);
+    setScriptureModalOpen(true);
+  };
+
+  const handleValidateScriptureInput = (val: string) => {
+    setScriptureInput(val);
+    if (!val.trim()) {
+      setScriptureValidation(null);
+      return;
+    }
+    const res = validateScriptureReference(val);
+    setScriptureValidation(res);
+  };
+
+  const handleInsertScripture = () => {
+    if (!scriptureValidation || !scriptureValidation.ok) return;
+    const refText = `[Scripture: ${scriptureValidation.formatted}]`;
+
+    if (scriptureTarget === 'create') {
+      setNewBlockText((prev) => (prev ? `${prev}\n\n${refText}` : refText));
+    } else if (scriptureTarget === 'edit') {
+      setEditingContentText((prev) => (prev ? `${prev}\n\n${refText}` : refText));
+    } else if (scriptureTarget === 'variant') {
+      setVariantText((prev) => (prev ? `${prev}\n\n${refText}` : refText));
+    }
+
+    setScriptureModalOpen(false);
+    setScriptureInput('');
+    setScriptureValidation(null);
+    setScriptureTarget(null);
+  };
+
   const handleUpdateMetadata = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!lesson) return;
@@ -183,6 +268,8 @@ export default function LessonAuthoringPage() {
           title: editTitle.trim(),
           shortTitle: editShortTitle.trim() || null,
           subtitle: editSubtitle.trim() || null,
+          introduction: editIntroduction.trim() || null,
+          estimatedMinutes: editEstimatedMinutes ? parseInt(editEstimatedMinutes, 10) : null,
           version: lesson.version,
         }),
       });
@@ -351,11 +438,14 @@ export default function LessonAuthoringPage() {
     setVariantModalBlock(block);
     setVariantLevel(level);
     const existingVariant = block.levels.find((l) => l.level === level);
-    if (existingVariant && existingVariant.content) {
-      setIsUsingShared(false);
+    if (!existingVariant) {
+      setVariantMode('hidden');
+      setVariantText(richTextDocToText(block.sharedContent));
+    } else if (existingVariant.content) {
+      setVariantMode('variant');
       setVariantText(richTextDocToText(existingVariant.content));
     } else {
-      setIsUsingShared(true);
+      setVariantMode('shared');
       setVariantText(richTextDocToText(block.sharedContent));
     }
     setVariantError(null);
@@ -368,19 +458,35 @@ export default function LessonAuthoringPage() {
     setVariantError(null);
 
     try {
-      const content = isUsingShared ? null : textToRichTextDoc(variantText);
-
-      await api.request(
-        `/admin/lessons/${lessonId}/blocks/${variantModalBlock.id}/levels/${variantLevel}`,
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            content,
-            version: variantModalBlock.version,
-          }),
-        }
+      const isCurrentlyPresent = variantModalBlock.levels.some(
+        (l) => l.level === variantLevel
       );
+
+      if (variantMode === 'hidden') {
+        if (isCurrentlyPresent) {
+          // DELETE /admin/lessons/:lessonId/blocks/:blockId/levels/:level?version=...&discardVariant=true
+          await api.request(
+            `/admin/lessons/${lessonId}/blocks/${variantModalBlock.id}/levels/${variantLevel}?version=${variantModalBlock.version}&discardVariant=true`,
+            {
+              method: 'DELETE',
+            }
+          );
+        }
+      } else {
+        const content = variantMode === 'variant' ? textToRichTextDoc(variantText) : null;
+
+        await api.request(
+          `/admin/lessons/${lessonId}/blocks/${variantModalBlock.id}/levels/${variantLevel}`,
+          {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              content,
+              version: variantModalBlock.version,
+            }),
+          }
+        );
+      }
 
       setVariantModalBlock(null);
       fetchLessonData();
@@ -507,7 +613,7 @@ export default function LessonAuthoringPage() {
             {lesson.subtitle && (
               <p className="text-sm font-medium text-slate-600">{lesson.subtitle}</p>
             )}
-            <div className="flex items-center gap-3 pt-1">
+            <div className="flex items-center gap-3 pt-1 flex-wrap">
               <span className="text-xs text-slate-500 font-medium">Available at:</span>
               {lesson.levels.map((lvl) => (
                 <span
@@ -525,7 +631,18 @@ export default function LessonAuthoringPage() {
                   (Adjust Levels)
                 </button>
               )}
+              {lesson.estimatedMinutes && (
+                <span className="text-xs text-slate-500 font-medium">
+                  • Est: {lesson.estimatedMinutes} mins
+                </span>
+              )}
             </div>
+            {lesson.introduction && (
+              <p className="text-xs text-slate-600 bg-slate-50 p-3 rounded-lg border border-slate-200/80 mt-2 max-w-3xl leading-relaxed whitespace-pre-line">
+                <strong className="text-slate-700 block mb-0.5">Introduction:</strong>
+                {lesson.introduction}
+              </p>
+            )}
           </div>
 
           <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
@@ -873,6 +990,34 @@ export default function LessonAuthoringPage() {
             />
           </div>
 
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5">
+              Introduction
+            </label>
+            <textarea
+              rows={3}
+              value={editIntroduction}
+              onChange={(e) => setEditIntroduction(e.target.value)}
+              placeholder="Multi-paragraph orientation to the lesson theme..."
+              className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5">
+              Estimated Duration (Minutes)
+            </label>
+            <input
+              type="number"
+              min={1}
+              max={600}
+              value={editEstimatedMinutes}
+              onChange={(e) => setEditEstimatedMinutes(e.target.value)}
+              placeholder="e.g. 30"
+              className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500"
+            />
+          </div>
+
           <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
             <button
               type="button"
@@ -966,9 +1111,21 @@ export default function LessonAuthoringPage() {
           )}
 
           <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5">
-              Content Paragraphs (Rich Text) *
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700">
+                Content Paragraphs (Rich Text) *
+              </label>
+              <button
+                type="button"
+                onClick={() => openScriptureModal('create')}
+                className="text-xs font-semibold text-amber-700 hover:text-amber-800 flex items-center gap-1"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                </svg>
+                Insert Scripture Ref
+              </button>
+            </div>
             <textarea
               rows={6}
               required
@@ -1043,9 +1200,21 @@ export default function LessonAuthoringPage() {
           )}
 
           <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5">
-              Block Content *
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700">
+                Block Content *
+              </label>
+              <button
+                type="button"
+                onClick={() => openScriptureModal('edit')}
+                className="text-xs font-semibold text-amber-700 hover:text-amber-800 flex items-center gap-1"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                </svg>
+                Insert Scripture Ref
+              </button>
+            </div>
             <textarea
               rows={8}
               required
@@ -1090,33 +1259,80 @@ export default function LessonAuthoringPage() {
             </div>
           )}
 
-          <div className="flex items-center gap-4">
-            <label className="flex items-center gap-2 text-xs font-semibold text-slate-700">
+          <div className="space-y-2">
+            <label className="flex items-start gap-2.5 p-3 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50 transition-colors">
               <input
                 type="radio"
-                checked={isUsingShared}
-                onChange={() => setIsUsingShared(true)}
+                name="variantMode"
+                checked={variantMode === 'shared'}
+                onChange={() => setVariantMode('shared')}
+                className="mt-0.5 text-amber-600 focus:ring-amber-500"
               />
-              Use Shared Content
+              <div>
+                <span className="text-xs font-semibold text-slate-800 block">Use Shared Content</span>
+                <span className="text-[11px] text-slate-500">
+                  Learners at the {variantLevel} level will see the shared lesson block text.
+                </span>
+              </div>
             </label>
-            <label className="flex items-center gap-2 text-xs font-semibold text-slate-700">
+
+            <label className="flex items-start gap-2.5 p-3 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50 transition-colors">
               <input
                 type="radio"
-                checked={!isUsingShared}
-                onChange={() => setIsUsingShared(false)}
+                name="variantMode"
+                checked={variantMode === 'variant'}
+                onChange={() => setVariantMode('variant')}
+                className="mt-0.5 text-amber-600 focus:ring-amber-500"
               />
-              Provide Dedicated {variantLevel} Variant
+              <div>
+                <span className="text-xs font-semibold text-slate-800 block">
+                  Provide Dedicated {variantLevel} Variant
+                </span>
+                <span className="text-[11px] text-slate-500">
+                  Provide specialized content specifically rewritten or adapted for {variantLevel} learners.
+                </span>
+              </div>
+            </label>
+
+            <label className="flex items-start gap-2.5 p-3 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50 transition-colors">
+              <input
+                type="radio"
+                name="variantMode"
+                checked={variantMode === 'hidden'}
+                onChange={() => setVariantMode('hidden')}
+                className="mt-0.5 text-rose-600 focus:ring-rose-500"
+              />
+              <div>
+                <span className="text-xs font-semibold text-rose-700 block">
+                  Hide Block at {variantLevel} Level
+                </span>
+                <span className="text-[11px] text-slate-500">
+                  Exclude this block completely when this lesson is studied by a {variantLevel} learner.
+                </span>
+              </div>
             </label>
           </div>
 
-          {!isUsingShared && (
+          {variantMode === 'variant' && (
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5">
-                Variant Content for {variantLevel} Level:
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700">
+                  Variant Content for {variantLevel} Level:
+                </label>
+                <button
+                  type="button"
+                  onClick={() => openScriptureModal('variant')}
+                  className="text-xs font-semibold text-amber-700 hover:text-amber-800 flex items-center gap-1"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                  </svg>
+                  Insert Scripture Ref
+                </button>
+              </div>
               <textarea
                 rows={6}
-                required={!isUsingShared}
+                required={variantMode === 'variant'}
                 value={variantText}
                 onChange={(e) => setVariantText(e.target.value)}
                 placeholder="Enter variant text..."
@@ -1263,6 +1479,98 @@ export default function LessonAuthoringPage() {
             >
               {transitioning && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
               Confirm Transition
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Scripture Reference Helper Modal */}
+      <Modal
+        isOpen={scriptureModalOpen}
+        onClose={() => setScriptureModalOpen(false)}
+        title="Scripture Reference Assistant"
+        description="Validate Protestant canon book syntax and verse boundaries before referencing in lesson content."
+        maxWidth="md"
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1">
+              Enter Reference (e.g. Genesis 1:1, John 3:16, Rom 8:28-30)
+            </label>
+            <input
+              type="text"
+              value={scriptureInput}
+              onChange={(e) => handleValidateScriptureInput(e.target.value)}
+              placeholder="e.g. John 3:16"
+              className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500 font-mono"
+            />
+          </div>
+
+          {/* Validation Feedback */}
+          {scriptureInput.trim() && (
+            <div>
+              {scriptureValidation && scriptureValidation.ok ? (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg space-y-1">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-emerald-800">
+                    <svg className="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    Canon Syntax Verified: {scriptureValidation.formatted}
+                  </div>
+                  <div className="text-[11px] text-emerald-700 font-mono">
+                    Book: {scriptureValidation.reference.bookId} · Chapter: {scriptureValidation.reference.chapter} · Verse{scriptureValidation.reference.startVerse === scriptureValidation.reference.endVerse ? ` ${scriptureValidation.reference.startVerse}` : `s ${scriptureValidation.reference.startVerse}-${scriptureValidation.reference.endVerse}`}
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg space-y-1">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-rose-800">
+                    <svg className="w-4 h-4 text-rose-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Invalid Scripture Reference
+                  </div>
+                  <p className="text-xs text-rose-700">
+                    {scriptureValidation && !scriptureValidation.ok ? scriptureValidation.message : 'Please check the reference syntax.'}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Canonical Book Quick List */}
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
+              Canon Quick Reference (Protestant 66-Book Standard):
+            </label>
+            <div className="flex flex-wrap gap-1 max-h-28 overflow-y-auto p-2 bg-slate-50 rounded-lg border border-slate-200 text-[11px]">
+              {CANONICAL_BOOKS.map((book) => (
+                <button
+                  key={book.id}
+                  type="button"
+                  onClick={() => handleValidateScriptureInput(`${book.id} 1:1`)}
+                  className="px-1.5 py-0.5 bg-white border border-slate-200 rounded hover:bg-amber-50 hover:border-amber-300 text-slate-700"
+                >
+                  {book.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => setScriptureModalOpen(false)}
+              className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={!scriptureValidation || !scriptureValidation.ok}
+              onClick={handleInsertScripture}
+              className="px-4 py-2 text-sm font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-lg flex items-center gap-2 disabled:opacity-50"
+            >
+              Insert Reference
             </button>
           </div>
         </div>
