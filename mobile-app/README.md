@@ -1,56 +1,55 @@
-# Welcome to your Expo app 👋
+# Prophetic Destinations — mobile app
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+React Native + Expo (SDK 57) + TypeScript, with Expo Router. The learner app has **no accounts**: progress, bookmarks and quiz results will be stored on the device.
 
-## Get started
-
-1. Install dependencies
-
-   ```bash
-   npm install
-   ```
-
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+## Run it
 
 ```bash
-npm run reset-project
+npm install
+npx expo start            # then press a (Android), i (iOS) or w (web); or scan the QR code with Expo Go
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+Checks: `npm run typecheck`, `npx expo lint`, `npm run check:theme`, `npx expo-doctor`.
 
-### Other setup steps
+The backend address comes from `EXPO_PUBLIC_API_URL` (see `.env.example`; Android emulator: `http://10.0.2.2:3001/api/v1`). Nothing calls the backend yet.
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+## Structure
 
-## Learn more
+```
+src/app/            Expo Router routes (thin: each file renders one screen). _layout.tsx = fonts, status bar, navigation theme
+src/screens/        Screen components (welcome-screen, daniel-2-intro-screen)
+src/components/ui/  The design-system components (AppText, PrimaryButton, ScreenContainer, Card, ProgressIndicator, ...)
+src/components/     Larger shared pieces (hero-backdrop)
+src/theme/          colors, spacing, typography, radius, shadows; index.ts exports `useTheme()`
+src/navigation/     Navigation container theme (built from src/theme)
+src/config/         api.ts (backend base URL)
+assets/images/placeholder/   Placeholder artwork — replace with licensed imagery
+scripts/check-theme.ts       Contrast + stray-colour check
+```
 
-To learn more about developing your project with Expo, look at the following resources:
+Flow: `/` (Welcome) → `/daniel-2` (Daniel 2 introduction).
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+## The theme (read this before touching a colour)
 
-## Join the community
+**Every colour in the app is defined in `src/theme/colors.ts` and nowhere else.**
 
-Join our community of developers creating universal apps.
+- `palette` holds the raw values: the manager's **Antique Gold `#A3801F`**, **Deep Black `#07090F`** and **Charcoal `#131211`**, plus the supporting values.
+- `colors` maps them to semantic tokens (`background`, `surface`, `primary`, `onPrimary`, `textPrimary`, `textMuted`, `border`, `error`, `overlay`, ...). Screens and components use **tokens only**, through `useTheme()`; never a hex, `rgb()` or named colour.
+- `app.config.js` reads the same file for the splash screen, native root background and Android adaptive-icon background, so even native settings follow the theme.
+- Change a value in `colors.ts` (for example the gold) and the whole app follows without touching any screen. Run **`npm run check:theme`** afterwards: it re-checks WCAG contrast for the text pairings the UI uses and fails if any colour literal appears outside `colors.ts`.
+- Photographs and illustrations are assets and are not recoloured by the theme.
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+Gold is for the main action, progress, highlights and selected states. Text on gold is dark (`onPrimary`), which keeps it at 5.4:1; the pressed state of the primary button is a lighter gold, not a darker one, for the same reason.
+
+Typography: Cinzel (display titles, loaded in `_layout.tsx`), the platform serif for Scripture and lesson prose, the platform sans for UI text. Touch targets are 48 points (never below 44). Screens use `ScreenContainer`, which handles safe areas and keeps content readable on tablets.
+
+## What is placeholder
+
+- `assets/images/placeholder/daniel-2-hall-placeholder.jpg` is a generated, stylised illustration, not a photograph and not a depiction of a real place.
+- The Daniel 2 introduction text is original introductory copy, not Scripture. **No Bible text is bundled.**
+- "Start lesson" shows a note that the lesson scenes come in the next phase.
+- App icon and splash image are still the Expo defaults.
+
+## Not built yet (on purpose)
+
+Learning levels, the course/lesson catalog and lesson screens (they will use the backend's published snapshots; the only enabled content type is `RICH_TEXT`), Scripture navigation, quizzes (the backend's public quiz API exists), offline caching, device-local progress, audio.
