@@ -1,4 +1,5 @@
 import { useRouter } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -29,11 +30,12 @@ export function Daniel2IntroScreen() {
   return (
     <View style={[styles.fill, { backgroundColor: colors.background }]}>
       <HeroBackdrop source={require('@/assets/images/placeholder/daniel-2-hall-placeholder.jpg')} reach={0.78} />
+      <StatusBar style="light" />
 
       {/* back, over the picture; sits below the status bar / notch */}
       <View style={[styles.back, { top: insets.top + spacing.sm, left: spacing.lg + insets.left }]}>
         <IconButton accessibilityLabel="Go back" onPress={() => router.back()}>
-          <ChevronIcon direction="left" color="textPrimary" />
+          <ChevronIcon direction="left" color="textOnImage" />
         </IconButton>
       </View>
 

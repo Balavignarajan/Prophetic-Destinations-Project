@@ -12,3 +12,6 @@ export { ProgressIndicator } from './progress-indicator';
 export { ScreenContainer } from './screen-container';
 export { SecondaryButton } from './secondary-button';
 export { SectionHeader } from './section-header';
+export { OptionRow } from './option-row';
+export { ScreenHeader } from './screen-header';
+export { SettingsIcon } from './settings-icon';

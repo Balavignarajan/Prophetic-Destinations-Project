@@ -18,7 +18,7 @@ export function IconButton({ children, tone = 'filled', disabled, style, ...rest
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityState={{ disabled: Boolean(disabled) }}
+      aria-disabled={Boolean(disabled)}
       disabled={disabled}
       hitSlop={4}
       style={({ pressed }) => [
@@ -34,7 +34,7 @@ export function IconButton({ children, tone = 'filled', disabled, style, ...rest
               borderWidth: layout.hairline,
               borderColor: colors.borderGold,
             }
-          : { backgroundColor: pressed ? colors.scrim : colors.transparent },
+          : { backgroundColor: pressed ? colors.borderSubtle : colors.transparent },
         disabled ? { opacity: 0.4 } : null,
         style,
       ]}

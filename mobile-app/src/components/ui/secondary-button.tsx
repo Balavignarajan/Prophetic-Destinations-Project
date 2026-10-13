@@ -22,7 +22,7 @@ export function SecondaryButton({ label, disabled, style, ...rest }: SecondaryBu
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityState={{ disabled: Boolean(disabled) }}
+      aria-disabled={Boolean(disabled)}
       disabled={disabled}
       hitSlop={4}
       style={({ pressed }) => [

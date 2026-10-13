@@ -1,15 +1,16 @@
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
+import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
 
 import { HeroBackdrop } from '@/components/hero-backdrop';
-import { AppText, Divider, PrimaryButton, ScreenContainer } from '@/components/ui';
+import { AppText, Divider, IconButton, PrimaryButton, ScreenContainer, SettingsIcon } from '@/components/ui';
 import { useTheme } from '@/theme';
 
 /** First launch. No sign-in: the app has no learner accounts. */
 export function WelcomeScreen() {
   const router = useRouter();
-  const { gradients, spacing, colors, layout, typography } = useTheme();
+  const { gradients, spacing, colors, layout, typography, isDark } = useTheme();
   const { width } = useWindowDimensions();
 
   // "DESTINATIONS" (12 capitals) must fit on one line on any phone. Native text could shrink to fit, the web
@@ -25,10 +26,17 @@ export function WelcomeScreen() {
   return (
     <View style={[styles.fill, { backgroundColor: colors.background }]}>
       {/* decorative picture, darkened so the title stays the focus */}
-      <HeroBackdrop source={require('@/assets/images/placeholder/daniel-2-hall-placeholder.jpg')} reach={1} dim={0.35} />
+      <HeroBackdrop source={require('@/assets/images/placeholder/daniel-2-hall-placeholder.jpg')} reach={1} dim={isDark ? 0.35 : 0.2} />
+      {/* the top of the picture is always dark, so the status bar icons stay light in both themes */}
+      <StatusBar style="light" />
       <LinearGradient colors={gradients.goldGlow} style={styles.glow} pointerEvents="none" />
 
       <ScreenContainer transparent>
+        <View style={styles.topBar}>
+          <IconButton accessibilityLabel="Settings" onPress={() => router.push('/settings')}>
+            <SettingsIcon color="textOnImage" />
+          </IconButton>
+        </View>
         <View style={styles.spacer} />
 
         <View style={[styles.content, { gap: spacing.lg }]}>
@@ -54,7 +62,7 @@ export function WelcomeScreen() {
 
         <PrimaryButton
           label="Enter"
-          onPress={() => router.push('/daniel-2')}
+          onPress={() => router.push('/learn')}
           style={{ marginTop: spacing.xxl, marginBottom: spacing.xl }}
         />
       </ScreenContainer>
@@ -65,6 +73,7 @@ export function WelcomeScreen() {
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   glow: { position: 'absolute', top: 0, left: 0, right: 0, height: '60%' },
+  topBar: { alignItems: 'flex-end', paddingTop: 8 },
   spacer: { flex: 1 },
   content: { alignItems: 'stretch' },
   ornament: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12 },

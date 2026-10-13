@@ -12,7 +12,7 @@ export type ProgressIndicatorProps = {
   showPercent?: boolean;
 };
 
-/** A thin gold-on-dark progress bar with an accessible value. Progress is device-local data supplied by the caller. */
+/** A thin gold progress bar with an accessible value. Progress is device-local data supplied by the caller. */
 export function ProgressIndicator({ value, label, showPercent = true }: ProgressIndicatorProps) {
   const { colors, radius, spacing } = useTheme();
   const clamped = Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0;
@@ -45,7 +45,7 @@ export function ProgressIndicator({ value, label, showPercent = true }: Progress
             width: `${percent}%`,
             height: '100%',
             borderRadius: radius.pill,
-            backgroundColor: colors.primary,
+            backgroundColor: colors.primaryHighlight,
           }}
         />
       </View>

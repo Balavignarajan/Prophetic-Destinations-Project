@@ -26,7 +26,8 @@ export function PrimaryButton({ label, loading = false, disabled, style, ...rest
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityState={{ disabled: inactive, busy: loading }}
+      aria-disabled={inactive}
+      aria-busy={loading}
       disabled={inactive}
       hitSlop={4}
       style={({ pressed }) => [

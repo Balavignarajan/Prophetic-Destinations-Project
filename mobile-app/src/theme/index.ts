@@ -1,36 +1,10 @@
-import { colors, gradients } from './colors';
-import { radius } from './radius';
-import { shadows } from './shadows';
-import { layout, spacing } from './spacing';
-import { fontFamilies, typography } from './typography';
-
-export { colors, gradients, palette, withAlpha } from './colors';
-export type { ColorToken } from './colors';
+export { colorSchemes, createGradients, darkColors, lightColors, palette, withAlpha } from './colors';
+export type { ColorToken, ColorTokens, GradientTokens, ThemeName } from './colors';
 export { radius } from './radius';
-export { shadows } from './shadows';
+export { createShadows } from './shadows';
 export { layout, spacing } from './spacing';
+export { createTheme, themes } from './theme';
+export type { Theme } from './theme';
+export { ThemeProvider, resolveThemeName, useTheme, useThemePreference } from './theme-provider';
 export { fontFamilies, typography } from './typography';
 export type { TypographyVariant } from './typography';
-
-/** Everything a component needs to style itself, in one object. */
-export const theme = {
-  colors,
-  gradients,
-  spacing,
-  layout,
-  radius,
-  shadows,
-  typography,
-  fontFamilies,
-} as const;
-
-export type Theme = typeof theme;
-
-/**
- * The active theme. The app is dark-first and has exactly one theme today, so this returns a constant. Components
- * call it (rather than importing `theme` directly) so that adding a second theme later, with a provider, changes this
- * hook and nothing else.
- */
-export function useTheme(): Theme {
-  return theme;
-}
