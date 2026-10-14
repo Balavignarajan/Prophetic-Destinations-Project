@@ -5,6 +5,8 @@ import { describeError } from '@/api/errors';
 import { listCourses } from '@/api/learner-api';
 import { useResource } from '@/api/use-resource';
 import {
+  AppText,
+  Card,
   EmptyState,
   ErrorState,
   IconButton,
@@ -37,6 +39,29 @@ export function LearnScreen() {
         }
       />
       <View style={{ gap: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.xxl }}>
+        <View style={{ gap: spacing.md }}>
+          <AppText variant="label" color="textMuted">
+            Built-in interactive lesson
+          </AppText>
+          <Card
+            variant="outlined"
+            onPress={() => router.push('/daniel-2')}
+            accessibilityLabel="Daniel 2: The Dream of the Great Image. Built-in interactive lesson, not from the course catalog.">
+            <View style={{ gap: spacing.sm }}>
+              <AppText variant="heading">Daniel 2: The Dream of the Great Image</AppText>
+              <AppText variant="bodySmall" color="textSecondary">
+                The dream, the great image, the kingdoms, the stone, a timeline and a short quiz.
+              </AppText>
+              <AppText variant="caption" color="textMuted">
+                Built-in content pending approval. Not part of the course catalog below.
+              </AppText>
+            </View>
+          </Card>
+          <AppText variant="label" color="textMuted" style={{ marginTop: spacing.sm }}>
+            Course catalog
+          </AppText>
+        </View>
+
         <LevelSelector value={level} onChange={setLevel} />
 
         {courses.status === 'loading' ? <LoadingState message="Loading courses…" /> : null}

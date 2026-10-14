@@ -32,6 +32,29 @@ scripts/check-theme.ts       Token parity + contrast of BOTH themes + stray-colo
 
 Flow: `/` Welcome → `/learn` (catalog, level selector) → `/course/:id?level=` (modules and lessons) → `/lesson/:id?level=` (reader, Continue to next lesson). `/settings` is reachable from Welcome and the catalog. `/daniel-2` is the cinematic introduction screen; it is reachable by deep link but is not listed as a course.
 
+## The Daniel 2 lesson (`src/features/daniel-2/`)
+
+A 14-scene interactive lesson: introduction, the dream, the great image (tap its parts), head of gold, chest of silver, belly of bronze, legs of iron, feet of iron and clay, the stone, the meaning of the stone, a timeline, Bible and history evidence, a quiz, and a summary. Entry: the "Built-in interactive lesson" card at the top of `/learn`, or `/daniel-2` (introduction with Start / Resume / Start over), then `/daniel-2-lesson`.
+
+**The content is CONFIGURED, built-in educational content, pending approval. It is not a backend course** and is shown separately from the catalog. No course ID is invented and no network response is faked.
+
+```
+types.ts            presentation model (Daniel2Lesson, Scene union, ScriptureRef, ...)
+content/            the configured content: scenes, statue sections, timeline, quiz  <- edit approved wording HERE
+assets.ts           every picture, in one place (all placeholders today)
+source.ts           Daniel2LessonSource: the seam between content retrieval and rendering
+progress.ts         device-local progress (AsyncStorage key pd.daniel2.progress.v1)
+use-lesson-progress.ts, use-daniel2-lesson.ts
+components/         scene views + scene-renderer.tsx, statue figure, scripture card, evidence card, timeline, quiz, summary
+```
+
+- **Bible vs interpretation vs history.** Every block is labelled: BIBLE TEXT / SCRIPTURE REFERENCE, BIBLICAL INTERPRETATION, HISTORICAL CONTEXT, HISTORICAL APPLICATION (each also has its own border style). Each identification is tagged *Stated in the passage*, *Traditional identification* or *Interpretations differ*.
+- **No Bible wording is bundled.** `ScriptureRef.text` is `null` until a licensed translation is approved; the UI shows the reference and says the verse text is not included. Supplying `text` requires an `attribution`.
+- **Moving to the backend later:** write a second `Daniel2LessonSource` that maps a published course (via `src/api/learner-api.ts`) into `Daniel2Lesson`, and change `activeLessonSource` in `source.ts`. Scenes need no changes. The backend does not yet carry the scene structure, statue, timeline or quiz, so that needs a content decision first.
+- **Progress.** A scene counts as completed only when the learner presses Continue (or finishes the quiz); opening a scene does not complete it. Saved on every completed or opened scene, quiz result and bookmark; restored on launch (Resume lesson); Start over clears it. Separate from the theme preference.
+- **Quiz.** Four local single-choice questions, one at a time: choose, submit, feedback, next, score, retake. Not a backend quiz; nothing is submitted.
+- **Artwork.** The picture is a generated placeholder, and the statue is a stylised drawing made of views (not a 3D model). Its material fills are tokens in `src/theme/colors.ts`.
+
 ## Backend routes used (public, no authentication)
 
 | Screen | Request |
@@ -65,4 +88,4 @@ Text on the gold fill is dark (`onPrimary`, 5.4:1) in both themes; the pressed s
 
 ## Not built yet (on purpose)
 
-The scene-by-scene Daniel 2 experience (See it → Read the Bible → Understand → Explore history → Continue), Scripture navigation, quizzes (the backend's public quiz API exists), offline caching, device-local progress, audio, a real Daniel 2 course (the catalog shows whatever is published).
+Approved Daniel 2 wording and artwork, a backend-published Daniel 2 course, Scripture navigation, quizzes (the backend's public quiz API exists), offline caching, device-local progress, audio,.

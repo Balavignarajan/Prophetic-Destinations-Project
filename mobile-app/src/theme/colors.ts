@@ -55,6 +55,14 @@ export const palette = {
   paperDisabledInk: '#8A826F',
   umberShadow: '#3A2E14',
 
+  // --- illustration materials (the Daniel 2 image: same in both themes, always outlined so they read on either background) ---
+  materialGold: '#C9A23A',
+  materialSilver: '#B9BDC4',
+  materialBronze: '#A8683A',
+  materialIron: '#6B7078',
+  materialClay: '#A4694A',
+  materialStone: '#8E8A80',
+
   // --- structural ---
   black: '#000000',
   clear: 'rgba(0, 0, 0, 0)',
@@ -119,6 +127,14 @@ export interface ColorTokens {
   disabled: string;
   disabledText: string;
 
+  /** Fills for the sections of the statue illustration. Decorative; the section's name is always given in text too. */
+  materialGold: string;
+  materialSilver: string;
+  materialBronze: string;
+  materialIron: string;
+  materialClay: string;
+  materialStone: string;
+
   transparent: string;
 }
 
@@ -158,6 +174,13 @@ export const darkColors: ColorTokens = {
   disabled: palette.disabledFill,
   disabledText: palette.disabledInk,
 
+  materialGold: palette.materialGold,
+  materialSilver: palette.materialSilver,
+  materialBronze: palette.materialBronze,
+  materialIron: palette.materialIron,
+  materialClay: palette.materialClay,
+  materialStone: palette.materialStone,
+
   transparent: palette.clear,
 };
 
@@ -194,6 +217,13 @@ export const lightColors: ColorTokens = {
 
   disabled: palette.paperDisabled,
   disabledText: palette.paperDisabledInk,
+
+  materialGold: palette.materialGold,
+  materialSilver: palette.materialSilver,
+  materialBronze: palette.materialBronze,
+  materialIron: palette.materialIron,
+  materialClay: palette.materialClay,
+  materialStone: palette.materialStone,
 
   transparent: palette.clear,
 };

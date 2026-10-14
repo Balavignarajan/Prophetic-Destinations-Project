@@ -1,6 +1,5 @@
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -12,20 +11,31 @@ import {
   PrimaryButton,
   ProgressIndicator,
   ScreenContainer,
+  SecondaryButton,
 } from '@/components/ui';
+import { hasStarted } from '@/features/daniel-2/progress';
+import { useDaniel2Lesson } from '@/features/daniel-2/use-daniel2-lesson';
+import { useLessonProgress } from '@/features/daniel-2/use-lesson-progress';
 import { useTheme } from '@/theme';
 
 /**
- * Introduction to the Daniel 2 lesson ("The Dream of the Great Image").
+ * Entry to the Daniel 2 lesson: title, introduction, and the way in (Start, or Resume and Start over).
  *
- * The text below is introductory copy written for this screen, not Scripture, and the picture is a placeholder
- * illustration. Real lesson content will come from the published lessons API; progress will be device-local.
+ * The lesson content is CONFIGURED, built-in educational content (see src/features/daniel-2); it is not a course from the
+ * backend catalog, and the picture is a placeholder illustration. Progress is device-local.
  */
 export function Daniel2IntroScreen() {
   const router = useRouter();
   const { spacing, colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const [noticeVisible, setNoticeVisible] = useState(false);
+  const [lessonResource] = useDaniel2Lesson();
+  const lesson = lessonResource.status === 'success' ? lessonResource.data : null;
+  const p = useLessonProgress(lesson ? lesson.scenes.map((scene) => scene.id) : null);
+
+  const total = lesson?.scenes.length ?? 0;
+  const resumable = p.ready && hasStarted(p.progress) && p.progress.completed.length < total;
+  const finished = p.ready && total > 0 && p.progress.completed.length >= total;
+  const open = () => router.push('/daniel-2-lesson');
 
   return (
     <View style={[styles.fill, { backgroundColor: colors.background }]}>
@@ -34,7 +44,7 @@ export function Daniel2IntroScreen() {
 
       {/* back, over the picture; sits below the status bar / notch */}
       <View style={[styles.back, { top: insets.top + spacing.sm, left: spacing.lg + insets.left }]}>
-        <IconButton accessibilityLabel="Go back" onPress={() => router.back()}>
+        <IconButton accessibilityLabel="Go back" onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}>
           <ChevronIcon direction="left" color="textOnImage" />
         </IconButton>
       </View>
@@ -64,17 +74,32 @@ export function Daniel2IntroScreen() {
         </View>
 
         <View style={{ marginTop: spacing.xl }}>
-          <ProgressIndicator value={0} label="Lesson progress" />
+          <ProgressIndicator
+            value={total > 0 ? p.progress.completed.length / total : 0}
+            label={finished ? 'Lesson complete' : resumable ? `Scene ${p.progress.currentIndex + 1} of ${total}` : 'Lesson progress'}
+          />
         </View>
 
-        <PrimaryButton
-          label="Start lesson"
-          onPress={() => setNoticeVisible(true)}
-          style={{ marginTop: spacing.xl }}
-        />
-        {noticeVisible ? (
-          <AppText variant="caption" color="textMuted" align="center" accessibilityLiveRegion="polite" style={{ marginTop: spacing.md }}>
-            The lesson scenes are built in the next phase.
+        <View style={{ marginTop: spacing.xl, gap: spacing.md }}>
+          <PrimaryButton
+            label={finished ? 'Review lesson' : resumable ? 'Resume lesson' : 'Start lesson'}
+            disabled={!lesson || !p.ready}
+            onPress={open}
+          />
+          {resumable || finished ? (
+            <SecondaryButton
+              label="Start over"
+              onPress={() => {
+                p.restart();
+                open();
+              }}
+            />
+          ) : null}
+        </View>
+
+        {lesson ? (
+          <AppText variant="caption" color="textMuted" align="center" style={{ marginTop: spacing.md }}>
+            {lesson.source.label} Progress is saved on this device only.
           </AppText>
         ) : null}
 
