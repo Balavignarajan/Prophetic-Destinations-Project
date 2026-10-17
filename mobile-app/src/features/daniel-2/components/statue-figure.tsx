@@ -68,7 +68,8 @@ export function StatueFigure({ sections, highlight = null, onSelect, showStone =
         accessibilityLabel={`${info.name}, ${info.material}`}
         aria-selected={selected}
         onPress={() => onSelect(id)}
-        hitSlop={4}>
+        hitSlop={4}
+        style={{ minWidth: layout.minTouchTarget, minHeight: layout.minTouchTarget, alignItems: 'center', justifyContent: 'center' }}>
         {body}
       </Pressable>
     );

@@ -1,0 +1,111 @@
+import { useRouter } from 'expo-router';
+import { Pressable, View } from 'react-native';
+
+import {
+  AppText,
+  Card,
+  EmptyState,
+  LoadingState,
+  ScreenContainer,
+  ScreenHeader,
+  SecondaryButton,
+} from '@/components/ui';
+import { type Bookmark } from '@/features/bookmarks/model';
+import { useBookmarks } from '@/features/bookmarks/bookmarks-provider';
+import { useDaniel2Lesson } from '@/features/daniel-2/use-daniel2-lesson';
+import { useCacheEntries } from '@/features/offline/use-cache-entries';
+import { formatSavedAt } from '@/features/offline/offline-banner';
+import { LEVEL_LABELS } from '@/learning/levels';
+import { useTheme } from '@/theme';
+
+/** Everything the learner has saved: published lessons and scenes of the built-in Daniel 2 lesson, newest first. */
+export function SavedScreen() {
+  const router = useRouter();
+  const { spacing } = useTheme();
+  const { items, ready, remove } = useBookmarks();
+  const [daniel] = useDaniel2Lesson();
+  const cached = useCacheEntries();
+  const sceneTitles = daniel.status === 'success' ? new Map(daniel.data.scenes.map((scene) => [scene.id as string, scene.title])) : null;
+
+  const lessons = items.filter((item) => item.type === 'lesson');
+  const scenes = items.filter((item) => item.type === 'daniel2-scene');
+
+  const row = (item: Bookmark) => {
+    const lessonSaved = item.type === 'lesson' && cached.some((entry) => entry.kind === 'lesson' && entry.id === item.lessonId && entry.level === item.level);
+    const sceneGone = item.type === 'daniel2-scene' && sceneTitles !== null && !sceneTitles.has(item.sceneId);
+    const unavailable = item.type === 'lesson' && item.unavailableSince !== undefined;
+    const title = item.type === 'daniel2-scene' ? (sceneTitles?.get(item.sceneId) ?? item.title) : item.title;
+    const kind = item.type === 'lesson' ? `Lesson · ${LEVEL_LABELS[item.level]} level` : 'Daniel 2 scene · built-in lesson';
+    const status = unavailable
+      ? `No longer available (checked ${formatSavedAt(item.unavailableSince!)})`
+      : sceneGone
+        ? 'This scene is no longer in the lesson'
+        : lessonSaved
+          ? 'Saved for offline reading'
+          : null;
+
+    const open = () => {
+      if (item.type === 'lesson') router.push({ pathname: '/lesson/[lessonId]', params: { lessonId: item.lessonId, level: item.level } });
+      else router.push({ pathname: '/daniel-2-lesson', params: { scene: item.sceneId } });
+    };
+
+    return (
+      <Card key={item.id}>
+        <View style={{ gap: spacing.md }}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Open ${kind}: ${title}${status ? `. ${status}` : ''}`}
+            disabled={sceneGone}
+            onPress={open}
+            style={{ gap: spacing.xs, minHeight: 48, justifyContent: 'center' }}>
+            <AppText variant="caption" color="primaryHighlight" style={{ fontWeight: '700', textTransform: 'uppercase' }}>
+              {kind}
+            </AppText>
+            <AppText variant="heading">{title}</AppText>
+            {status ? (
+              <AppText variant="caption" color={unavailable || sceneGone ? 'warning' : 'textMuted'}>
+                {status}
+              </AppText>
+            ) : null}
+          </Pressable>
+          <SecondaryButton label="Remove" accessibilityLabel={`Remove saved item: ${title}`} onPress={() => remove(item.id)} />
+        </View>
+      </Card>
+    );
+  };
+
+  return (
+    <ScreenContainer scroll>
+      <ScreenHeader title="Saved items" />
+      <View style={{ gap: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.xxl }}>
+        {!ready ? <LoadingState message="Loading saved items…" /> : null}
+
+        {ready && items.length === 0 ? (
+          <EmptyState
+            title="Nothing saved yet"
+            message="Tap the star on a lesson or a Daniel 2 scene to keep it here. Saved items stay on this device."
+            action={{ label: 'Browse courses', onPress: () => router.replace('/learn') }}
+          />
+        ) : null}
+
+        {lessons.length > 0 ? (
+          <View style={{ gap: spacing.md }}>
+            <AppText variant="heading" accessibilityRole="header">
+              Lessons
+            </AppText>
+            {lessons.map(row)}
+          </View>
+        ) : null}
+
+        {scenes.length > 0 ? (
+          <View style={{ gap: spacing.md }}>
+            <AppText variant="heading" accessibilityRole="header">
+              Daniel 2 scenes
+            </AppText>
+            {scenes.map(row)}
+          </View>
+        ) : null}
+      </View>
+    </ScreenContainer>
+  );
+}

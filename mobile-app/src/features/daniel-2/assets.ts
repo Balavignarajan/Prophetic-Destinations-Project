@@ -6,6 +6,8 @@
  * assets/images/daniel-2/ and change only the `source` lines below; no scene needs editing. `focus` picks which part of
  * the picture stays visible when it is cropped.
  */
+import { appImages } from '@/config/images';
+
 export type SceneImageKey = 'babylonHall' | 'dreamChamber' | 'mountain';
 
 export type SceneImage = {
@@ -16,7 +18,7 @@ export type SceneImage = {
   isPlaceholder: boolean;
 };
 
-const placeholder = require('@/assets/images/placeholder/daniel-2-hall-placeholder.jpg') as number;
+const placeholder = appImages.hall.source;
 
 export const daniel2Images: Record<SceneImageKey, SceneImage> = {
   babylonHall: {

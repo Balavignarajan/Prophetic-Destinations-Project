@@ -14,6 +14,15 @@ export class ApiError extends Error {
   get isNotFound(): boolean {
     return this.status === 404;
   }
+
+  /**
+   * "This does not exist for the learner": a 404, or a 400 from the backend's id validation (a malformed lesson or course id,
+   * for example from an old or mistyped link). The app validates the level itself, so a 400 here cannot be a bad level.
+   * Never retried automatically, unlike network and 5xx errors.
+   */
+  get isUnavailable(): boolean {
+    return this.status === 404 || this.status === 400;
+  }
 }
 
 /** No usable answer arrived: the server was unreachable, or took too long. */
@@ -21,6 +30,14 @@ export class NetworkError extends Error {
   constructor(readonly reason: 'timeout' | 'unreachable') {
     super(reason === 'timeout' ? 'The server took too long to answer' : 'The server could not be reached');
     this.name = 'NetworkError';
+  }
+}
+
+/** This build has no valid backend address (EXPO_PUBLIC_API_URL missing or malformed in a release build). Not a network problem: retrying cannot help. */
+export class ConfigurationError extends Error {
+  constructor() {
+    super('The backend address is not configured');
+    this.name = 'ConfigurationError';
   }
 }
 
@@ -36,6 +53,9 @@ export type FriendlyError = { title: string; message: string };
 
 /** Words for a person, never a stack trace or a raw status. */
 export function describeError(error: unknown): FriendlyError {
+  if (error instanceof ConfigurationError) {
+    return { title: 'App not configured', message: 'This build has no server address, so lessons cannot be loaded. Please install an updated version of the app.' };
+  }
   if (error instanceof NetworkError) {
     return error.reason === 'timeout'
       ? { title: 'The server is slow to respond', message: 'Please check your connection and try again.' }

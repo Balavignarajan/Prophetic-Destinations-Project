@@ -1,6 +1,6 @@
-import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useRef } from 'react';
-import { ScrollView, View } from 'react-native';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { BackHandler, ScrollView, View } from 'react-native';
 
 import {
   AppText,
@@ -12,6 +12,9 @@ import {
   ProgressIndicator,
   ScreenContainer,
 } from '@/components/ui';
+import { BookmarkButton } from '@/features/bookmarks/bookmark-button';
+import { useBookmarks } from '@/features/bookmarks/bookmarks-provider';
+import { sceneBookmarkId } from '@/features/bookmarks/model';
 import { SceneRenderer, type SceneContext } from '@/features/daniel-2/components/scene-renderer';
 import { SceneTransition } from '@/features/daniel-2/components/scene-transition';
 import type { SceneId } from '@/features/daniel-2/types';
@@ -32,9 +35,35 @@ export function Daniel2LessonScreen() {
   const sceneIds = useMemo(() => lesson?.scenes.map((scene) => scene.id) ?? null, [lesson]);
   const p = useLessonProgress(sceneIds);
   const scroller = useRef<ScrollView>(null);
+  const { has, toggle } = useBookmarks();
+  const { scene: sceneParam } = useLocalSearchParams<{ scene?: string }>();
+  const openedParam = useRef<string | null>(null);
+
+  // Opened from Saved Items: jump to that scene once the lesson and progress have loaded.
+  useEffect(() => {
+    if (!lesson || !p.ready || !sceneParam || openedParam.current === sceneParam) return;
+    openedParam.current = sceneParam;
+    const target = lesson.scenes.findIndex((item) => item.id === sceneParam);
+    if (target >= 0) p.goTo(target);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lesson, p.ready, sceneParam]);
 
   const index = p.progress.currentIndex;
   const scene = lesson?.scenes[index] ?? null;
+
+  // Android hardware / gesture back does what the on-screen Back does: previous scene, and leaves only from the first.
+  const goTo = p.goTo;
+  const stepBackTo = lesson && p.ready && index > 0 ? index - 1 : null;
+  useFocusEffect(
+    useCallback(() => {
+      const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+        if (stepBackTo === null) return false; // first scene: let the system leave the lesson
+        goTo(stepBackTo);
+        return true;
+      });
+      return () => subscription.remove();
+    }, [stepBackTo, goTo]),
+  );
 
   useEffect(() => {
     scroller.current?.scrollTo({ y: 0, animated: false });
@@ -59,7 +88,7 @@ export function Daniel2LessonScreen() {
   const first = index === 0;
   const last = index === total - 1;
   const quizPending = scene.kind === 'quiz' && p.progress.quiz === null;
-  const bookmarked = p.progress.bookmarks.includes(scene.id);
+  const bookmarkId = sceneBookmarkId(scene.id);
 
   const openScene = (id: SceneId) => p.goTo(lesson.scenes.findIndex((item) => item.id === id));
   const leave = () => (router.canGoBack() ? router.back() : router.replace('/daniel-2'));
@@ -94,14 +123,19 @@ export function Daniel2LessonScreen() {
               Scene {index + 1} of {total}
             </AppText>
           </View>
-          <IconButton
-            accessibilityLabel={bookmarked ? 'Remove bookmark from this scene' : 'Bookmark this scene'}
-            tone="ghost"
-            onPress={() => p.toggleBookmark(scene.id)}>
-            <AppText variant="heading" color={bookmarked ? 'primaryHighlight' : 'textMuted'}>
-              {bookmarked ? '★' : '☆'}
-            </AppText>
-          </IconButton>
+          {/* on the first scene the back button already leaves the lesson, so a second "leave" would only duplicate it */}
+          {first ? null : (
+            <IconButton accessibilityLabel="Leave lesson. Your progress is saved." tone="ghost" onPress={leave}>
+              <AppText variant="heading" color="textSecondary">
+                ✕
+              </AppText>
+            </IconButton>
+          )}
+          <BookmarkButton
+            saved={has(bookmarkId)}
+            noun="scene"
+            onToggle={() => toggle({ id: bookmarkId, type: 'daniel2-scene', sceneId: scene.id, title: scene.title, savedAt: Date.now() })}
+          />
         </View>
         <ProgressIndicator value={p.progress.completed.length / total} label="Lesson progress" />
       </View>

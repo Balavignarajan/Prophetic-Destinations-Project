@@ -1,6 +1,6 @@
 import { API_BASE_URL } from '@/config/api';
 
-import { ApiError, NetworkError } from './errors';
+import { ApiError, ConfigurationError, NetworkError } from './errors';
 
 const REQUEST_TIMEOUT_MS = 15_000;
 
@@ -16,6 +16,7 @@ type Query = Record<string, string>;
  * - Passing an `AbortSignal` cancels the request (used when a screen goes away or the level changes).
  */
 export async function apiGet<T>(path: string, query?: Query, signal?: AbortSignal): Promise<T> {
+  if (API_BASE_URL === null) throw new ConfigurationError();
   const search = query ? `?${new URLSearchParams(query).toString()}` : '';
   const controller = new AbortController();
   let timedOut = false;

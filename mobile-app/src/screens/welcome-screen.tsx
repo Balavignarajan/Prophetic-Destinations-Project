@@ -1,9 +1,10 @@
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
 
 import { HeroBackdrop } from '@/components/hero-backdrop';
+import { HeroStatusBar } from '@/components/hero-status-bar';
+import { appImages } from '@/config/images';
 import { AppText, Divider, IconButton, PrimaryButton, ScreenContainer, SettingsIcon } from '@/components/ui';
 import { useTheme } from '@/theme';
 
@@ -26,13 +27,18 @@ export function WelcomeScreen() {
   return (
     <View style={[styles.fill, { backgroundColor: colors.background }]}>
       {/* decorative picture, darkened so the title stays the focus */}
-      <HeroBackdrop source={require('@/assets/images/placeholder/daniel-2-hall-placeholder.jpg')} reach={1} dim={isDark ? 0.35 : 0.2} />
+      <HeroBackdrop source={appImages.hall.source} reach={1} dim={isDark ? 0.35 : 0.2} />
       {/* the top of the picture is always dark, so the status bar icons stay light in both themes */}
-      <StatusBar style="light" />
+      <HeroStatusBar />
       <LinearGradient colors={gradients.goldGlow} style={styles.glow} pointerEvents="none" />
 
       <ScreenContainer transparent>
         <View style={styles.topBar}>
+          <IconButton accessibilityLabel="Saved items" onPress={() => router.push('/saved')}>
+            <AppText variant="heading" color="textOnImage">
+              ★
+            </AppText>
+          </IconButton>
           <IconButton accessibilityLabel="Settings" onPress={() => router.push('/settings')}>
             <SettingsIcon color="textOnImage" />
           </IconButton>
@@ -73,7 +79,7 @@ export function WelcomeScreen() {
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   glow: { position: 'absolute', top: 0, left: 0, right: 0, height: '60%' },
-  topBar: { alignItems: 'flex-end', paddingTop: 8 },
+  topBar: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8, paddingTop: 8 },
   spacer: { flex: 1 },
   content: { alignItems: 'stretch' },
   ornament: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12 },

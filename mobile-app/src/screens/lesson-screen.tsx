@@ -1,8 +1,8 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useEffect } from 'react';
 import { View } from 'react-native';
 
-import { ApiError, describeError } from '@/api/errors';
-import { getLesson, getNavigation } from '@/api/learner-api';
+import { ApiError } from '@/api/errors';
 import type { LessonSnapshotBlock } from '@/api/types';
 import { useResource } from '@/api/use-resource';
 import {
@@ -16,7 +16,16 @@ import {
   ScreenHeader,
   SecondaryButton,
 } from '@/components/ui';
-import { LEVEL_LABELS, firstParam, levelFromParam } from '@/learning/levels';
+import { BookmarkButton } from '@/features/bookmarks/bookmark-button';
+import { useBookmarks } from '@/features/bookmarks/bookmarks-provider';
+import { lessonBookmarkId } from '@/features/bookmarks/model';
+import { useLearningProgress } from '@/features/learning/learning-provider';
+import { describeLoadError } from '@/features/offline/describe-offline';
+import { loadLesson, loadNavigation } from '@/features/offline/offline-api';
+import { OfflineBanner } from '@/features/offline/offline-banner';
+import { isRecoverable, useRetryOnReconnect } from '@/features/offline/use-retry-on-reconnect';
+import { LEVEL_LABELS, firstParam } from '@/learning/levels';
+import { useRouteLevel } from '@/learning/use-route-level';
 import { RichTextContent } from '@/learning/rich-text';
 import { useTheme } from '@/theme';
 
@@ -33,21 +42,54 @@ export function LessonScreen() {
   const { spacing } = useTheme();
   const params = useLocalSearchParams<{ lessonId: string; level?: string }>();
   const lessonId = firstParam(params.lessonId);
-  const level = levelFromParam(params.level);
-  const [lesson, reload] = useResource(`lesson:${lessonId}:${level}`, (signal) => getLesson(lessonId, level, signal));
-  // Previous / next are a convenience: if the navigation request fails the lesson is still readable.
-  const [navigation] = useResource(`lesson-nav:${lessonId}:${level}`, (signal) => getNavigation(lessonId, level, signal));
+  const { level, ready } = useRouteLevel(params.level);
+  const [lesson, reload] = useResource(ready ? `lesson:${lessonId}:${level}` : null, (signal) => loadLesson(lessonId, level, signal));
+  // Previous / next are a convenience: if the navigation request fails (and nothing is saved) the lesson is still readable.
+  const [navigation] = useResource(ready ? `lesson-nav:${lessonId}:${level}` : null, (signal) => loadNavigation(lessonId, level, signal));
+  const { has, toggle, remove, setUnavailable } = useBookmarks();
+  const { recordOpened, isCompleted, setCompleted } = useLearningProgress();
+  useRetryOnReconnect(isRecoverable(lesson), reload);
 
   const goTo = (target: string) => router.replace({ pathname: '/lesson/[lessonId]', params: { lessonId: target, level } });
-  const next = navigation.status === 'success' ? navigation.data.next : null;
-  const previous = navigation.status === 'success' ? navigation.data.previous : null;
-  const courseId = navigation.status === 'success' ? navigation.data.courseId : null;
+  const nav = navigation.status === 'success' ? navigation.data.value : null;
+  const next = nav ? nav.next : null;
+  const previous = nav ? nav.previous : null;
+  const courseId = nav ? nav.courseId : null;
 
-  const notFound = lesson.status === 'error' && lesson.error instanceof ApiError && lesson.error.isNotFound;
+  // unavailable = the backend says it does not exist for the learner (404, or an invalid id); a lesson that is only unpublished is flagged on a saved item
+  const notFound = lesson.status === 'error' && lesson.error instanceof ApiError && lesson.error.isUnavailable;
+  const unpublished = lesson.status === 'error' && lesson.error instanceof ApiError && lesson.error.isNotFound;
+  const snapshotLesson = lesson.status === 'success' ? lesson.data.value.snapshot.lesson : null;
+  const title = snapshotLesson?.title ?? null;
+  const bookmarkId = lessonBookmarkId(lessonId, level);
+  const saved = has(bookmarkId);
+  const completed = isCompleted(lessonId, level);
+
+  // Remember what is being read (resume point), and keep a saved lesson's availability flag honest.
+  useEffect(() => {
+    if (title) recordOpened({ lessonId, level, courseId, title });
+  }, [title, lessonId, level, courseId, recordOpened]);
+  useEffect(() => {
+    if (lesson.status === 'success' && lesson.data.source === 'network') setUnavailable(bookmarkId, false);
+    if (unpublished) setUnavailable(bookmarkId, true);
+  }, [lesson, unpublished, bookmarkId, setUnavailable]);
+
+  const lessonRef = title ? { lessonId, level, courseId, title } : null;
 
   return (
     <ScreenContainer scroll>
-      <ScreenHeader title="Lesson" />
+      <ScreenHeader
+        title="Lesson"
+        trailing={
+          title ? (
+            <BookmarkButton
+              saved={saved}
+              noun="lesson"
+              onToggle={() => toggle({ id: bookmarkId, type: 'lesson', lessonId, level, courseId, title, savedAt: Date.now() })}
+            />
+          ) : null
+        }
+      />
       <View style={{ gap: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.xxl }}>
         {lesson.status === 'loading' ? <LoadingState message="Loading lesson…" /> : null}
 
@@ -59,13 +101,25 @@ export function LessonScreen() {
           />
         ) : null}
 
-        {lesson.status === 'error' && !notFound ? <ErrorState {...describeError(lesson.error)} onRetry={reload} /> : null}
+        {notFound && saved ? (
+          <SecondaryButton label="Remove from saved items" onPress={() => remove(bookmarkId)} />
+        ) : null}
 
-        {lesson.status === 'success' ? <LessonBody lessonBlocks={lesson.data.snapshot.blocks} snapshotLesson={lesson.data.snapshot.lesson} level={level} /> : null}
+        {lesson.status === 'error' && !notFound ? <ErrorState {...describeLoadError(lesson.error, 'lesson')} onRetry={reload} /> : null}
+
+        {lesson.status === 'success' && lesson.data.source === 'cache' ? <OfflineBanner loaded={lesson.data} onRetry={reload} /> : null}
+
+        {lesson.status === 'success' ? <LessonBody lessonBlocks={lesson.data.value.snapshot.blocks} snapshotLesson={lesson.data.value.snapshot.lesson} level={level} /> : null}
 
         {lesson.status === 'success' ? (
           <View style={{ gap: spacing.md }}>
             <Divider />
+            {lessonRef ? (
+              <SecondaryButton
+                label={completed ? 'Completed. Tap to undo' : 'Mark lesson as complete'}
+                onPress={() => setCompleted(lessonRef, !completed)}
+              />
+            ) : null}
             {next ? (
               <PrimaryButton label="Continue" onPress={() => goTo(next.lessonId)} />
             ) : navigation.status === 'success' ? (

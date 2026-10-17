@@ -16,6 +16,10 @@ export type Daniel2Progress = {
   currentIndex: number;
   completed: string[];
   quiz: QuizResult | null;
+  /**
+   * LEGACY. Scene bookmarks now live in the bookmark store (src/features/bookmarks). The field is still read and written back
+   * unchanged so the stored format stays compatible; the bookmark store migrates it once.
+   */
   bookmarks: string[];
 };
 

@@ -1,9 +1,11 @@
-import { useRouter } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useCallback } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { HeroBackdrop } from '@/components/hero-backdrop';
+import { HeroStatusBar } from '@/components/hero-status-bar';
+import { appImages } from '@/config/images';
 import {
   AppText,
   ChevronIcon,
@@ -32,6 +34,14 @@ export function Daniel2IntroScreen() {
   const lesson = lessonResource.status === 'success' ? lessonResource.data : null;
   const p = useLessonProgress(lesson ? lesson.scenes.map((scene) => scene.id) : null);
 
+  // The lesson screen sits on top of this one and changes the saved progress; show it when we come back.
+  const { reload: reloadProgress } = p;
+  useFocusEffect(
+    useCallback(() => {
+      reloadProgress();
+    }, [reloadProgress]),
+  );
+
   const total = lesson?.scenes.length ?? 0;
   const resumable = p.ready && hasStarted(p.progress) && p.progress.completed.length < total;
   const finished = p.ready && total > 0 && p.progress.completed.length >= total;
@@ -39,8 +49,8 @@ export function Daniel2IntroScreen() {
 
   return (
     <View style={[styles.fill, { backgroundColor: colors.background }]}>
-      <HeroBackdrop source={require('@/assets/images/placeholder/daniel-2-hall-placeholder.jpg')} reach={0.78} />
-      <StatusBar style="light" />
+      <HeroBackdrop source={appImages.hall.source} reach={0.78} />
+      <HeroStatusBar />
 
       {/* back, over the picture; sits below the status bar / notch */}
       <View style={[styles.back, { top: insets.top + spacing.sm, left: spacing.lg + insets.left }]}>

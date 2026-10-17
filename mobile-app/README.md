@@ -55,6 +55,32 @@ components/         scene views + scene-renderer.tsx, statue figure, scripture c
 - **Quiz.** Four local single-choice questions, one at a time: choose, submit, feedback, next, score, retake. Not a backend quiz; nothing is submitted.
 - **Artwork.** The picture is a generated placeholder, and the statue is a stylised drawing made of views (not a 3D model). Its material fills are tokens in `src/theme/colors.ts`.
 
+## Offline, bookmarks and progress (all device-local, all separate)
+
+| Concern | Code | Storage key |
+| --- | --- | --- |
+| Theme preference | `src/storage/preferences.ts` | `pd.preferences.theme` (and `.level`) |
+| Offline cache of published content | `src/features/offline/` | `pd.cache.v1:<kind>:<id>:<level>` + `pd.cache.v1.index` |
+| Bookmarks (lessons + Daniel 2 scenes) | `src/features/bookmarks/` | `pd.bookmarks.v1` |
+| Published-lesson progress | `src/features/learning/` | `pd.learning.progress.v1` |
+| Daniel 2 scene progress and quiz | `src/features/daniel-2/progress.ts` | `pd.daniel2.progress.v1` |
+
+- **Cache policy.** The backend is the source of truth. A successful, valid response replaces the saved copy. If the server cannot be reached (or times out, 429, 5xx, or the answer is malformed) the saved copy is shown under a "Saved copy" banner with its save time and a retry; with no saved copy the screen says the content is not available offline. A 404 deletes the saved copy and shows "not available": a stale copy is never proof that something is still published. Cached: catalog per level, course per level, lesson snapshot per lesson+level, lesson navigation. Retention: entries older than 30 days are deleted, at most 60 entries are kept (oldest removed first), invalid entries are deleted on read. ETag/conditional requests are not used (the shared API client does not send validators). "Clear offline lessons" is in Settings.
+- **Reconnect.** There is no network-status library; saved copies retry when the app returns to the foreground, when the browser reports `online`, and with the Try again button.
+- **Bookmarks.** One list; lesson ids are `lesson:<lessonId>:<level>`, scene ids `daniel2:<sceneId>`; titles are stored at save time. Saved items screen: `/saved` (star in the catalog header). A saved lesson that the backend reports unavailable is flagged and can be removed. Legacy Daniel 2 bookmarks (the `bookmarks` field of the Daniel 2 progress record) are copied into the list once on first load; the legacy field is left untouched.
+- **Progress.** The lesson reader records the last opened lesson ("Continue where you left off" on `/learn`) and has an explicit "Mark lesson as complete" action; opening never completes. Reset in Settings.
+
+## Navigation map
+
+`/` Welcome (Enter, Saved items, Settings) → `/learn` (resume card, built-in Daniel 2 card, level selector, course catalog, Saved items, Settings) → `/course/:id?level=` → `/lesson/:id?level=` (bookmark, mark complete, previous/next, back to course).
+`/daniel-2` (Start / Resume / Start over) → `/daniel-2-lesson` (14 scenes; Back = previous scene (leaves from scene 1), ✕ on later scenes = leave with progress saved; `?scene=<id>` opens a saved scene). `/saved` lists saved lessons and Daniel 2 scenes. `/settings`: appearance, clear offline lessons, reset reading progress (each touches only its own data). Unknown links show a themed "Page not found"; a screen that crashes shows a themed error with retry.
+
+Levels: links always carry `?level=`; a link without it uses the learner's saved level. Errors: a 404, or a 400 from the backend's id validation, is shown as "not available"; network failures, timeouts, 429 and 5xx are transient (retry, and a saved copy if there is one); a saved copy or a "cannot reach the server" screen retries automatically when the app returns to the foreground or the browser comes back online.
+
+Release readiness, native-test steps and open decisions: see `RELEASE-READINESS.md`. A release build has no default API URL (set `EXPO_PUBLIC_API_URL` when building).
+
+Pictures: all bundled imagery is registered in `src/config/images.ts` (Daniel 2 scene pictures in `src/features/daniel-2/assets.ts`); today that is one generated placeholder. A picture that fails to load falls back to a themed block.
+
 ## Backend routes used (public, no authentication)
 
 | Screen | Request |

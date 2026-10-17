@@ -14,12 +14,6 @@ export function isLearningLevel(value: unknown): value is LearningLevel {
   return typeof value === 'string' && (LEARNING_LEVELS as readonly string[]).includes(value);
 }
 
-/** A route parameter may arrive as a string, a list, or nothing; this gives a valid level either way. */
-export function levelFromParam(value: string | string[] | undefined): LearningLevel {
-  const first = Array.isArray(value) ? value[0] : value;
-  return isLearningLevel(first) ? first : DEFAULT_LEARNING_LEVEL;
-}
-
 export function firstParam(value: string | string[] | undefined): string {
   return (Array.isArray(value) ? value[0] : value) ?? '';
 }

@@ -5,13 +5,13 @@ import { AppText, ChevronIcon } from '@/components/ui';
 import { useTheme } from '@/theme';
 
 /** One lesson in a module list. */
-export function LessonRow({ lesson, index, onPress }: { lesson: CatalogLesson; index: number; onPress: () => void }) {
+export function LessonRow({ lesson, index, completed = false, onPress }: { lesson: CatalogLesson; index: number; completed?: boolean; onPress: () => void }) {
   const { colors, layout, radius, spacing } = useTheme();
   const minutes = lesson.estimatedMinutes ? `${lesson.estimatedMinutes} min` : null;
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`Lesson ${index + 1}. ${lesson.title}.${lesson.subtitle ? ` ${lesson.subtitle}.` : ''}${minutes ? ` ${minutes}.` : ''}`}
+      accessibilityLabel={`Lesson ${index + 1}. ${lesson.title}.${lesson.subtitle ? ` ${lesson.subtitle}.` : ''}${minutes ? ` ${minutes}.` : ''}${completed ? ' Completed.' : ''}`}
       onPress={onPress}
       style={({ pressed }) => [
         styles.row,
@@ -37,9 +37,9 @@ export function LessonRow({ lesson, index, onPress }: { lesson: CatalogLesson; i
             {lesson.subtitle}
           </AppText>
         ) : null}
-        {minutes ? (
-          <AppText variant="caption" color="textMuted">
-            {minutes}
+        {minutes || completed ? (
+          <AppText variant="caption" color={completed ? 'success' : 'textMuted'}>
+            {[minutes, completed ? '✓ Completed' : null].filter(Boolean).join(' · ')}
           </AppText>
         ) : null}
       </View>

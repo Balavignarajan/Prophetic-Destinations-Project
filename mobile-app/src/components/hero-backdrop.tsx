@@ -1,7 +1,9 @@
 import { Image, type ImageSource } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
+import { useReduceMotion } from '@/accessibility/use-reduce-motion';
 import { useTheme } from '@/theme';
 
 export type HeroBackdropProps = {
@@ -20,14 +22,18 @@ export type HeroBackdropProps = {
  */
 export function HeroBackdrop({ source, reach = 0.75, dim = 0, accessibilityLabel }: HeroBackdropProps) {
   const { colors, gradients } = useTheme();
+  const [failed, setFailed] = useState(false);
+  const reduceMotion = useReduceMotion();
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
       <View style={[styles.picture, { height: `${Math.round(reach * 100)}%` }]}>
+        {failed ? <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.surfaceElevated }]} /> : null}
         <Image
           source={source}
           contentFit="cover"
           contentPosition="center"
-          transition={400}
+          transition={reduceMotion ? 0 : 400}
+          onError={() => setFailed(true)}
           accessible={Boolean(accessibilityLabel)}
           accessibilityLabel={accessibilityLabel}
           style={StyleSheet.absoluteFill}

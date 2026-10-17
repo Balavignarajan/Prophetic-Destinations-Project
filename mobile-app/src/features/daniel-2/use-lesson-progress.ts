@@ -28,6 +28,18 @@ export function useLessonProgress(sceneIds: readonly string[] | null) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idsKey]);
 
+  /** Re-reads the saved progress, for a screen that stays mounted while the lesson (a different instance) changes it. */
+  const reload = useCallback(() => {
+    if (!sceneIds) return;
+    loadProgress(sceneIds).then((saved) => {
+      latest.current = saved;
+      setProgress(saved);
+      setReady(true);
+    });
+    // `idsKey` identifies the list; the array itself may be a new object each render
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idsKey]);
+
   const commit = useCallback((next: Daniel2Progress) => {
     latest.current = next;
     setProgress(next);
@@ -86,16 +98,5 @@ export function useLessonProgress(sceneIds: readonly string[] | null) {
 
   const restart = useCallback(() => commit(emptyProgress), [commit]);
 
-  const toggleBookmark = useCallback(
-    (id: string) => {
-      const current = latest.current;
-      commit({
-        ...current,
-        bookmarks: current.bookmarks.includes(id) ? current.bookmarks.filter((b) => b !== id) : [...current.bookmarks, id],
-      });
-    },
-    [commit],
-  );
-
-  return { progress, ready, goTo, completeAndAdvance, completeCurrent, recordQuiz, resetQuiz, restart, toggleBookmark };
+  return { progress, ready, reload, goTo, completeAndAdvance, completeCurrent, recordQuiz, resetQuiz, restart };
 }
