@@ -4,6 +4,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { api } from '../../../lib/api';
+import { WORKFLOW_ENDPOINT, catalogTransitionBody, type WorkflowAction } from '../../../lib/workflow';
 import { useAuth } from '../../../lib/auth';
 import { Course, ModuleItem, WorkflowState, WorkflowEvent } from '../../../lib/types';
 import { LoadingSpinner, StatusBadge, EmptyState, Modal, ConfirmDialog } from '../../../components/ui';
@@ -209,23 +210,11 @@ export default function CourseDetailPage() {
     setTransitioning(true);
     setTransitionError(null);
 
-    const actionEndpointMap: Record<string, string> = {
-      SUBMIT_FOR_REVIEW: 'submit',
-      REQUEST_CHANGES: 'request-changes',
-      APPROVE: 'approve',
-      PUBLISH: 'publish',
-      UNPUBLISH: 'unpublish',
-    };
-
-    const endpoint = actionEndpointMap[transitionAction];
+    const endpoint = WORKFLOW_ENDPOINT[transitionAction as WorkflowAction];
 
     try {
-      const body: Record<string, unknown> = {
-        version: course.version,
-      };
-      if (transitionAction === 'REQUEST_CHANGES') {
-        body.note = transitionNote.trim();
-      }
+      // Backend CatalogTransitionDto accepts only { note?, expectedVersion? } (forbidNonWhitelisted).
+      const body = catalogTransitionBody(transitionAction as WorkflowAction, workflowState, transitionNote);
 
       await api.request(`/admin/courses/${courseId}/workflow/${endpoint}`, {
         method: 'POST',

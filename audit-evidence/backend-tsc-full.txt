@@ -1,0 +1,27 @@
+src/modules/identity/domain/domain.spec.ts(74,33): error TS2345: Argument of type '{ id: string; email: string; passwordHash: string; role: "EDITOR"; status: "ACTIVE"; }' is not assignable to parameter of type 'AdminAccount'.
+  Property 'mustChangePassword' is missing in type '{ id: string; email: string; passwordHash: string; role: "EDITOR"; status: "ACTIVE"; }' but required in type 'AdminAccount'.
+src/modules/publishing/application/workflow-service.spec.ts(101,13): error TS2322: Type '{ lessonId: string; action: WorkflowAction; fromStatus: ContentStatus; toStatus: ContentStatus; actorAdminId: string; actorRole: Role; note: string | null; ... 4 more ...; createdAt: Date; }' is not assignable to type 'WorkflowEvent'.
+  Types of property 'publicationId' are incompatible.
+    Type 'string | null | undefined' is not assignable to type 'string | null'.
+      Type 'undefined' is not assignable to type 'string | null'.
+src/modules/publishing/domain/publishing-domain.spec.ts(237,31): error TS2345: Argument of type '(c: ReturnType<(action: WorkflowAction, actorId: string) => { action: "SUBMIT_FOR_REVIEW" | "REQUEST_CHANGES" | "APPROVE" | "PUBLISH" | "UNPUBLISH"; actorId: string; priorEvents: { action: "SUBMIT_FOR_REVIEW"; actorId: string; }[]; }>) => "The person who submitted a lesson cannot approve it" | null' is not assignable to parameter of type 'SeparationOfDutiesPolicy'.
+  Types of parameters 'c' and 'context' are incompatible.
+    Type 'SeparationOfDutiesContext' is not assignable to type '{ action: "SUBMIT_FOR_REVIEW" | "REQUEST_CHANGES" | "APPROVE" | "PUBLISH" | "UNPUBLISH"; actorId: string; priorEvents: { action: "SUBMIT_FOR_REVIEW"; actorId: string; }[]; }'.
+      Types of property 'priorEvents' are incompatible.
+        The type 'readonly PriorEvent[]' is 'readonly' and cannot be assigned to the mutable type '{ action: "SUBMIT_FOR_REVIEW"; actorId: string; }[]'.
+src/modules/publishing/domain/publishing-domain.spec.ts(240,31): error TS2345: Argument of type '(c: ReturnType<(action: WorkflowAction, actorId: string) => { action: "SUBMIT_FOR_REVIEW" | "REQUEST_CHANGES" | "APPROVE" | "PUBLISH" | "UNPUBLISH"; actorId: string; priorEvents: { action: "SUBMIT_FOR_REVIEW"; actorId: string; }[]; }>) => "The person who submitted a lesson cannot approve it" | null' is not assignable to parameter of type 'SeparationOfDutiesPolicy'.
+  Types of parameters 'c' and 'context' are incompatible.
+    Type 'SeparationOfDutiesContext' is not assignable to type '{ action: "SUBMIT_FOR_REVIEW" | "REQUEST_CHANGES" | "APPROVE" | "PUBLISH" | "UNPUBLISH"; actorId: string; priorEvents: { action: "SUBMIT_FOR_REVIEW"; actorId: string; }[]; }'.
+      Types of property 'priorEvents' are incompatible.
+        The type 'readonly PriorEvent[]' is 'readonly' and cannot be assigned to the mutable type '{ action: "SUBMIT_FOR_REVIEW"; actorId: string; }[]'.
+test/publications.e2e-spec.ts(265,37): error TS2345: Argument of type '"EDITOR" | "REVIEWER"' is not assignable to parameter of type '"ADMIN" | undefined'.
+  Type '"EDITOR"' is not assignable to type '"ADMIN"'.
+test/publications.e2e-spec.ts(266,39): error TS2345: Argument of type '"EDITOR" | "REVIEWER"' is not assignable to parameter of type '"ADMIN" | undefined'.
+  Type '"EDITOR"' is not assignable to type '"ADMIN"'.
+test/publications.e2e-spec.ts(271,39): error TS2345: Argument of type '"EDITOR" | "REVIEWER"' is not assignable to parameter of type '"ADMIN" | undefined'.
+  Type '"EDITOR"' is not assignable to type '"ADMIN"'.
+test/publications.e2e-spec.ts(319,37): error TS2345: Argument of type '"EDITOR"' is not assignable to parameter of type '"ADMIN"'.
+test/publications.e2e-spec.ts(320,37): error TS2345: Argument of type '"REVIEWER"' is not assignable to parameter of type '"ADMIN"'.
+test/publications.e2e-spec.ts(324,37): error TS2345: Argument of type '"EDITOR"' is not assignable to parameter of type '"ADMIN"'.
+test/publications.e2e-spec.ts(794,39): error TS2345: Argument of type '"EDITOR"' is not assignable to parameter of type '"ADMIN"'.
+test/publications.e2e-spec.ts(795,39): error TS2345: Argument of type '"REVIEWER"' is not assignable to parameter of type '"ADMIN"'.

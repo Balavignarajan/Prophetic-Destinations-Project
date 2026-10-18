@@ -1,0 +1,32 @@
+ACCEPTED course                  create {title, description:null}
+ACCEPTED course                  update {title, description:null, version}
+ACCEPTED module                  create {title, description:null}
+ACCEPTED module                  update {title, description:null, version}
+ACCEPTED module                  reorder {moduleIds}
+ACCEPTED lesson                  create {title, shortTitle, subtitle, introduction, estimatedMinutes, levels}
+ACCEPTED lesson                  update {..., null fields, version}
+ACCEPTED lesson                  levels {levels, version}
+ACCEPTED lesson                  reorder {lessonIds}
+ACCEPTED block                   create {type:RICH_TEXT, sharedContent, levels}
+ACCEPTED block                   update {sharedContent, version}
+ACCEPTED block                   reorder {blockIds}
+ACCEPTED block                   put level (variant) {content, version}
+ACCEPTED block                   put level (visible, shared) {content:null, version}
+REJECTED lesson workflow         submit/approve/publish/unpublish {version}
+         -> version: property version should not exist
+REJECTED lesson workflow         request-changes {version, note}
+         -> version: property version should not exist
+REJECTED course/module workflow  submit/approve/publish/unpublish {version}
+         -> version: property version should not exist
+REJECTED course/module workflow  request-changes {version, note}
+         -> version: property version should not exist
+ACCEPTED course/module workflow  control: {expectedVersion}
+ACCEPTED quiz                    create {title, description:null, questions[explanation:null]}
+ACCEPTED quiz                    update {title, description, version, questions}
+ACCEPTED accounts                create {email, role, temporaryPassword}
+ACCEPTED accounts                role {role}
+ACCEPTED accounts                password-reset {temporaryPassword}
+ACCEPTED auth                    login {email, password}
+ACCEPTED auth                    change password {currentPassword, newPassword}
+
+22 accepted, 4 rejected of 26

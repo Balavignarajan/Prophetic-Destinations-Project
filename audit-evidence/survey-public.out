@@ -1,0 +1,49 @@
+{
+  "levels": {
+    "BEGINNER": {
+      "status": 200,
+      "courses": 24,
+      "etag": true,
+      "cacheControl": "public, no-cache"
+    },
+    "INTERMEDIATE": {
+      "status": 200,
+      "courses": 3,
+      "etag": true,
+      "cacheControl": "public, no-cache"
+    },
+    "ADVANCED": {
+      "status": 200,
+      "courses": 7,
+      "etag": true,
+      "cacheControl": "public, no-cache"
+    }
+  },
+  "blockTypes": {
+    "RICH_TEXT": 66
+  },
+  "variants": 0,
+  "titles": {
+    "int": 21,
+    "demo": 1,
+    "other": [
+      "e2e-30aba62a-withdraw",
+      "e2e-30aba62a-refresh-fail",
+      "e2e-30aba62a-etag-other"
+    ]
+  },
+  "lessonsFetched": 66,
+  "withNavigation": 66,
+  "uniqueCourses": 25,
+  "probes": {
+    "missingLevel": 400,
+    "badLevel": 400,
+    "malformedLessonId": 400,
+    "unknownLessonId": 404
+  },
+  "conditional": {
+    "firstStatus": 200,
+    "etagPresent": true,
+    "revalidateStatus": 304
+  }
+}

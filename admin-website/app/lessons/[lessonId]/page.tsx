@@ -14,6 +14,9 @@ import {
   ReadinessReport,
 } from '../../../lib/types';
 import { LoadingSpinner, StatusBadge, EmptyState, Modal, ConfirmDialog } from '../../../components/ui';
+import { editorTextToRichText, isEditable, richTextToEditorText } from '../../../lib/rich-text';
+import { WORKFLOW_ENDPOINT, lessonTransitionBody, type WorkflowAction } from '../../../lib/workflow';
+import RichTextEditor from '../../../components/RichTextEditor';
 import { validateScriptureReference, CANONICAL_BOOKS, ParseResult } from '../../../lib/scripture';
 
 export default function LessonAuthoringPage() {
@@ -83,6 +86,7 @@ export default function LessonAuthoringPage() {
   const [variantLevel, setVariantLevel] = useState<LearningLevel>('BEGINNER');
   const [variantMode, setVariantMode] = useState<'shared' | 'variant' | 'hidden'>('shared');
   const [variantText, setVariantText] = useState('');
+  const [variantLocked, setVariantLocked] = useState(false);
   const [savingVariant, setSavingVariant] = useState(false);
   const [variantError, setVariantError] = useState<string | null>(null);
 
@@ -185,39 +189,9 @@ export default function LessonAuthoringPage() {
     editIntroduction,
   ]);
 
-  // Convert plain text paragraph to standard backend RICH_TEXT ProseMirror doc structure
-  const textToRichTextDoc = (text: string) => {
-    const paragraphs = text
-      .split('\n\n')
-      .map((p) => p.trim())
-      .filter(Boolean);
-
-    return {
-      body: {
-        type: 'doc',
-        content: paragraphs.map((p) => ({
-          type: 'paragraph',
-          content: [{ type: 'text', text: p }],
-        })),
-      },
-    };
-  };
-
-  // Convert RICH_TEXT doc back to readable text
-  const richTextDocToText = (sharedContent: Record<string, unknown> | null): string => {
-    if (!sharedContent || !sharedContent.body) return '';
-    const body = sharedContent.body as { content?: { type: string; content?: { text?: string }[] }[] };
-    if (!body.content || !Array.isArray(body.content)) return '';
-
-    return body.content
-      .map((node) => {
-        if (node.content && Array.isArray(node.content)) {
-          return node.content.map((c) => c.text || '').join('');
-        }
-        return '';
-      })
-      .join('\n\n');
-  };
+  // Editor text <-> backend RICH_TEXT document. Lossless for bold, italic, links and lists (see lib/rich-text.ts).
+  const textToRichTextDoc = (text: string) => editorTextToRichText(text);
+  const richTextDocToText = (sharedContent: Record<string, unknown> | null): string => richTextToEditorText(sharedContent);
 
   const openScriptureModal = (target: 'create' | 'edit' | 'variant') => {
     setScriptureTarget(target);
@@ -438,6 +412,8 @@ export default function LessonAuthoringPage() {
     setVariantModalBlock(block);
     setVariantLevel(level);
     const existingVariant = block.levels.find((l) => l.level === level);
+    // A variant seeded from content the editor cannot reproduce exactly is read-only (never silently rewritten).
+    setVariantLocked(!isEditable(existingVariant?.content ?? block.sharedContent));
     if (!existingVariant) {
       setVariantMode('hidden');
       setVariantText(richTextDocToText(block.sharedContent));
@@ -529,23 +505,11 @@ export default function LessonAuthoringPage() {
     setTransitioning(true);
     setTransitionError(null);
 
-    const actionEndpointMap: Record<string, string> = {
-      SUBMIT_FOR_REVIEW: 'submit',
-      REQUEST_CHANGES: 'request-changes',
-      APPROVE: 'approve',
-      PUBLISH: 'publish',
-      UNPUBLISH: 'unpublish',
-    };
-
-    const endpoint = actionEndpointMap[transitionAction];
+    const endpoint = WORKFLOW_ENDPOINT[transitionAction as WorkflowAction];
 
     try {
-      const body: Record<string, unknown> = {
-        version: lesson.version,
-      };
-      if (transitionAction === 'REQUEST_CHANGES') {
-        body.note = transitionNote.trim();
-      }
+      // Backend TransitionDto accepts only { note?, expectedContentRevision? } (forbidNonWhitelisted).
+      const body = lessonTransitionBody(transitionAction as WorkflowAction, workflowState, transitionNote);
 
       await api.request(`/admin/lessons/${lessonId}/workflow/${endpoint}`, {
         method: 'POST',
@@ -1126,14 +1090,7 @@ export default function LessonAuthoringPage() {
                 Insert Scripture Ref
               </button>
             </div>
-            <textarea
-              rows={6}
-              required
-              value={newBlockText}
-              onChange={(e) => setNewBlockText(e.target.value)}
-              placeholder="Enter rich text paragraphs..."
-              className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500 font-serif leading-relaxed"
-            />
+            <RichTextEditor rows={6} value={newBlockText} onChange={setNewBlockText} placeholder="Enter rich text paragraphs..." />
           </div>
 
           <div>
@@ -1215,13 +1172,7 @@ export default function LessonAuthoringPage() {
                 Insert Scripture Ref
               </button>
             </div>
-            <textarea
-              rows={8}
-              required
-              value={editingContentText}
-              onChange={(e) => setEditingContentText(e.target.value)}
-              className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500 font-serif leading-relaxed"
-            />
+            <RichTextEditor rows={8} value={editingContentText} onChange={setEditingContentText} locked={editingBlock ? !isEditable(editingBlock.sharedContent) : false} />
           </div>
 
           <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
@@ -1234,7 +1185,7 @@ export default function LessonAuthoringPage() {
             </button>
             <button
               type="submit"
-              disabled={updatingBlock || !editingContentText.trim()}
+              disabled={updatingBlock || !editingContentText.trim() || (editingBlock ? !isEditable(editingBlock.sharedContent) : false)}
               className="px-4 py-2 text-sm font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-lg flex items-center gap-2 disabled:opacity-50"
             >
               {updatingBlock && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
@@ -1330,14 +1281,7 @@ export default function LessonAuthoringPage() {
                   Insert Scripture Ref
                 </button>
               </div>
-              <textarea
-                rows={6}
-                required={variantMode === 'variant'}
-                value={variantText}
-                onChange={(e) => setVariantText(e.target.value)}
-                placeholder="Enter variant text..."
-                className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500 font-serif leading-relaxed"
-              />
+              <RichTextEditor rows={6} value={variantText} onChange={setVariantText} placeholder="Enter variant text..." locked={variantLocked} />
             </div>
           )}
 
@@ -1351,7 +1295,7 @@ export default function LessonAuthoringPage() {
             </button>
             <button
               type="submit"
-              disabled={savingVariant}
+              disabled={savingVariant || (variantMode === 'variant' && variantLocked)}
               className="px-4 py-2 text-sm font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-lg flex items-center gap-2 disabled:opacity-50"
             >
               {savingVariant && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}

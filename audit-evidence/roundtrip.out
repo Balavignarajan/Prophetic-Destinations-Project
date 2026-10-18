@@ -1,0 +1,7 @@
+Text the admin editor shows for that block:
+"Read Daniel 2 and this link\n\n"
+
+Document saved if the editor presses Save without changes:
+{"body":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Read Daniel 2 and this link"}]}]}}
+
+bullet list preserved? false | bold preserved? false | link preserved? false

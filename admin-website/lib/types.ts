@@ -88,7 +88,10 @@ export interface LessonBlock {
 export interface WorkflowState {
   subjectId: string;
   status: 'DRAFT' | 'READY_FOR_REVIEW' | 'APPROVED' | 'PUBLISHED';
-  version: number;
+  /** Lesson workflow state: content revision counter (use for expectedContentRevision). */
+  contentRevision?: number;
+  /** Course/module workflow state: catalog version (use for expectedVersion). */
+  version?: number;
   allowedActions: ('SUBMIT_FOR_REVIEW' | 'REQUEST_CHANGES' | 'APPROVE' | 'PUBLISH' | 'UNPUBLISH')[];
 }
 

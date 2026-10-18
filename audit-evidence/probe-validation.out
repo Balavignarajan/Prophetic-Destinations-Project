@@ -1,0 +1,8 @@
+--- what the admin website sends for lesson workflow transitions (app/lessons/[lessonId]/page.tsx: body.version = lesson.version)
+REJECTED  TransitionDto (submit/approve/publish/unpublish) with admin payload  body={"version":3}
+          -> {"code":"VALIDATION_FAILED","message":"Request validation failed","details":[{"field":"version","messages":["property version should not exist"]}]}
+REJECTED  RequestChangesDto with admin payload  body={"version":3,"note":"please fix"}
+          -> {"code":"VALIDATION_FAILED","message":"Request validation failed","details":[{"field":"version","messages":["property version should not exist"]}]}
+--- what the backend contract accepts
+ACCEPTED  TransitionDto with expectedContentRevision  body={"expectedContentRevision":3}
+ACCEPTED  TransitionDto with empty body  body={}
