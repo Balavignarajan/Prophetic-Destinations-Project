@@ -2,6 +2,11 @@ import { Injectable } from '@nestjs/common';
 import { BusinessRuleError } from '../../../../shared-kernel/index.js';
 import { type BlockType } from './block-types.js';
 import {
+  imageMediaId,
+  validateImageComplete,
+  validateImageShape,
+} from './image.js';
+import {
   type ContentProblem,
   validateRichTextComplete,
   validateRichTextShape,
@@ -41,6 +46,18 @@ const RICH_TEXT: BlockTypeDefinition = {
   extractReferences: () => [], // links are external URLs, not references to our data
 };
 
+const IMAGE: BlockTypeDefinition = {
+  type: 'IMAGE',
+  // The guide says "selected components may have level variants" without naming IMAGE: treated as no variants until confirmed.
+  variants: 'UNCONFIRMED',
+  validateShape: validateImageShape,
+  validateComplete: validateImageComplete,
+  extractReferences: (content) => {
+    const mediaId = imageMediaId(content);
+    return mediaId ? [{ kind: 'MEDIA', targetId: mediaId }] : [];
+  },
+};
+
 /**
  * The application-level source of truth for block behaviour. A type becomes
  * usable by being registered here, one concrete type per slice, each only after
@@ -50,6 +67,7 @@ const RICH_TEXT: BlockTypeDefinition = {
 export class BlockTypeRegistry {
   private readonly definitions = new Map<BlockType, BlockTypeDefinition>([
     [RICH_TEXT.type, RICH_TEXT],
+    [IMAGE.type, IMAGE],
   ]);
 
   get(type: BlockType): BlockTypeDefinition | undefined {

@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, Max, Min } from 'class-validator';
+import { IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 import type { MediaAsset } from '../../domain/models.js';
 
 export class ListMediaQueryDto {
@@ -15,6 +15,12 @@ export class ListMediaQueryDto {
   @IsInt()
   @Min(0)
   offset?: number;
+
+  /** Part of the original file name (case-insensitive). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  q?: string;
 }
 
 /** The only media fields the API returns: no storage key, no path. */

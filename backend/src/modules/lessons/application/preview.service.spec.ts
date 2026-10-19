@@ -1,3 +1,4 @@
+import type { MediaFacade } from '../../media/index.js';
 import { randomUUID } from 'node:crypto';
 import { NotFoundError } from '../../../shared-kernel/index.js';
 import {
@@ -54,7 +55,12 @@ function build() {
   } as unknown as LessonRepository;
   return {
     lessonId,
-    blockService: new BlockService(...repos, registry, inlineTransactions),
+    blockService: new BlockService(
+      ...repos,
+      registry,
+      inlineTransactions,
+      { find: () => Promise.resolve(null) } as unknown as MediaFacade,
+    ),
     levelService: new BlockLevelService(...repos, registry, inlineTransactions),
     preview: new PreviewService(fullLessons, repos[1], repos[2], registry),
   };

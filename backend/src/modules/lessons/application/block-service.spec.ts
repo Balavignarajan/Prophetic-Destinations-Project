@@ -1,3 +1,4 @@
+import type { MediaFacade } from '../../media/index.js';
 import { randomUUID } from 'node:crypto';
 import {
   BusinessRuleError,
@@ -32,6 +33,7 @@ function build() {
     levels as unknown as LessonBlockLevelRepository,
     new BlockTypeRegistry(),
     inlineTransactions,
+    { find: () => Promise.resolve(null) } as unknown as MediaFacade,
   );
   const lessonId = randomUUID();
   lessons.add(lessonId, ['BEGINNER', 'INTERMEDIATE', 'ADVANCED']);

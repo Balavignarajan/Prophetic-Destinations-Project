@@ -69,7 +69,7 @@ export class MediaController {
   async list(@Query() query: ListMediaQueryDto): Promise<MediaListResponseDto> {
     const limit = query.limit ?? DEFAULT_LIMIT;
     const offset = query.offset ?? 0;
-    const { items, total } = await this.media.list(limit, offset);
+    const { items, total } = await this.media.list(limit, offset, query.q);
     return {
       items: items.map((asset) => MediaResponseDto.from(asset)),
       total,

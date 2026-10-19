@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CurriculumModule } from '../curriculum/index.js';
+import { MediaModule } from '../media/index.js';
 import { BlockLevelsController } from './api/block-levels.controller.js';
 import { BlocksController } from './api/blocks.controller.js';
 import { LessonsController } from './api/lessons.controller.js';
@@ -20,7 +21,7 @@ import { LessonLevelEntity } from './persistence/lesson-level.entity.js';
 import { LessonEntity } from './persistence/lesson.entity.js';
 import { LessonRepository } from './persistence/lesson.repository.js';
 
-/** Lessons and the levels they are available at. Blocks (RICH_TEXT only for now), their per-level visibility and variants, and the level-aware preview. */
+/** Lessons and the levels they are available at. Blocks (RICH_TEXT and IMAGE for now), their per-level visibility and variants, and the level-aware preview. */
 @Module({
   imports: [
     TypeOrmModule.forFeature([
@@ -30,6 +31,7 @@ import { LessonRepository } from './persistence/lesson.repository.js';
       LessonBlockLevelEntity,
     ]),
     CurriculumModule,
+    MediaModule,
   ],
   controllers: [
     ModuleLessonsController,

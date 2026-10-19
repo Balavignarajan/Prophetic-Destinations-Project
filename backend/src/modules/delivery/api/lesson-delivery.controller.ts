@@ -6,6 +6,7 @@ import {
   ParseUUIDPipe,
   Query,
   Res,
+  StreamableFile,
   UseGuards,
 } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
@@ -13,6 +14,7 @@ import type { Response } from 'express';
 import { Public } from '../../../platform/public.decorator.js';
 import { CatalogDeliveryService } from '../application/catalog-delivery.service.js';
 import { LessonDeliveryService } from '../application/lesson-delivery.service.js';
+import { LessonMediaDeliveryService } from '../application/lesson-media-delivery.service.js';
 import { NavigationResponseDto } from './dto/catalog-delivery.dto.js';
 import {
   LessonDeliveryQueryDto,
@@ -35,6 +37,7 @@ export class LessonDeliveryController {
   constructor(
     private readonly delivery: LessonDeliveryService,
     private readonly catalog: CatalogDeliveryService,
+    private readonly media: LessonMediaDeliveryService,
   ) {}
 
   /**
@@ -80,5 +83,41 @@ export class LessonDeliveryController {
       res,
       await this.catalog.getNavigation(lessonId, query.level, ifNoneMatch),
     );
+  }
+
+  /**
+   * One image of a published lesson, for the learner app. Served only when the lesson's active published snapshot at that
+   * level contains an IMAGE block pointing at this asset; everything else is the same 404 (see LessonMediaDeliveryService).
+   * The type is the one detected from the bytes at upload; the response may not run script.
+   */
+  @Get(':lessonId/media/:mediaId')
+  async image(
+    @Param('lessonId', ParseUUIDPipe) lessonId: string,
+    @Param('mediaId', ParseUUIDPipe) mediaId: string,
+    @Query() query: LessonDeliveryQueryDto,
+    @Headers('if-none-match') ifNoneMatch: string | undefined,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile | undefined> {
+    const result = await this.media.getImage(
+      lessonId,
+      mediaId,
+      query.level,
+      ifNoneMatch,
+    );
+    res.setHeader('ETag', result.etag);
+    res.setHeader('Cache-Control', PUBLISHED_CACHE_CONTROL);
+    if (result.kind === 'NOT_MODIFIED') {
+      res.status(304);
+      return undefined;
+    }
+    const { asset, stream } = result.content;
+    res.set({
+      'Content-Type': asset.contentType,
+      'Content-Length': String(asset.sizeBytes),
+      'Content-Disposition': 'inline',
+      'X-Content-Type-Options': 'nosniff',
+      'Content-Security-Policy': "default-src 'none'; sandbox",
+    });
+    return new StreamableFile(stream);
   }
 }

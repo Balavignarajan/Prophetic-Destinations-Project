@@ -9,6 +9,7 @@ import { newStorageKey, sanitizeFilename } from '../domain/filename.js';
 import { detectMediaType, findSupportedType } from '../domain/media-types.js';
 import type { MediaAsset, StoredMediaAsset } from '../domain/models.js';
 import { MediaAssetRepository } from '../persistence/media-asset.repository.js';
+import { MediaUsageRepository } from '../persistence/media-usage.repository.js';
 import {
   MEDIA_STORAGE,
   type MediaStorage,
@@ -46,6 +47,7 @@ export class MediaService {
 
   constructor(
     private readonly assets: MediaAssetRepository,
+    private readonly usage: MediaUsageRepository,
     @Inject(MEDIA_STORAGE) private readonly storage: MediaStorage,
     @Inject(MEDIA_SETTINGS) private readonly settings: MediaSettings,
   ) {}
@@ -107,8 +109,8 @@ export class MediaService {
     return toPublic(await this.require(id));
   }
 
-  async list(limit: number, offset: number) {
-    const { items, total } = await this.assets.list(limit, offset);
+  async list(limit: number, offset: number, search?: string) {
+    const { items, total } = await this.assets.list(limit, offset, search);
     return { items: items.map(toPublic), total };
   }
 
@@ -132,6 +134,15 @@ export class MediaService {
   }
 
   async delete(id: string): Promise<void> {
+    await this.require(id);
+    // An image a lesson still uses is never deleted: that would break the draft or the published lesson.
+    const usage = await this.usage.usageOf(id);
+    if (usage.draftLessons > 0 || usage.publishedLessons > 0) {
+      throw new BusinessRuleError(
+        'This image is used by one or more lessons. Remove it from those lessons (and unpublish them if it is published) before deleting it.',
+        { code: 'MEDIA_IN_USE', ...usage },
+      );
+    }
     const removed = await this.assets.delete(id);
     if (!removed) throw new NotFoundError('Media not found');
     try {

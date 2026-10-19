@@ -11,6 +11,7 @@ import {
 import { MediaService } from './application/media.service.js';
 import { MediaAssetEntity } from './persistence/media-asset.entity.js';
 import { MediaAssetRepository } from './persistence/media-asset.repository.js';
+import { MediaUsageRepository } from './persistence/media-usage.repository.js';
 import { LocalMediaStorage } from './storage/local-media-storage.js';
 import { MEDIA_STORAGE } from './storage/media-storage.js';
 
@@ -38,6 +39,7 @@ import { MEDIA_STORAGE } from './storage/media-storage.js';
   controllers: [MediaController],
   providers: [
     MediaAssetRepository,
+    MediaUsageRepository,
     MediaService,
     MediaFacade,
     {

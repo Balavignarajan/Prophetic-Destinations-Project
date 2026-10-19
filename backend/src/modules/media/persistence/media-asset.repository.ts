@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { ILike, Repository } from 'typeorm';
 import type { StoredMediaAsset } from '../domain/models.js';
 import { MediaAssetEntity } from './media-asset.entity.js';
 
@@ -36,8 +36,20 @@ export class MediaAssetRepository {
   async list(
     limit: number,
     offset: number,
+    search?: string,
   ): Promise<{ items: StoredMediaAsset[]; total: number }> {
+    const term = search?.trim();
     const [rows, total] = await this.assets.findAndCount({
+      // `%`, `_` and `\` in what was typed are literal characters, not wildcards.
+      ...(term
+        ? {
+            where: {
+              originalFilename: ILike(
+                `%${term.replace(/[\\%_]/g, (c) => `\\${c}`)}%`,
+              ),
+            },
+          }
+        : {}),
       order: { createdAt: 'DESC', id: 'ASC' },
       take: limit,
       skip: offset,

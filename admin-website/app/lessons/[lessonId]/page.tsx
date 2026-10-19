@@ -18,6 +18,9 @@ import { editorTextToRichText, isEditable, richTextToEditorText } from '../../..
 import { WORKFLOW_ENDPOINT, lessonTransitionBody, type WorkflowAction } from '../../../lib/workflow';
 import RichTextEditor from '../../../components/RichTextEditor';
 import RichTextView, { hasRichTextContent } from '../../../components/RichTextView';
+import ImageBlockDialog from '../../../components/ImageBlockDialog';
+import MediaImage from '../../../components/MediaImage';
+import { friendlyMediaError, readImageContent } from '../../../lib/image-block';
 import { supportsLevelVariants } from '../../../lib/block-capabilities';
 import { hasLegacyMarkers, legacyMarkdownToRichText } from '../../../lib/legacy-markdown';
 import { validateScriptureReference, CANONICAL_BOOKS, ParseResult } from '../../../lib/scripture';
@@ -89,6 +92,11 @@ export default function LessonAuthoringPage() {
   const [variantLocked, setVariantLocked] = useState(false);
   const [savingVariant, setSavingVariant] = useState(false);
   const [variantError, setVariantError] = useState<string | null>(null);
+
+  // Image blocks: add or edit without leaving the lesson
+  const [imageDialog, setImageDialog] = useState<{ mode: 'create' } | { mode: 'edit'; block: LessonBlock } | null>(null);
+  const [savingImage, setSavingImage] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
 
   // Delete Block
   const [deleteBlockId, setDeleteBlockId] = useState<string | null>(null);
@@ -347,6 +355,42 @@ export default function LessonAuthoringPage() {
       setUpdateBlockError(e.payload?.message || e.message || 'Failed to save block content.');
     } finally {
       setUpdatingBlock(false);
+    }
+  };
+
+  const openImageDialog = (next: { mode: 'create' } | { mode: 'edit'; block: LessonBlock }) => {
+    setImageError(null);
+    setImageDialog(next);
+  };
+
+  const handleSaveImage = async (content: Record<string, string>, levels: LearningLevel[]) => {
+    if (!imageDialog) return;
+    setSavingImage(true);
+    setImageError(null);
+    try {
+      if (imageDialog.mode === 'create') {
+        await api.request(`/admin/lessons/${lessonId}/blocks`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'IMAGE',
+            sharedContent: content,
+            levels: levels.length > 0 ? levels : lesson?.levels,
+          }),
+        });
+      } else {
+        await api.request(`/admin/lessons/${lessonId}/blocks/${imageDialog.block.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sharedContent: content, version: imageDialog.block.version }),
+        });
+      }
+      setImageDialog(null);
+      fetchLessonData();
+    } catch (err: unknown) {
+      setImageError(friendlyMediaError(err, 'Could not save the image.'));
+    } finally {
+      setSavingImage(false);
     }
   };
 
@@ -732,6 +776,7 @@ export default function LessonAuthoringPage() {
             ))}
           </div>
 
+          <div className="flex flex-wrap gap-2">
           {canWrite && (
             <button
               onClick={() => {
@@ -746,6 +791,15 @@ export default function LessonAuthoringPage() {
               Add Rich Text Block
             </button>
           )}
+          {canWrite && (
+            <button
+              onClick={() => openImageDialog({ mode: 'create' })}
+              className="px-3.5 py-2 text-xs font-semibold bg-white hover:bg-slate-50 text-slate-900 border border-slate-400 rounded-lg flex items-center gap-1.5 shadow-xs"
+            >
+              Add Image
+            </button>
+          )}
+          </div>
         </div>
 
         {/* Blocks Listing */}
@@ -833,7 +887,9 @@ export default function LessonAuthoringPage() {
 
                   {/* Block Content Display */}
                   <div className="py-4 text-sm text-slate-800 leading-relaxed font-serif">
-                    {hasRichTextContent(displayContent) ? (
+                    {block.type === 'IMAGE' ? (
+                      <ImageBlockView content={block.sharedContent} />
+                    ) : hasRichTextContent(displayContent) ? (
                       <RichTextView content={displayContent} />
                     ) : (
                       <span className="text-slate-400 italic font-sans text-xs">
@@ -868,12 +924,16 @@ export default function LessonAuthoringPage() {
                         </button>
                         <button
                           onClick={() => {
+                            if (block.type === 'IMAGE') {
+                              openImageDialog({ mode: 'edit', block });
+                              return;
+                            }
                             setEditingBlock(block);
                             setEditingContentText(richTextDocToText(block.sharedContent));
                           }}
                           className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
                         >
-                          Edit Shared
+                          {block.type === 'IMAGE' ? 'Edit Image' : 'Edit Shared'}
                         </button>
                         <button
                           onClick={() => handleDuplicateBlock(block.id)}
@@ -1330,6 +1390,17 @@ export default function LessonAuthoringPage() {
         </form>
       </Modal>
 
+      <ImageBlockDialog
+        isOpen={imageDialog !== null}
+        mode={imageDialog?.mode ?? 'create'}
+        lessonLevels={lesson.levels}
+        initial={imageDialog?.mode === 'edit' ? readImageContent(imageDialog.block.sharedContent) : null}
+        saving={savingImage}
+        error={imageError}
+        onClose={() => setImageDialog(null)}
+        onSave={(content, levels) => void handleSaveImage(content, levels)}
+      />
+
       {/* Delete Block Confirmation */}
       <ConfirmDialog
         isOpen={Boolean(deleteBlockId)}
@@ -1374,7 +1445,11 @@ export default function LessonAuthoringPage() {
               {previewData.blocks.map((blk) => {
                 return (
                   <div key={blk.blockId} className="p-4 bg-slate-50 rounded-lg border border-slate-200/80">
-                    <RichTextView content={blk.content} className="font-serif text-sm leading-relaxed text-slate-800" />
+                    {blk.type === 'IMAGE' ? (
+                      <ImageBlockView content={blk.content} />
+                    ) : (
+                      <RichTextView content={blk.content} className="font-serif text-sm leading-relaxed text-slate-800" />
+                    )}
                     <div className="mt-2 text-[10px] text-slate-400 font-mono">
                       Block #{blk.ordinal} · Source: {blk.source || 'default'}
                     </div>
@@ -1542,5 +1617,21 @@ export default function LessonAuthoringPage() {
         </div>
       </Modal>
     </div>
+  );
+}
+
+/** An image block as the author sees it in the lesson: the picture, its caption and source, and a note when it has no description yet. */
+function ImageBlockView({ content }: { content: unknown }) {
+  const image = readImageContent(content);
+  if (!image.mediaId) {
+    return <span className="text-slate-600 italic font-sans text-xs">(No image chosen yet)</span>;
+  }
+  return (
+    <figure className="font-sans">
+      <MediaImage mediaId={image.mediaId} alt={image.altText} className="max-h-72 w-full rounded-lg border border-slate-200" fit="contain" />
+      {image.caption && <figcaption className="mt-2 text-sm text-slate-800">{image.caption}</figcaption>}
+      {image.source && <p className="text-xs text-slate-600">Source: {image.source}</p>}
+      {!image.altText && <p className="mt-1 text-xs font-medium text-amber-800">No description yet: add alternative text before publishing.</p>}
+    </figure>
   );
 }

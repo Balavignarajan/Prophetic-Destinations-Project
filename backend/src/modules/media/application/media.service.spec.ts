@@ -1,3 +1,4 @@
+import type { MediaUsageRepository } from '../persistence/media-usage.repository.js';
 import { Readable } from 'node:stream';
 import {
   BusinessRuleError,
@@ -79,6 +80,9 @@ function setup(overrides: { maxBytes?: number; allowed?: string[] } = {}) {
   const assets = new FakeAssets();
   const service = new MediaService(
     assets as unknown as MediaAssetRepository,
+    {
+      usageOf: () => Promise.resolve({ draftLessons: 0, publishedLessons: 0 }),
+    } as unknown as MediaUsageRepository,
     storage,
     buildMediaSettings({
       mediaMaxBytes: overrides.maxBytes ?? 1024,

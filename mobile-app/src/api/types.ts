@@ -69,7 +69,7 @@ export interface NavigationResponse {
 /** GET /lessons/:lessonId?level= — the envelope; `snapshot` is the immutable published payload of that level. */
 export interface LessonSnapshotBlock {
   blockId: string;
-  /** Only `RICH_TEXT` is enabled by the backend today. */
+  /** `RICH_TEXT` and `IMAGE` are enabled by the backend today. */
   type: string;
   ordinal: number;
   source: 'VARIANT' | 'SHARED';

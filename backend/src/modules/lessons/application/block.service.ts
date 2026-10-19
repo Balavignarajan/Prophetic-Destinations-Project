@@ -16,7 +16,11 @@ import {
   MAX_BLOCKS_PER_LESSON,
   checkBlockContent,
 } from '../domain/blocks/block-content.js';
-import { BlockTypeRegistry } from '../domain/blocks/registry.js';
+import {
+  BlockTypeRegistry,
+  type BlockTypeDefinition,
+} from '../domain/blocks/registry.js';
+import { MediaFacade } from '../../media/index.js';
 import { jsonContentEquals } from '../domain/json-equality.js';
 import { checkLevels } from '../domain/lesson-rules.js';
 import type { BlockView, Lesson, LessonBlock } from '../domain/models.js';
@@ -61,6 +65,7 @@ export class BlockService {
     private readonly levels: LessonBlockLevelRepository,
     private readonly registry: BlockTypeRegistry,
     private readonly transactions: TransactionRunner,
+    private readonly media: MediaFacade,
   ) {}
 
   async list(lessonId: string): Promise<BlockView[]> {
@@ -82,6 +87,7 @@ export class BlockService {
   async create(lessonId: string, input: CreateBlockInput): Promise<BlockView> {
     const definition = this.registry.require(input.type);
     const sharedContent = checkBlockContent(definition, input.sharedContent);
+    await this.checkReferences(definition, sharedContent);
     const levels = checkLevels(input.levels ?? []);
 
     return this.transactions.run(async (manager) => {
@@ -127,6 +133,7 @@ export class BlockService {
 
       const definition = this.registry.require(current.type);
       const sharedContent = checkBlockContent(definition, input.sharedContent);
+      await this.checkReferences(definition, sharedContent);
 
       // Identical content: nothing changes, so nothing is written (no block version bump, no status reset).
       if (jsonContentEquals(current.sharedContent, sharedContent)) {
@@ -239,6 +246,30 @@ export class BlockService {
         levels: rows.get(block.id) ?? [],
       }));
     });
+  }
+
+  /** Every media asset the content points at must exist (a deleted or made-up id is refused with a clear reason). */
+  private async checkReferences(
+    definition: BlockTypeDefinition,
+    content: BlockContent | null,
+  ): Promise<void> {
+    if (content === null) return;
+    for (const reference of definition.extractReferences(content)) {
+      if (reference.kind !== 'MEDIA') continue;
+      const asset = await this.media.find(reference.targetId);
+      if (!asset) {
+        throw new BusinessRuleError(
+          'The selected image no longer exists. Choose another image.',
+          { code: 'MEDIA_NOT_FOUND', mediaId: reference.targetId },
+        );
+      }
+      if (!asset.contentType.startsWith('image/')) {
+        throw new BusinessRuleError('The selected file is not an image', {
+          code: 'MEDIA_NOT_AN_IMAGE',
+          mediaId: reference.targetId,
+        });
+      }
+    }
   }
 
   private async lockLesson(

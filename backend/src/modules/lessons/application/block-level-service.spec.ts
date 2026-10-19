@@ -1,3 +1,4 @@
+import type { MediaFacade } from '../../media/index.js';
 import { randomUUID } from 'node:crypto';
 import {
   BusinessRuleError,
@@ -42,6 +43,7 @@ function build(registry: BlockTypeRegistry = new VariantRegistry()) {
     ...asRepos,
     registry,
     inlineTransactions,
+    { find: () => Promise.resolve(null) } as unknown as MediaFacade,
   );
   const service = new BlockLevelService(
     ...asRepos,

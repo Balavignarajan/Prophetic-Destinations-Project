@@ -27,15 +27,16 @@ import { OfflineBanner } from '@/features/offline/offline-banner';
 import { isRecoverable, useRetryOnReconnect } from '@/features/offline/use-retry-on-reconnect';
 import { LEVEL_LABELS, firstParam } from '@/learning/levels';
 import { useRouteLevel } from '@/learning/use-route-level';
+import { LessonImage } from '@/learning/lesson-image';
 import { RichTextContent } from '@/learning/rich-text';
 import { useTheme } from '@/theme';
 
-/** The block types this version of the app can show. The backend enables only RICH_TEXT today. */
-const SUPPORTED_BLOCKS = new Set(['RICH_TEXT']);
+/** The block types this version of the app can show. The backend enables RICH_TEXT and IMAGE today. */
+const SUPPORTED_BLOCKS = new Set(['RICH_TEXT', 'IMAGE']);
 
 /**
  * The lesson reader: the published snapshot of a lesson at one level, shown in its published order.
- * Nothing is added to the content: no invented text, no Bible text. Block types other than RICH_TEXT are not shown,
+ * Nothing is added to the content: no invented text, no Bible text. Block types other than RICH_TEXT and IMAGE are not shown,
  * and the reader says so rather than hiding it.
  */
 export function LessonScreen() {
@@ -168,7 +169,7 @@ export function LessonScreen() {
 
         {lesson.status === 'success' && lesson.data.source === 'cache' ? <OfflineBanner loaded={lesson.data} onRetry={reload} /> : null}
 
-        {lesson.status === 'success' ? <LessonBody lessonBlocks={lesson.data.value.snapshot.blocks} snapshotLesson={lesson.data.value.snapshot.lesson} level={level} /> : null}
+        {lesson.status === 'success' ? <LessonBody lessonId={lessonId} lessonBlocks={lesson.data.value.snapshot.blocks} snapshotLesson={lesson.data.value.snapshot.lesson} level={level} /> : null}
 
         {lesson.status === 'success' ? (
           <View style={{ gap: spacing.md }}>
@@ -206,10 +207,12 @@ export function LessonScreen() {
 }
 
 function LessonBody({
+  lessonId,
   lessonBlocks,
   snapshotLesson,
   level,
 }: {
+  lessonId: string;
   lessonBlocks: LessonSnapshotBlock[];
   snapshotLesson: { title: string; subtitle: string | null; introduction: string | null; estimatedMinutes: number | null };
   level: keyof typeof LEVEL_LABELS;
@@ -246,9 +249,13 @@ function LessonBody({
         </View>
       ) : null}
 
-      {shown.map((block) => (
-        <RichTextContent key={block.blockId} content={block.content} />
-      ))}
+      {shown.map((block) =>
+        block.type === 'IMAGE' ? (
+          <LessonImage key={block.blockId} lessonId={lessonId} level={level} content={block.content} />
+        ) : (
+          <RichTextContent key={block.blockId} content={block.content} />
+        ),
+      )}
 
       {shown.length === 0 && introduction.length === 0 ? (
         <EmptyState title="Nothing to read yet" message="This lesson has no readable content at this level." />
