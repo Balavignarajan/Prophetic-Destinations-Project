@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import { api } from '../../../lib/api';
 import { WORKFLOW_ENDPOINT, catalogTransitionBody, type WorkflowAction } from '../../../lib/workflow';
 import { useAuth } from '../../../lib/auth';
@@ -12,7 +12,6 @@ import { LoadingSpinner, StatusBadge, EmptyState, Modal, ConfirmDialog } from '.
 export default function CourseDetailPage() {
   const params = useParams();
   const courseId = params?.courseId as string;
-  const router = useRouter();
   const { user } = useAuth();
 
   const [course, setCourse] = useState<Course | null>(null);

@@ -16,6 +16,8 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const role = user?.role;
+
   const fetchDashboardData = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -40,7 +42,7 @@ export default function DashboardPage() {
       setMediaAssets(mediaRes.items);
 
       // Fetch accounts if ADMIN
-      if (user?.role === 'ADMIN') {
+      if (role === 'ADMIN') {
         const accountsRes = await api.request<{ items: AccountItem[]; total: number }>(
           '/admin/accounts?limit=1'
         );
@@ -52,7 +54,7 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [user?.role]);
+  }, [role]);
 
   useEffect(() => {
     fetchDashboardData();

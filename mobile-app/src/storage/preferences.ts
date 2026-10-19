@@ -10,6 +10,7 @@ import { type LearningLevel, isLearningLevel } from '@/learning/levels';
 const KEYS = {
   theme: 'pd.preferences.theme',
   level: 'pd.preferences.level',
+  welcomeSeen: 'pd.preferences.welcomeSeen',
 } as const;
 
 async function read(key: string): Promise<string | null> {
@@ -55,4 +56,17 @@ export async function readLearningLevel(): Promise<LearningLevel | null> {
 
 export function saveLearningLevel(level: LearningLevel): Promise<void> {
   return write(KEYS.level, level);
+}
+
+/**
+ * Whether the first-launch welcome screen has been passed. A learner who already chose a level before this flag existed counts
+ * as having passed it, so existing users are not sent back to the welcome screen.
+ */
+export async function readWelcomeSeen(): Promise<boolean> {
+  if ((await read(KEYS.welcomeSeen)) === '1') return true;
+  return (await readLearningLevel()) !== null;
+}
+
+export function saveWelcomeSeen(): Promise<void> {
+  return write(KEYS.welcomeSeen, '1');
 }

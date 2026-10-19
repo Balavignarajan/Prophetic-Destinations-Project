@@ -1,5 +1,5 @@
-import type { ReactNode } from 'react';
-import { ScrollView, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import type { ReactNode, Ref } from 'react';
+import { ScrollView, StyleSheet, View, type ScrollViewProps, type StyleProp, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useTheme } from '@/theme';
@@ -15,6 +15,9 @@ export type ScreenContainerProps = {
   /** No background of its own, so a picture rendered behind the screen (HeroBackdrop) shows through. */
   transparent?: boolean;
   style?: StyleProp<ViewStyle>;
+  /** For screens that remember or restore the scroll position (the lesson reader). Only used with `scroll`. */
+  scrollRef?: Ref<ScrollView>;
+  scrollEvents?: Pick<ScrollViewProps, 'onScroll' | 'onScrollEndDrag' | 'onMomentumScrollEnd' | 'onContentSizeChange' | 'scrollEventThrottle'>;
 };
 
 /**
@@ -28,6 +31,8 @@ export function ScreenContainer({
   scroll = false,
   transparent = false,
   style,
+  scrollRef,
+  scrollEvents,
 }: ScreenContainerProps) {
   const { colors, layout } = useTheme();
   const insets = useSafeAreaInsets();
@@ -48,6 +53,8 @@ export function ScreenContainer({
     return (
       <View style={[styles.fill, transparent ? null : { backgroundColor: colors.background }, frame]}>
         <ScrollView
+          ref={scrollRef}
+          {...scrollEvents}
           contentContainerStyle={[styles.scrollContent, column, style]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled">

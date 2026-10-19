@@ -15,3 +15,4 @@ export { SectionHeader } from './section-header';
 export { OptionRow } from './option-row';
 export { ScreenHeader } from './screen-header';
 export { SettingsIcon } from './settings-icon';
+export { LinkRow } from './link-row';

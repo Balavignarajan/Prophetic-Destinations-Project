@@ -14,6 +14,7 @@ import {
 } from '@/components/ui';
 import { useBookmarks } from '@/features/bookmarks/bookmarks-provider';
 import { useLearningProgress } from '@/features/learning/learning-provider';
+import { continueTarget } from '@/features/learning/progress-model';
 import { describeLoadError } from '@/features/offline/describe-offline';
 import { loadCourseList } from '@/features/offline/offline-api';
 import { OfflineBanner } from '@/features/offline/offline-banner';
@@ -34,12 +35,14 @@ export function LearnScreen() {
   const { items: saved } = useBookmarks();
   const [courses, reload] = useResource(ready ? `courses:${level}` : null, (signal) => loadCourseList(level, signal));
   useRetryOnReconnect(isRecoverable(courses), reload);
-  const last = progress.lastOpened;
+  // Only an unfinished lesson is offered for resuming (the specification: Continue Learning appears when unfinished progress exists).
+  const last = continueTarget(progress);
 
   return (
     <ScreenContainer scroll>
       <ScreenHeader
         title="Courses"
+        onBack={null}
         trailing={
           <View style={{ flexDirection: 'row' }}>
             <IconButton accessibilityLabel={`Saved items, ${saved.length}`} tone="ghost" onPress={() => router.push('/saved')}>
@@ -58,10 +61,10 @@ export function LearnScreen() {
           <Card
             variant="outlined"
             onPress={() => router.push({ pathname: '/lesson/[lessonId]', params: { lessonId: last.lessonId, level: last.level } })}
-            accessibilityLabel={`Continue where you left off: ${last.title}, ${LEVEL_LABELS[last.level]} level`}>
+            accessibilityLabel={`Continue learning: ${last.title}, ${LEVEL_LABELS[last.level]} level`}>
             <View style={{ gap: spacing.xs }}>
               <AppText variant="label" color="primaryHighlight">
-                Continue where you left off
+                Continue learning
               </AppText>
               <AppText variant="heading">{last.title}</AppText>
               <AppText variant="caption" color="textMuted">

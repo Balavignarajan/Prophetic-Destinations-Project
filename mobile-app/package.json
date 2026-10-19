@@ -46,7 +46,8 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "check:theme": "tsx scripts/check-theme.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test \"src/**/*.test.ts\""
   },
   "private": true
 }

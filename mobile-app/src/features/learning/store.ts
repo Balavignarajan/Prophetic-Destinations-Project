@@ -1,15 +1,18 @@
 import type { LearningLevel } from '@/learning/levels';
-import { isLearningLevel } from '@/learning/levels';
-import { isRecord, readJson, removeKey, writeJson } from '@/storage/json-store';
+import { readJson, removeKey, writeJson } from '@/storage/json-store';
+
+import { type LessonPosition, lessonKey, parseProgress } from './progress-model';
 
 /**
  * Device-local progress through PUBLISHED backend lessons. (The built-in Daniel 2 lesson keeps its own scene progress in
  * src/features/daniel-2/progress.ts; nothing here replaces it.)
  *
- * Key `pd.learning.progress.v1`: { version: 1, lastOpened, completed }.
- *  - lastOpened: the lesson most recently opened, for "Continue where you left off".
+ * Key `pd.learning.progress.v1`: { version: 1, lastOpened, completed, positions }.
+ *  - lastOpened: the lesson most recently opened.
  *  - completed:  lessons the learner explicitly marked complete. Opening a lesson never completes it.
- * There is no scroll position: a lesson is one short scrolling page, so "last opened" is the useful resume point.
+ *  - positions:  where the learner was in a lesson (scroll offset), saved at checkpoints so "Continue Learning" returns near it.
+ *    Added after the first release: a value saved without it still loads (positions start empty), so no progress is lost.
+ * The rules (what is "unfinished", what Continue opens) are pure functions in progress-model.ts.
  */
 export const LEARNING_PROGRESS_KEY = 'pd.learning.progress.v1';
 
@@ -22,38 +25,16 @@ export type LearningProgress = {
   lastOpened: LastOpened | null;
   /** Keyed by `completionKey(lessonId, level)`. */
   completed: Record<string, CompletedLesson>;
+  /** Keyed by `completionKey(lessonId, level)`. */
+  positions: Record<string, LessonPosition>;
 };
 
-export const emptyLearningProgress: LearningProgress = { version: 1, lastOpened: null, completed: {} };
+export const emptyLearningProgress: LearningProgress = { version: 1, lastOpened: null, completed: {}, positions: {} };
 
-export const completionKey = (lessonId: string, level: LearningLevel) => `${lessonId}:${level}`;
-
-function parse(raw: unknown): LearningProgress | null {
-  if (!isRecord(raw) || raw.version !== 1) return null;
-  let lastOpened: LastOpened | null = null;
-  const lo = raw.lastOpened;
-  if (isRecord(lo) && typeof lo.lessonId === 'string' && isLearningLevel(lo.level) && typeof lo.title === 'string' && typeof lo.openedAt === 'number') {
-    lastOpened = {
-      lessonId: lo.lessonId,
-      level: lo.level,
-      courseId: typeof lo.courseId === 'string' ? lo.courseId : null,
-      title: lo.title,
-      openedAt: lo.openedAt,
-    };
-  }
-  const completed: Record<string, CompletedLesson> = {};
-  if (isRecord(raw.completed)) {
-    for (const [key, value] of Object.entries(raw.completed)) {
-      if (isRecord(value) && typeof value.title === 'string' && typeof value.completedAt === 'number') {
-        completed[key] = { title: value.title, completedAt: value.completedAt };
-      }
-    }
-  }
-  return { version: 1, lastOpened, completed };
-}
+export const completionKey = lessonKey;
 
 export async function loadLearningProgress(): Promise<LearningProgress> {
-  return (await readJson(LEARNING_PROGRESS_KEY, parse)) ?? emptyLearningProgress;
+  return (await readJson(LEARNING_PROGRESS_KEY, parseProgress)) ?? emptyLearningProgress;
 }
 
 export const saveLearningProgress = (progress: LearningProgress) => writeJson(LEARNING_PROGRESS_KEY, progress);

@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import { api } from '../../../lib/api';
 import { useAuth } from '../../../lib/auth';
 import {
@@ -18,13 +18,13 @@ import { editorTextToRichText, isEditable, richTextToEditorText } from '../../..
 import { WORKFLOW_ENDPOINT, lessonTransitionBody, type WorkflowAction } from '../../../lib/workflow';
 import RichTextEditor from '../../../components/RichTextEditor';
 import RichTextView, { hasRichTextContent } from '../../../components/RichTextView';
+import { supportsLevelVariants } from '../../../lib/block-capabilities';
 import { hasLegacyMarkers, legacyMarkdownToRichText } from '../../../lib/legacy-markdown';
 import { validateScriptureReference, CANONICAL_BOOKS, ParseResult } from '../../../lib/scripture';
 
 export default function LessonAuthoringPage() {
   const params = useParams();
   const lessonId = params?.lessonId as string;
-  const router = useRouter();
   const { user } = useAuth();
 
   const [lesson, setLesson] = useState<LessonSummary | null>(null);
@@ -40,15 +40,13 @@ export default function LessonAuthoringPage() {
 
   // Preview data
   const [previewData, setPreviewData] = useState<{
-    lessonId: string;
     level: LearningLevel;
-    contentRevision: number;
     blocks: {
-      id: string;
+      blockId: string;
       type: string;
-      position: number;
-      source: string | null;
-      content: { body?: { content?: { type: string; text?: string; content?: unknown[] }[] } } | null;
+      ordinal: number;
+      source: 'VARIANT' | 'SHARED' | null;
+      content: Record<string, unknown> | null;
     }[];
   } | null>(null);
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
@@ -419,7 +417,7 @@ export default function LessonAuthoringPage() {
     if (!existingVariant) {
       setVariantMode('hidden');
       setVariantText(richTextDocToText(block.sharedContent));
-    } else if (existingVariant.content) {
+    } else if (existingVariant.content && supportsLevelVariants(block.type)) {
       setVariantMode('variant');
       setVariantText(richTextDocToText(existingVariant.content));
     } else {
@@ -482,15 +480,13 @@ export default function LessonAuthoringPage() {
 
     try {
       const res = await api.request<{
-        lessonId: string;
         level: LearningLevel;
-        contentRevision: number;
         blocks: {
-          id: string;
+          blockId: string;
           type: string;
-          position: number;
-          source: string | null;
-          content: { body?: { content?: { type: string; text?: string; content?: unknown[] }[] } } | null;
+          ordinal: number;
+          source: 'VARIANT' | 'SHARED' | null;
+          content: Record<string, unknown> | null;
         }[];
       }>(`/admin/lessons/${lessonId}/preview?level=${level}`);
       setPreviewData(res);
@@ -1217,7 +1213,7 @@ export default function LessonAuthoringPage() {
         isOpen={Boolean(variantModalBlock)}
         onClose={() => setVariantModalBlock(null)}
         title={`Configure ${variantLevel} Level for Block`}
-        description="Choose whether this block uses shared content or a custom variant tailored for this learning level."
+        description="Choose how this block appears for this learning level."
         maxWidth="lg"
       >
         <form onSubmit={handleSaveVariant} className="space-y-4">
@@ -1244,23 +1240,25 @@ export default function LessonAuthoringPage() {
               </div>
             </label>
 
-            <label className="flex items-start gap-2.5 p-3 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50 transition-colors">
-              <input
-                type="radio"
-                name="variantMode"
-                checked={variantMode === 'variant'}
-                onChange={() => setVariantMode('variant')}
-                className="mt-0.5 text-amber-600 focus:ring-amber-500"
-              />
-              <div>
-                <span className="text-xs font-semibold text-slate-800 block">
-                  Provide Dedicated {variantLevel} Variant
-                </span>
-                <span className="text-[11px] text-slate-500">
-                  Provide specialized content specifically rewritten or adapted for {variantLevel} learners.
-                </span>
-              </div>
-            </label>
+            {variantModalBlock && supportsLevelVariants(variantModalBlock.type) && (
+              <label className="flex items-start gap-2.5 p-3 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50 transition-colors">
+                <input
+                  type="radio"
+                  name="variantMode"
+                  checked={variantMode === 'variant'}
+                  onChange={() => setVariantMode('variant')}
+                  className="mt-0.5 text-amber-600 focus:ring-amber-500"
+                />
+                <div>
+                  <span className="text-xs font-semibold text-slate-800 block">
+                    Provide Dedicated {variantLevel} Variant
+                  </span>
+                  <span className="text-[11px] text-slate-500">
+                    Provide specialized content specifically rewritten or adapted for {variantLevel} learners.
+                  </span>
+                </div>
+              </label>
+            )}
 
             <label className="flex items-start gap-2.5 p-3 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50 transition-colors">
               <input
@@ -1280,6 +1278,16 @@ export default function LessonAuthoringPage() {
               </div>
             </label>
           </div>
+
+          {variantModalBlock && !supportsLevelVariants(variantModalBlock.type) && (
+            <p className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-lg p-2.5">
+              Level-specific content is not available for {variantModalBlock.type.replace(/_/g, ' ').toLowerCase()} blocks yet
+              (pending a product decision), so a block shows the same shared text at every level it is visible at. You can still choose
+              here whether it is visible at {variantLevel}.
+              {variantModalBlock.levels.some((l) => l.level === variantLevel && l.content) &&
+                ' This level currently has a custom variant; choosing "Use Shared Content" replaces it with the shared text.'}
+            </p>
+          )}
 
           {variantMode === 'variant' && (
             <div>
@@ -1312,7 +1320,7 @@ export default function LessonAuthoringPage() {
             </button>
             <button
               type="submit"
-              disabled={savingVariant || (variantMode === 'variant' && variantLocked)}
+              disabled={savingVariant || (variantMode === 'variant' && (variantLocked || !supportsLevelVariants(variantModalBlock?.type ?? '')))}
               className="px-4 py-2 text-sm font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-lg flex items-center gap-2 disabled:opacity-50"
             >
               {savingVariant && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
@@ -1352,7 +1360,7 @@ export default function LessonAuthoringPage() {
           <div className="space-y-6 max-h-[60vh] overflow-y-auto px-2">
             <div className="border-b border-slate-200 pb-4">
               <span className="text-xs font-semibold text-amber-700 tracking-wider uppercase">
-                {selectedLevel} Level · Working Revision {previewData.contentRevision}
+                {selectedLevel} Level{workflowState?.contentRevision ? ` · Working Revision ${workflowState.contentRevision}` : ''}
               </span>
               <h2 className="font-serif text-2xl font-bold text-slate-900 mt-1">
                 {lesson.title}
@@ -1365,10 +1373,10 @@ export default function LessonAuthoringPage() {
             <div className="space-y-4">
               {previewData.blocks.map((blk) => {
                 return (
-                  <div key={blk.id} className="p-4 bg-slate-50 rounded-lg border border-slate-200/80">
+                  <div key={blk.blockId} className="p-4 bg-slate-50 rounded-lg border border-slate-200/80">
                     <RichTextView content={blk.content} className="font-serif text-sm leading-relaxed text-slate-800" />
                     <div className="mt-2 text-[10px] text-slate-400 font-mono">
-                      Block #{blk.position} · Source: {blk.source || 'default'}
+                      Block #{blk.ordinal} · Source: {blk.source || 'default'}
                     </div>
                   </div>
                 );
