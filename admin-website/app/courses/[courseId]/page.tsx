@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { api } from '../../../lib/api';
@@ -8,6 +8,7 @@ import { WORKFLOW_ENDPOINT, catalogTransitionBody, type WorkflowAction } from '.
 import { useAuth } from '../../../lib/auth';
 import { Course, ModuleItem, WorkflowState, WorkflowEvent } from '../../../lib/types';
 import { LoadingSpinner, StatusBadge, EmptyState, Modal, ConfirmDialog } from '../../../components/ui';
+import { friendlyError } from '../../../lib/ui-messages';
 
 export default function CourseDetailPage() {
   const params = useParams();
@@ -20,6 +21,8 @@ export default function CourseDetailPage() {
   const [workflowEvents, setWorkflowEvents] = useState<WorkflowEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const hasLoadedRef = useRef(false);
 
   // Edit course metadata
   const [editCourseModalOpen, setEditCourseModalOpen] = useState(false);
@@ -48,7 +51,7 @@ export default function CourseDetailPage() {
 
   const fetchCourseData = useCallback(async () => {
     if (!courseId) return;
-    setLoading(true);
+    setLoading(!hasLoadedRef.current);
     setError(null);
 
     try {
@@ -66,9 +69,9 @@ export default function CourseDetailPage() {
       setEditTitle(courseRes.title);
       setEditDescription(courseRes.description || '');
     } catch (err: unknown) {
-      const e = err as { message?: string };
-      setError(e.message || 'Failed to load course details.');
+      setError(friendlyError(err, 'Failed to load course details.'));
     } finally {
+      hasLoadedRef.current = true;
       setLoading(false);
     }
   }, [courseId]);
@@ -98,6 +101,10 @@ export default function CourseDetailPage() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [createModuleModalOpen, newModuleTitle, editCourseModalOpen, course, editTitle, editDescription]);
 
+  const confirmDiscard = (hasChanges: boolean, close: () => void) => {
+    if (!hasChanges || window.confirm('Discard your unsaved changes?')) close();
+  };
+
   const handleUpdateCourse = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!course) return;
@@ -117,10 +124,10 @@ export default function CourseDetailPage() {
 
       setCourse(updated);
       setEditCourseModalOpen(false);
+      setSuccessMessage('Course details saved.');
       fetchCourseData();
     } catch (err: unknown) {
-      const e = err as { payload?: { message?: string }; message?: string };
-      setUpdateError(e.payload?.message || e.message || 'Failed to update course.');
+      setUpdateError(friendlyError(err, 'Failed to update course.'));
     } finally {
       setUpdatingCourse(false);
     }
@@ -144,10 +151,10 @@ export default function CourseDetailPage() {
       setCreateModuleModalOpen(false);
       setNewModuleTitle('');
       setNewModuleDescription('');
+      setSuccessMessage('Module created.');
       fetchCourseData();
     } catch (err: unknown) {
-      const e = err as { payload?: { message?: string }; message?: string };
-      setCreateModuleError(e.payload?.message || e.message || 'Failed to create module.');
+      setCreateModuleError(friendlyError(err, 'Failed to create module.'));
     } finally {
       setCreatingModule(false);
     }
@@ -163,14 +170,10 @@ export default function CourseDetailPage() {
         method: 'DELETE',
       });
       setDeleteModuleId(null);
+      setSuccessMessage('Module deleted.');
       fetchCourseData();
     } catch (err: unknown) {
-      const e = err as { payload?: { message?: string }; message?: string };
-      setDeleteModuleError(
-        e.payload?.message ||
-          e.message ||
-          'Failed to delete module. Modules with lessons or publication history cannot be deleted.'
-      );
+      setDeleteModuleError(friendlyError(err, 'Failed to delete module. Modules with lessons or publication history cannot be deleted.'));
     } finally {
       setDeletingModule(false);
     }
@@ -197,10 +200,10 @@ export default function CourseDetailPage() {
         }
       );
       setModules(res.items);
+      setSuccessMessage('Module order saved.');
       fetchCourseData();
     } catch (err: unknown) {
-      const e = err as { payload?: { message?: string }; message?: string };
-      setError(e.payload?.message || e.message || 'Failed to update module order.');
+      setError(friendlyError(err, 'Failed to update module order.'));
     }
   };
 
@@ -223,10 +226,10 @@ export default function CourseDetailPage() {
 
       setTransitionAction(null);
       setTransitionNote('');
+      setSuccessMessage('Course status updated.');
       fetchCourseData();
     } catch (err: unknown) {
-      const e = err as { payload?: { message?: string }; message?: string };
-      setTransitionError(e.payload?.message || e.message || 'Workflow transition failed.');
+      setTransitionError(friendlyError(err, 'This status change could not be completed.'));
     } finally {
       setTransitioning(false);
     }
@@ -239,10 +242,9 @@ export default function CourseDetailPage() {
   if (!course) {
     return (
       <div className="p-8 text-center">
-        <h3 className="text-lg font-bold text-slate-800">Course Not Found</h3>
-        <Link href="/courses" className="mt-4 inline-block text-sm text-amber-700 underline">
-          &larr; Back to Courses
-        </Link>
+        <h3 className="text-lg font-bold text-slate-800">{error ? 'Course could not be loaded' : 'Course Not Found'}</h3>
+        <p className="mt-2 text-sm text-slate-600">{error || 'This course may have been removed.'}</p>
+        {error ? <button onClick={() => fetchCourseData()} className="mt-4 px-3 py-1.5 text-sm font-semibold text-white bg-slate-900 rounded-lg">Retry</button> : <Link href="/courses" className="mt-4 inline-block text-sm text-amber-700 underline">&larr; Back to Courses</Link>}
       </div>
     );
   }
@@ -251,6 +253,13 @@ export default function CourseDetailPage() {
 
   return (
     <div className="space-y-8">
+      {successMessage && <div role="status" className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm flex justify-between gap-3"><span>{successMessage}</span><button onClick={() => setSuccessMessage(null)} aria-label="Dismiss success message">&times;</button></div>}
+      {error && (
+        <div role="alert" className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-sm flex items-center justify-between gap-3">
+          <span>{error}</span>
+          <button onClick={() => fetchCourseData()} className="px-3 py-1 text-xs font-semibold border border-rose-300 rounded-md hover:bg-rose-100">Retry</button>
+        </div>
+      )}
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
         <Link href="/courses" className="hover:text-slate-800">
@@ -515,9 +524,9 @@ export default function CourseDetailPage() {
       {/* Edit Course Modal */}
       <Modal
         isOpen={editCourseModalOpen}
-        onClose={() => setEditCourseModalOpen(false)}
+        onClose={() => confirmDiscard(editTitle !== course.title || editDescription !== (course.description || ''), () => setEditCourseModalOpen(false))}
         title="Edit Course Details"
-        description="Changes to course details will reset its lifecycle state to DRAFT."
+        description="Saving changes returns this course to Draft, so it must be reviewed again before publishing."
       >
         <form onSubmit={handleUpdateCourse} className="space-y-4">
           {updateError && (
@@ -554,7 +563,7 @@ export default function CourseDetailPage() {
           <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
             <button
               type="button"
-              onClick={() => setEditCourseModalOpen(false)}
+              onClick={() => confirmDiscard(editTitle !== course.title || editDescription !== (course.description || ''), () => setEditCourseModalOpen(false))}
               className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50"
             >
               Cancel
@@ -574,7 +583,7 @@ export default function CourseDetailPage() {
       {/* Create Module Modal */}
       <Modal
         isOpen={createModuleModalOpen}
-        onClose={() => setCreateModuleModalOpen(false)}
+        onClose={() => confirmDiscard(Boolean(newModuleTitle.trim() || newModuleDescription.trim()), () => setCreateModuleModalOpen(false))}
         title="Add Course Module"
         description="Add a curriculum module under this course."
       >
@@ -615,7 +624,7 @@ export default function CourseDetailPage() {
           <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
             <button
               type="button"
-              onClick={() => setCreateModuleModalOpen(false)}
+              onClick={() => confirmDiscard(Boolean(newModuleTitle.trim() || newModuleDescription.trim()), () => setCreateModuleModalOpen(false))}
               className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50"
             >
               Cancel

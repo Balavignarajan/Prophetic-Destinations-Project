@@ -1,17 +1,20 @@
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { api } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { Course } from '../../lib/types';
 import { LoadingSpinner, StatusBadge, EmptyState, Modal, ConfirmDialog } from '../../components/ui';
+import { friendlyError } from '../../lib/ui-messages';
 
 export default function CoursesPage() {
   const { user } = useAuth();
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const hasLoadedRef = useRef(false);
 
   // Search & filter
   const [search, setSearch] = useState('');
@@ -30,7 +33,7 @@ export default function CoursesPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const fetchCourses = useCallback(async () => {
-    setLoading(true);
+    setLoading(!hasLoadedRef.current);
     setError(null);
     try {
       const res = await api.request<{ items: Course[]; total: number }>(
@@ -38,9 +41,9 @@ export default function CoursesPage() {
       );
       setCourses(res.items);
     } catch (err: unknown) {
-      const e = err as { message?: string };
-      setError(e.message || 'Failed to load courses.');
+      setError(friendlyError(err, 'Failed to load courses.'));
     } finally {
+      hasLoadedRef.current = true;
       setLoading(false);
     }
   }, []);
@@ -67,10 +70,10 @@ export default function CoursesPage() {
       setCreateModalOpen(false);
       setNewTitle('');
       setNewDescription('');
+      setSuccessMessage('Course created.');
       fetchCourses();
     } catch (err: unknown) {
-      const e = err as { payload?: { message?: string }; message?: string };
-      setCreateError(e.payload?.message || e.message || 'Failed to create course.');
+      setCreateError(friendlyError(err, 'Failed to create course.'));
     } finally {
       setCreating(false);
     }
@@ -86,14 +89,10 @@ export default function CoursesPage() {
         method: 'DELETE',
       });
       setDeleteCourseId(null);
+      setSuccessMessage('Course deleted.');
       fetchCourses();
     } catch (err: unknown) {
-      const e = err as { payload?: { message?: string }; message?: string };
-      setDeleteError(
-        e.payload?.message ||
-          e.message ||
-          'Failed to delete course. Note: Courses with modules or publication history cannot be deleted.'
-      );
+      setDeleteError(friendlyError(err, 'Failed to delete course. Courses with modules or publication history cannot be deleted.'));
     } finally {
       setDeleting(false);
     }
@@ -111,6 +110,7 @@ export default function CoursesPage() {
 
   return (
     <div className="space-y-6">
+      {successMessage && <div role="status" className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm flex justify-between gap-3"><span>{successMessage}</span><button onClick={() => setSuccessMessage(null)} aria-label="Dismiss success message">&times;</button></div>}
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-200 pb-5">
         <div>
@@ -145,8 +145,9 @@ export default function CoursesPage() {
       )}
 
       {error && (
-        <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-sm">
-          {error}
+        <div role="alert" className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-sm flex items-center justify-between gap-3">
+          <span>{error}</span>
+          <button onClick={() => fetchCourses()} className="px-3 py-1 text-xs font-semibold border border-rose-300 rounded-md hover:bg-rose-100">Retry</button>
         </div>
       )}
 
@@ -186,7 +187,7 @@ export default function CoursesPage() {
       {/* Courses Table / List */}
       {loading ? (
         <LoadingSpinner text="Fetching course catalog..." />
-      ) : filteredCourses.length === 0 ? (
+      ) : error ? null : filteredCourses.length === 0 ? (
         <EmptyState
           title="No Courses Found"
           description={

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
@@ -15,6 +15,7 @@ import {
   LearningLevel,
 } from '@/lib/types';
 import { LoadingSpinner, StatusBadge, EmptyState, Modal, ConfirmDialog } from '@/components/ui';
+import { friendlyError } from '@/lib/ui-messages';
 
 export default function ModuleDetailPage() {
   const params = useParams();
@@ -29,6 +30,8 @@ export default function ModuleDetailPage() {
   const [workflowEvents, setWorkflowEvents] = useState<WorkflowEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const hasLoadedRef = useRef(false);
 
   // Edit module
   const [editModuleModalOpen, setEditModuleModalOpen] = useState(false);
@@ -65,7 +68,7 @@ export default function ModuleDetailPage() {
 
   const fetchModuleData = useCallback(async () => {
     if (!courseId || !moduleId) return;
-    setLoading(true);
+    setLoading(!hasLoadedRef.current);
     setError(null);
 
     try {
@@ -92,9 +95,9 @@ export default function ModuleDetailPage() {
       setEditTitle(modRes.title);
       setEditDescription(modRes.description || '');
     } catch (err: unknown) {
-      const e = err as { message?: string };
-      setError(e.message || 'Failed to load module details.');
+      setError(friendlyError(err, 'Failed to load module details.'));
     } finally {
+      hasLoadedRef.current = true;
       setLoading(false);
     }
   }, [courseId, moduleId]);
@@ -124,6 +127,10 @@ export default function ModuleDetailPage() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [createLessonModalOpen, newLessonTitle, editModuleModalOpen, moduleData, editTitle, editDescription]);
 
+  const confirmDiscard = (hasChanges: boolean, close: () => void) => {
+    if (!hasChanges || window.confirm('Discard your unsaved changes?')) close();
+  };
+
   const handleUpdateModule = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!moduleData) return;
@@ -146,10 +153,10 @@ export default function ModuleDetailPage() {
 
       setModuleData(updated);
       setEditModuleModalOpen(false);
+      setSuccessMessage('Module details saved.');
       fetchModuleData();
     } catch (err: unknown) {
-      const e = err as { payload?: { message?: string }; message?: string };
-      setUpdateError(e.payload?.message || e.message || 'Failed to update module.');
+      setUpdateError(friendlyError(err, 'Failed to update module.'));
     } finally {
       setUpdatingModule(false);
     }
@@ -189,10 +196,10 @@ export default function ModuleDetailPage() {
       setNewSubtitle('');
       setNewIntroduction('');
       setNewEstimatedMinutes('');
+      setSuccessMessage('Lesson created.');
       fetchModuleData();
     } catch (err: unknown) {
-      const e = err as { payload?: { message?: string }; message?: string };
-      setCreateLessonError(e.payload?.message || e.message || 'Failed to create lesson.');
+      setCreateLessonError(friendlyError(err, 'Failed to create lesson.'));
     } finally {
       setCreatingLesson(false);
     }
@@ -208,14 +215,10 @@ export default function ModuleDetailPage() {
         method: 'DELETE',
       });
       setDeleteLessonId(null);
+      setSuccessMessage('Lesson deleted.');
       fetchModuleData();
     } catch (err: unknown) {
-      const e = err as { payload?: { message?: string }; message?: string };
-      setDeleteLessonError(
-        e.payload?.message ||
-          e.message ||
-          'Failed to delete lesson. Lessons with publication history cannot be deleted.'
-      );
+      setDeleteLessonError(friendlyError(err, 'Failed to delete lesson. Lessons with publication history cannot be deleted.'));
     } finally {
       setDeletingLesson(false);
     }
@@ -242,10 +245,10 @@ export default function ModuleDetailPage() {
         }
       );
       setLessons(res.items);
+      setSuccessMessage('Lesson order saved.');
       fetchModuleData();
     } catch (err: unknown) {
-      const e = err as { payload?: { message?: string }; message?: string };
-      setError(e.payload?.message || e.message || 'Failed to update lesson order.');
+      setError(friendlyError(err, 'Failed to update lesson order.'));
     }
   };
 
@@ -271,10 +274,10 @@ export default function ModuleDetailPage() {
 
       setTransitionAction(null);
       setTransitionNote('');
+      setSuccessMessage('Module status updated.');
       fetchModuleData();
     } catch (err: unknown) {
-      const e = err as { payload?: { message?: string }; message?: string };
-      setTransitionError(e.payload?.message || e.message || 'Module workflow transition failed.');
+      setTransitionError(friendlyError(err, 'This status change could not be completed.'));
     } finally {
       setTransitioning(false);
     }
@@ -295,10 +298,9 @@ export default function ModuleDetailPage() {
   if (!moduleData) {
     return (
       <div className="p-8 text-center">
-        <h3 className="text-lg font-bold text-slate-800">Module Not Found</h3>
-        <Link href={`/courses/${courseId}`} className="mt-4 inline-block text-sm text-amber-700 underline">
-          &larr; Back to Course
-        </Link>
+        <h3 className="text-lg font-bold text-slate-800">{error ? 'Module could not be loaded' : 'Module Not Found'}</h3>
+        <p className="mt-2 text-sm text-slate-600">{error || 'This module may have been removed.'}</p>
+        {error ? <button onClick={() => fetchModuleData()} className="mt-4 px-3 py-1.5 text-sm font-semibold text-white bg-slate-900 rounded-lg">Retry</button> : <Link href={`/courses/${courseId}`} className="mt-4 inline-block text-sm text-amber-700 underline">&larr; Back to Course</Link>}
       </div>
     );
   }
@@ -307,6 +309,13 @@ export default function ModuleDetailPage() {
 
   return (
     <div className="space-y-8">
+      {successMessage && <div role="status" className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm flex justify-between gap-3"><span>{successMessage}</span><button onClick={() => setSuccessMessage(null)} aria-label="Dismiss success message">&times;</button></div>}
+      {error && (
+        <div role="alert" className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-sm flex items-center justify-between gap-3">
+          <span>{error}</span>
+          <button onClick={() => fetchModuleData()} className="px-3 py-1 text-xs font-semibold border border-rose-300 rounded-md hover:bg-rose-100">Retry</button>
+        </div>
+      )}
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
         <Link href="/courses" className="hover:text-slate-800">
@@ -549,9 +558,9 @@ export default function ModuleDetailPage() {
       {/* Edit Module Modal */}
       <Modal
         isOpen={editModuleModalOpen}
-        onClose={() => setEditModuleModalOpen(false)}
+        onClose={() => confirmDiscard(editTitle !== moduleData.title || editDescription !== (moduleData.description || ''), () => setEditModuleModalOpen(false))}
         title="Edit Module Details"
-        description="Editing details will reset this module to DRAFT status."
+        description="Saving changes returns this module to Draft, so it must be reviewed again before publishing."
       >
         <form onSubmit={handleUpdateModule} className="space-y-4">
           {updateError && (
@@ -588,7 +597,7 @@ export default function ModuleDetailPage() {
           <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
             <button
               type="button"
-              onClick={() => setEditModuleModalOpen(false)}
+              onClick={() => confirmDiscard(editTitle !== moduleData.title || editDescription !== (moduleData.description || ''), () => setEditModuleModalOpen(false))}
               className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50"
             >
               Cancel
@@ -608,7 +617,7 @@ export default function ModuleDetailPage() {
       {/* Create Lesson Modal */}
       <Modal
         isOpen={createLessonModalOpen}
-        onClose={() => setCreateLessonModalOpen(false)}
+        onClose={() => confirmDiscard(Boolean(newLessonTitle.trim() || newShortTitle.trim() || newSubtitle.trim() || newIntroduction.trim() || newEstimatedMinutes), () => setCreateLessonModalOpen(false))}
         title="Create New Lesson"
         description="Add a lesson with title and target learning levels."
       >
@@ -716,7 +725,7 @@ export default function ModuleDetailPage() {
           <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
             <button
               type="button"
-              onClick={() => setCreateLessonModalOpen(false)}
+              onClick={() => confirmDiscard(Boolean(newLessonTitle.trim() || newShortTitle.trim() || newSubtitle.trim() || newIntroduction.trim() || newEstimatedMinutes), () => setCreateLessonModalOpen(false))}
               className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50"
             >
               Cancel

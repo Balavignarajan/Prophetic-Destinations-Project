@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { api } from '../../../lib/api';
@@ -24,6 +24,7 @@ import { friendlyMediaError, readImageContent } from '../../../lib/image-block';
 import { supportsLevelVariants } from '../../../lib/block-capabilities';
 import { hasLegacyMarkers, legacyMarkdownToRichText } from '../../../lib/legacy-markdown';
 import { validateScriptureReference, CANONICAL_BOOKS, ParseResult } from '../../../lib/scripture';
+import { friendlyError, readableLevel, readinessMessage } from '../../../lib/ui-messages';
 
 export default function LessonAuthoringPage() {
   const params = useParams();
@@ -37,6 +38,8 @@ export default function LessonAuthoringPage() {
   const [readiness, setReadiness] = useState<ReadinessReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const hasLoadedRef = useRef(false);
 
   // Active level tab for authoring & preview
   const [selectedLevel, setSelectedLevel] = useState<LearningLevel>('BEGINNER');
@@ -54,6 +57,7 @@ export default function LessonAuthoringPage() {
   } | null>(null);
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const [loadingPreview, setLoadingPreview] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
   // Edit Lesson Metadata
   const [editLessonModalOpen, setEditLessonModalOpen] = useState(false);
@@ -101,6 +105,7 @@ export default function LessonAuthoringPage() {
   // Delete Block
   const [deleteBlockId, setDeleteBlockId] = useState<string | null>(null);
   const [deletingBlock, setDeletingBlock] = useState(false);
+  const [performingBlockAction, setPerformingBlockAction] = useState(false);
 
   // Scripture reference validator & helper
   const [scriptureModalOpen, setScriptureModalOpen] = useState(false);
@@ -116,7 +121,7 @@ export default function LessonAuthoringPage() {
 
   const fetchLessonData = useCallback(async () => {
     if (!lessonId) return;
-    setLoading(true);
+    setLoading(!hasLoadedRef.current);
     setError(null);
 
     try {
@@ -147,12 +152,12 @@ export default function LessonAuthoringPage() {
         setSelectedLevel(lessonRes.levels[0]);
       }
     } catch (err: unknown) {
-      const e = err as { message?: string };
-      setError(e.message || 'Failed to load lesson authoring workspace.');
+      setError(friendlyError(err, 'Failed to load lesson authoring workspace.'));
     } finally {
+      hasLoadedRef.current = true;
       setLoading(false);
     }
-  }, [lessonId, selectedLevel]);
+  }, [lessonId]);
 
   useEffect(() => {
     fetchLessonData();
@@ -200,6 +205,10 @@ export default function LessonAuthoringPage() {
   // Editor text <-> backend RICH_TEXT document. Lossless for bold, italic, links and lists (see lib/rich-text.ts).
   const textToRichTextDoc = (text: string) => editorTextToRichText(text);
   const richTextDocToText = (sharedContent: Record<string, unknown> | null): string => richTextToEditorText(sharedContent);
+
+  const confirmDiscard = (hasChanges: boolean, close: () => void) => {
+    if (!hasChanges || window.confirm('Discard your unsaved changes?')) close();
+  };
 
   const openScriptureModal = (target: 'create' | 'edit' | 'variant') => {
     setScriptureTarget(target);
@@ -258,10 +267,10 @@ export default function LessonAuthoringPage() {
 
       setLesson(updated);
       setEditLessonModalOpen(false);
+      setSuccessMessage('Lesson details saved.');
       fetchLessonData();
     } catch (err: unknown) {
-      const e = err as { payload?: { message?: string }; message?: string };
-      setUpdateMetaError(e.payload?.message || e.message || 'Failed to update lesson metadata.');
+      setUpdateMetaError(friendlyError(err, 'Failed to update lesson details.'));
     } finally {
       setUpdatingMetadata(false);
     }
@@ -288,10 +297,10 @@ export default function LessonAuthoringPage() {
 
       setLesson(updated);
       setEditLevelsModalOpen(false);
+      setSuccessMessage('Learning levels saved.');
       fetchLessonData();
     } catch (err: unknown) {
-      const e = err as { payload?: { message?: string }; message?: string };
-      setUpdateLevelsError(e.payload?.message || e.message || 'Failed to replace learning levels.');
+      setUpdateLevelsError(friendlyError(err, 'Failed to save learning levels.'));
     } finally {
       setUpdatingLevels(false);
     }
@@ -318,10 +327,10 @@ export default function LessonAuthoringPage() {
       setCreateBlockModalOpen(false);
       setNewBlockText('');
       setNewBlockLevels([]);
+      setSuccessMessage('Block added to the lesson.');
       fetchLessonData();
     } catch (err: unknown) {
-      const e = err as { payload?: { message?: string }; message?: string };
-      setCreateBlockError(e.payload?.message || e.message || 'Failed to create lesson block.');
+      setCreateBlockError(friendlyError(err, 'Failed to add the block.'));
     } finally {
       setCreatingBlock(false);
     }
@@ -349,10 +358,10 @@ export default function LessonAuthoringPage() {
       );
 
       setEditingBlock(null);
+      setSuccessMessage('Block content saved.');
       fetchLessonData();
     } catch (err: unknown) {
-      const e = err as { payload?: { message?: string }; message?: string };
-      setUpdateBlockError(e.payload?.message || e.message || 'Failed to save block content.');
+      setUpdateBlockError(friendlyError(err, 'Failed to save block content.'));
     } finally {
       setUpdatingBlock(false);
     }
@@ -386,6 +395,7 @@ export default function LessonAuthoringPage() {
         });
       }
       setImageDialog(null);
+      setSuccessMessage('Image block saved.');
       fetchLessonData();
     } catch (err: unknown) {
       setImageError(friendlyMediaError(err, 'Could not save the image.'));
@@ -395,14 +405,18 @@ export default function LessonAuthoringPage() {
   };
 
   const handleDuplicateBlock = async (blockId: string) => {
+    if (performingBlockAction) return;
+    setPerformingBlockAction(true);
     try {
       await api.request(`/admin/lessons/${lessonId}/blocks/${blockId}/duplicate`, {
         method: 'POST',
       });
+      setSuccessMessage('Block duplicated.');
       fetchLessonData();
     } catch (err: unknown) {
-      const e = err as { payload?: { message?: string }; message?: string };
-      setError(e.payload?.message || e.message || 'Failed to duplicate block.');
+      setError(friendlyError(err, 'Failed to duplicate block.'));
+    } finally {
+      setPerformingBlockAction(false);
     }
   };
 
@@ -415,16 +429,17 @@ export default function LessonAuthoringPage() {
         method: 'DELETE',
       });
       setDeleteBlockId(null);
+      setSuccessMessage('Block deleted.');
       fetchLessonData();
     } catch (err: unknown) {
-      const e = err as { payload?: { message?: string }; message?: string };
-      setError(e.payload?.message || e.message || 'Failed to delete block.');
+      setError(friendlyError(err, 'Failed to delete block.'));
     } finally {
       setDeletingBlock(false);
     }
   };
 
   const handleReorderBlocks = async (index: number, direction: 'up' | 'down') => {
+    if (performingBlockAction) return;
     const newBlocks = [...blocks];
     const targetIndex = direction === 'up' ? index - 1 : index + 1;
     if (targetIndex < 0 || targetIndex >= newBlocks.length) return;
@@ -433,6 +448,7 @@ export default function LessonAuthoringPage() {
     newBlocks[index] = newBlocks[targetIndex];
     newBlocks[targetIndex] = temp;
 
+    setPerformingBlockAction(true);
     try {
       const res = await api.request<{ items: LessonBlock[] }>(
         `/admin/lessons/${lessonId}/blocks/order`,
@@ -445,10 +461,12 @@ export default function LessonAuthoringPage() {
         }
       );
       setBlocks(res.items);
+      setSuccessMessage('Block order saved.');
       fetchLessonData();
     } catch (err: unknown) {
-      const e = err as { payload?: { message?: string }; message?: string };
-      setError(e.payload?.message || e.message || 'Failed to update block order.');
+      setError(friendlyError(err, 'Failed to update block order.'));
+    } finally {
+      setPerformingBlockAction(false);
     }
   };
 
@@ -509,10 +527,10 @@ export default function LessonAuthoringPage() {
       }
 
       setVariantModalBlock(null);
+      setSuccessMessage('Block visibility saved.');
       fetchLessonData();
     } catch (err: unknown) {
-      const e = err as { payload?: { message?: string }; message?: string };
-      setVariantError(e.payload?.message || e.message || 'Failed to update level variant.');
+      setVariantError(friendlyError(err, 'Failed to save block visibility.'));
     } finally {
       setSavingVariant(false);
     }
@@ -520,6 +538,7 @@ export default function LessonAuthoringPage() {
 
   const handlePreview = async (level: LearningLevel) => {
     setLoadingPreview(true);
+    setPreviewError(null);
     setPreviewModalOpen(true);
 
     try {
@@ -535,8 +554,7 @@ export default function LessonAuthoringPage() {
       }>(`/admin/lessons/${lessonId}/preview?level=${level}`);
       setPreviewData(res);
     } catch (err: unknown) {
-      const e = err as { payload?: { message?: string }; message?: string };
-      setError(e.payload?.message || e.message || 'Failed to load preview.');
+      setPreviewError(friendlyError(err, 'Failed to load the lesson preview.'));
     } finally {
       setLoadingPreview(false);
     }
@@ -561,10 +579,10 @@ export default function LessonAuthoringPage() {
 
       setTransitionAction(null);
       setTransitionNote('');
+      setSuccessMessage('Lesson status updated.');
       fetchLessonData();
     } catch (err: unknown) {
-      const e = err as { payload?: { message?: string }; message?: string };
-      setTransitionError(e.payload?.message || e.message || 'Workflow transition refused.');
+      setTransitionError(friendlyError(err, 'This status change could not be completed.'));
     } finally {
       setTransitioning(false);
     }
@@ -577,10 +595,9 @@ export default function LessonAuthoringPage() {
   if (!lesson) {
     return (
       <div className="p-8 text-center">
-        <h3 className="text-lg font-bold text-slate-800">Lesson Not Found</h3>
-        <Link href="/courses" className="mt-4 inline-block text-sm text-amber-700 underline">
-          &larr; Return to Curriculum
-        </Link>
+        <h3 className="text-lg font-bold text-slate-800">{error ? 'Lesson could not be loaded' : 'Lesson Not Found'}</h3>
+        <p className="mt-2 text-sm text-slate-600">{error || 'This lesson may have been removed.'}</p>
+        {error ? <button onClick={() => fetchLessonData()} className="mt-4 px-3 py-1.5 text-sm font-semibold text-white bg-slate-900 rounded-lg">Retry</button> : <Link href="/courses" className="mt-4 inline-block text-sm text-amber-700 underline">&larr; Return to Curriculum</Link>}
       </div>
     );
   }
@@ -589,6 +606,18 @@ export default function LessonAuthoringPage() {
 
   return (
     <div className="space-y-8">
+      {error && (
+        <div role="alert" className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-sm flex items-start justify-between gap-3">
+          <span>{error}</span>
+          <button onClick={() => fetchLessonData()} className="shrink-0 px-3 py-1 text-xs font-semibold rounded-md border border-rose-300 hover:bg-rose-100">Retry</button>
+        </div>
+      )}
+      {successMessage && (
+        <div role="status" className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm flex items-center justify-between gap-3">
+          <span>{successMessage}</span>
+          <button onClick={() => setSuccessMessage(null)} aria-label="Dismiss success message" className="text-emerald-700 hover:text-emerald-900">&times;</button>
+        </div>
+      )}
       {/* Breadcrumb Navigation */}
       <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
         <Link href="/courses" className="hover:text-slate-800">
@@ -660,7 +689,7 @@ export default function LessonAuthoringPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
               </svg>
-              Learner Preview ({selectedLevel})
+              Preview for {readableLevel(selectedLevel)}
             </button>
 
             {canWrite && (
@@ -668,7 +697,7 @@ export default function LessonAuthoringPage() {
                 onClick={() => setEditLessonModalOpen(true)}
                 className="px-3.5 py-2 text-xs font-medium bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-lg shadow-xs"
               >
-                Edit Metadata
+                Edit lesson details
               </button>
             )}
           </div>
@@ -679,17 +708,17 @@ export default function LessonAuthoringPage() {
           <div className="mt-5 pt-4 border-t border-slate-100">
             <div className="flex items-center justify-between text-xs">
               <div className="flex items-center gap-2">
-                <span className="font-semibold text-slate-700">Publish Readiness:</span>
+                <span className="font-semibold text-slate-700">Publishing checks:</span>
                 {readiness.ready ? (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold">
                     <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                     </svg>
-                    Ready for Publication
+                    Ready to publish
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 font-semibold">
-                    {readiness.issues.length} Blocking Issue{readiness.issues.length > 1 ? 's' : ''}
+                    {readiness.issues.length} thing{readiness.issues.length > 1 ? 's' : ''} to fix before publishing
                   </span>
                 )}
               </div>
@@ -701,8 +730,9 @@ export default function LessonAuthoringPage() {
                   <div key={idx} className="text-xs text-amber-900 flex items-start gap-2">
                     <span className="text-amber-600 font-bold">•</span>
                     <span>
-                      <strong className="font-semibold">[{issue.code}]</strong> {issue.message}
-                      {issue.level && <span className="ml-1 text-amber-700 font-mono">({issue.level})</span>}
+                      {readinessMessage(issue)}
+                      {issue.level && <span className="ml-1 text-amber-700">({readableLevel(issue.level)})</span>}
+                      <details className="inline ml-2 text-amber-700"><summary className="inline cursor-pointer underline">Technical details</summary><span className="ml-1">{issue.code}: {issue.message}</span></details>
                     </span>
                   </div>
                 ))}
@@ -759,7 +789,7 @@ export default function LessonAuthoringPage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-3">
           <div className="flex items-center gap-2">
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 mr-2">
-              Authoring Level:
+              View content for:
             </span>
             {lesson.levels.map((lvl) => (
               <button
@@ -771,10 +801,11 @@ export default function LessonAuthoringPage() {
                     : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
                 }`}
               >
-                {lvl}
+                {readableLevel(lvl)}
               </button>
             ))}
           </div>
+          <p className="text-xs text-slate-500">This changes your editing view. It does not change who can see each block.</p>
 
           <div className="flex flex-wrap gap-2">
           {canWrite && (
@@ -862,20 +893,22 @@ export default function LessonAuthoringPage() {
                     {canWrite && (
                       <div className="flex items-center gap-1">
                         <button
-                          disabled={index === 0}
                           onClick={() => handleReorderBlocks(index, 'up')}
                           className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-20"
+                          aria-label="Move block up"
                           title="Move block up"
+                          disabled={index === 0 || performingBlockAction}
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
                           </svg>
                         </button>
                         <button
-                          disabled={index === blocks.length - 1}
                           onClick={() => handleReorderBlocks(index, 'down')}
                           className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-20"
+                          aria-label="Move block down"
                           title="Move block down"
+                          disabled={index === blocks.length - 1 || performingBlockAction}
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -902,14 +935,14 @@ export default function LessonAuthoringPage() {
                   <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-100">
                     <div className="flex items-center gap-2">
                       <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                        Visible at:
+                        Who can see this block?
                       </span>
                       {block.levels.map((blvl) => (
                         <span
                           key={blvl.level}
                           className="px-2 py-0.5 text-[10px] font-semibold rounded bg-slate-100 text-slate-700"
                         >
-                          {blvl.level} {blvl.content ? '★' : ''}
+                          {readableLevel(blvl.level)} {blvl.content ? '★ Custom content' : ''}
                         </span>
                       ))}
                     </div>
@@ -920,7 +953,7 @@ export default function LessonAuthoringPage() {
                           onClick={() => openVariantEditor(block, selectedLevel)}
                           className="px-2.5 py-1 text-xs font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-lg transition-colors"
                         >
-                          Configure {selectedLevel} Level
+                          Set visibility for {readableLevel(selectedLevel)}
                         </button>
                         <button
                           onClick={() => {
@@ -937,14 +970,16 @@ export default function LessonAuthoringPage() {
                         </button>
                         <button
                           onClick={() => handleDuplicateBlock(block.id)}
+                          disabled={performingBlockAction}
                           className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
                           title="Duplicate block"
                         >
-                          Copy
+                          {performingBlockAction ? 'Working…' : 'Duplicate block'}
                         </button>
                         <button
                           onClick={() => setDeleteBlockId(block.id)}
                           className="p-1 text-rose-500 hover:text-rose-700 rounded-lg"
+                          aria-label="Delete block"
                           title="Delete block"
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -964,9 +999,9 @@ export default function LessonAuthoringPage() {
       {/* Edit Lesson Metadata Modal */}
       <Modal
         isOpen={editLessonModalOpen}
-        onClose={() => setEditLessonModalOpen(false)}
-        title="Edit Lesson Metadata"
-        description="Updates lesson title and descriptive properties."
+        onClose={() => confirmDiscard(editTitle !== lesson.title || editShortTitle !== (lesson.shortTitle || '') || editSubtitle !== (lesson.subtitle || '') || editIntroduction !== (lesson.introduction || '') || editEstimatedMinutes !== (lesson.estimatedMinutes ? String(lesson.estimatedMinutes) : ''), () => setEditLessonModalOpen(false))}
+        title="Edit lesson details"
+        description={lesson.status === 'DRAFT' ? 'Updates lesson title and descriptive properties.' : 'Saving changes will return this lesson to Draft for review before it can be published again.'}
       >
         <form onSubmit={handleUpdateMetadata} className="space-y-4">
           {updateMetaError && (
@@ -1043,7 +1078,7 @@ export default function LessonAuthoringPage() {
           <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
             <button
               type="button"
-              onClick={() => setEditLessonModalOpen(false)}
+              onClick={() => confirmDiscard(editTitle !== lesson.title || editShortTitle !== (lesson.shortTitle || '') || editSubtitle !== (lesson.subtitle || '') || editIntroduction !== (lesson.introduction || '') || editEstimatedMinutes !== (lesson.estimatedMinutes ? String(lesson.estimatedMinutes) : ''), () => setEditLessonModalOpen(false))}
               className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50"
             >
               Cancel
@@ -1054,7 +1089,7 @@ export default function LessonAuthoringPage() {
               className="px-4 py-2 text-sm font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-lg flex items-center gap-2 disabled:opacity-50"
             >
               {updatingMetadata && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
-              Save Metadata
+              Save lesson details
             </button>
           </div>
         </form>
@@ -1065,7 +1100,7 @@ export default function LessonAuthoringPage() {
         isOpen={editLevelsModalOpen}
         onClose={() => setEditLevelsModalOpen(false)}
         title="Adjust Lesson Learning Levels"
-        description="Select the full set of learning levels at which this lesson is available."
+        description={lesson.status === 'DRAFT' ? 'Select the full set of learning levels at which this lesson is available.' : 'Saving changes will return this lesson to Draft for review before it can be published again.'}
       >
         <form onSubmit={handleUpdateLevels} className="space-y-4">
           {updateLevelsError && (
@@ -1417,18 +1452,23 @@ export default function LessonAuthoringPage() {
       <Modal
         isOpen={previewModalOpen}
         onClose={() => setPreviewModalOpen(false)}
-        title={`Learner Preview: ${selectedLevel} Level`}
-        description="Rendered exactly as a learner at this level would view the assembled lesson."
+        title={`Learner preview: ${readableLevel(selectedLevel)}`}
+        description="This preview shows the current working content, including unpublished changes."
         maxWidth="2xl"
       >
         {loadingPreview ? (
           <LoadingSpinner text="Assembling lesson preview..." />
+        ) : previewError ? (
+          <div role="alert" className="p-6 text-center text-rose-800 bg-rose-50 border border-rose-200 rounded-lg space-y-3">
+            <p>{previewError}</p>
+            <button onClick={() => handlePreview(selectedLevel)} className="px-3 py-1.5 text-xs font-semibold rounded-md bg-white border border-rose-300 hover:bg-rose-100">Retry preview</button>
+          </div>
         ) : !previewData || previewData.blocks.length === 0 ? (
           <div className="p-8 text-center text-slate-500 text-sm">
             No visible content blocks for {selectedLevel} level.
           </div>
         ) : (
-          <div className="space-y-6 max-h-[60vh] overflow-y-auto px-2">
+          <div className="mx-auto w-full max-w-sm space-y-6 max-h-[60vh] overflow-y-auto rounded-[2rem] border-8 border-slate-800 bg-white p-5 shadow-xl">
             <div className="border-b border-slate-200 pb-4">
               <span className="text-xs font-semibold text-amber-700 tracking-wider uppercase">
                 {selectedLevel} Level{workflowState?.contentRevision ? ` · Working Revision ${workflowState.contentRevision}` : ''}
