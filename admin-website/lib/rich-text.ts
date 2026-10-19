@@ -36,6 +36,21 @@ export interface RichTextContent {
 }
 
 const NEWLINE = String.fromCharCode(10);
+const MAX_HREF_LENGTH = 2048;
+
+/** Mirrors the backend's link rule: an absolute http, https or mailto URL with no whitespace or control characters. */
+export function isSafeLinkHref(href: unknown): href is string {
+  if (typeof href !== 'string' || href.length === 0 || href.length > MAX_HREF_LENGTH) return false;
+  for (let i = 0; i < href.length; i += 1) {
+    const code = href.charCodeAt(i);
+    if (code <= 32 || (code >= 127 && code <= 160)) return false;
+  }
+  try {
+    return ['http:', 'https:', 'mailto:'].includes(new URL(href).protocol);
+  } catch {
+    return false;
+  }
+}
 const MARK_ORDER = ['link', 'bold', 'italic'];
 const LIST_LINE = /^( *)(-|\d+\.) (.*)$/;
 const LIST_START_IN_TEXT = /^( *)(- |\d+\. )/;
@@ -254,7 +269,8 @@ function tokenise(src: string): Token[] {
     }
     if (ch === '[') {
       const link = readLink(src, i);
-      if (link) {
+      // A link whose target the backend would refuse (or that is unsafe) stays literal text instead of becoming a link mark.
+      if (link && isSafeLinkHref(link.url)) {
         flush();
         tokens.push({ kind: 'link', label: link.label, url: link.url });
         i = link.end;

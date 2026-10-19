@@ -17,6 +17,8 @@ import { LoadingSpinner, StatusBadge, EmptyState, Modal, ConfirmDialog } from '.
 import { editorTextToRichText, isEditable, richTextToEditorText } from '../../../lib/rich-text';
 import { WORKFLOW_ENDPOINT, lessonTransitionBody, type WorkflowAction } from '../../../lib/workflow';
 import RichTextEditor from '../../../components/RichTextEditor';
+import RichTextView, { hasRichTextContent } from '../../../components/RichTextView';
+import { hasLegacyMarkers, legacyMarkdownToRichText } from '../../../lib/legacy-markdown';
 import { validateScriptureReference, CANONICAL_BOOKS, ParseResult } from '../../../lib/scripture';
 
 export default function LessonAuthoringPage() {
@@ -775,9 +777,7 @@ export default function LessonAuthoringPage() {
               const levelSetting = block.levels.find((l) => l.level === selectedLevel);
               const isVisibleAtSelected = Boolean(levelSetting);
               const hasCustomVariant = Boolean(levelSetting?.content);
-              const displayText = hasCustomVariant
-                ? richTextDocToText(levelSetting?.content || null)
-                : richTextDocToText(block.sharedContent);
+              const displayContent = hasCustomVariant ? levelSetting?.content || null : block.sharedContent;
 
               return (
                 <div
@@ -836,8 +836,10 @@ export default function LessonAuthoringPage() {
                   </div>
 
                   {/* Block Content Display */}
-                  <div className="py-4 text-sm text-slate-800 leading-relaxed font-serif whitespace-pre-line">
-                    {displayText || (
+                  <div className="py-4 text-sm text-slate-800 leading-relaxed font-serif">
+                    {hasRichTextContent(displayContent) ? (
+                      <RichTextView content={displayContent} />
+                    ) : (
                       <span className="text-slate-400 italic font-sans text-xs">
                         (Empty block content)
                       </span>
@@ -1172,6 +1174,21 @@ export default function LessonAuthoringPage() {
                 Insert Scripture Ref
               </button>
             </div>
+            {editingBlock && hasLegacyMarkers(editingBlock.sharedContent) && (
+              <div className="mb-2 p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-center justify-between gap-3">
+                <span>This block contains Markdown-style markers (such as **bold** or - lists) stored as plain text. Convert them to real formatting? Review, then Save.</span>
+                <button
+                  type="button"
+                  className="shrink-0 px-2.5 py-1 font-semibold border border-amber-300 rounded bg-white hover:bg-amber-100"
+                  onClick={() => {
+                    const converted = legacyMarkdownToRichText(editingBlock.sharedContent);
+                    if (converted) setEditingContentText(richTextDocToText(converted as unknown as Record<string, unknown>));
+                  }}
+                >
+                  Convert
+                </button>
+              </div>
+            )}
             <RichTextEditor rows={8} value={editingContentText} onChange={setEditingContentText} locked={editingBlock ? !isEditable(editingBlock.sharedContent) : false} />
           </div>
 
@@ -1347,12 +1364,9 @@ export default function LessonAuthoringPage() {
 
             <div className="space-y-4">
               {previewData.blocks.map((blk) => {
-                const text = richTextDocToText(blk.content);
                 return (
                   <div key={blk.id} className="p-4 bg-slate-50 rounded-lg border border-slate-200/80">
-                    <p className="font-serif text-sm leading-relaxed text-slate-800 whitespace-pre-line">
-                      {text}
-                    </p>
+                    <RichTextView content={blk.content} className="font-serif text-sm leading-relaxed text-slate-800" />
                     <div className="mt-2 text-[10px] text-slate-400 font-mono">
                       Block #{blk.position} · Source: {blk.source || 'default'}
                     </div>

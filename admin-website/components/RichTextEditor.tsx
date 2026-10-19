@@ -2,6 +2,8 @@
 
 import React, { useRef } from 'react';
 
+import { linkSelection, toggleList, wrapSelection, type EditResult } from '../lib/editor-format';
+
 type Props = {
   value: string;
   onChange: (value: string) => void;
@@ -17,26 +19,27 @@ const BTN = 'px-2 py-1 text-xs font-semibold border border-slate-300 rounded bg-
 export default function RichTextEditor({ value, onChange, rows = 6, placeholder, locked = false }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
 
-  const apply = (transform: (selected: string) => string) => {
+  const apply = (edit: (value: string, start: number, end: number) => EditResult) => {
     const el = ref.current;
     if (!el) return;
-    const start = el.selectionStart;
-    const end = el.selectionEnd;
-    onChange(value.slice(0, start) + transform(value.slice(start, end)) + value.slice(end));
+    const result = edit(value, el.selectionStart, el.selectionEnd);
+    onChange(result.value);
+    // Restore the selection once React has written the new value.
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(result.selectionStart, result.selectionEnd);
+    });
   };
-  const wrap = (mark: string) => apply((s) => `${mark}${s || 'text'}${mark}`);
-  const prefixLines = (make: (i: number) => string) =>
-    apply((s) => (s || 'item').split('\n').map((line, i) => make(i) + line).join('\n'));
 
   return (
     <div>
       {!locked && (
         <div className="flex flex-wrap gap-1.5 mb-1.5">
-          <button type="button" className={BTN} onClick={() => wrap('**')} aria-label="Bold">B</button>
-          <button type="button" className={`${BTN} italic`} onClick={() => wrap('*')} aria-label="Italic">I</button>
-          <button type="button" className={BTN} onClick={() => apply((s) => `[${s || 'link text'}](https://)`)}>Link</button>
-          <button type="button" className={BTN} onClick={() => prefixLines(() => '- ')}>Bullet list</button>
-          <button type="button" className={BTN} onClick={() => prefixLines((i) => `${i + 1}. `)}>Numbered list</button>
+          <button type="button" className={BTN} onClick={() => apply((v, a, b) => wrapSelection(v, a, b, '**'))} aria-label="Bold">B</button>
+          <button type="button" className={`${BTN} italic`} onClick={() => apply((v, a, b) => wrapSelection(v, a, b, '*'))} aria-label="Italic">I</button>
+          <button type="button" className={BTN} onClick={() => apply(linkSelection)}>Link</button>
+          <button type="button" className={BTN} onClick={() => apply((v, a, b) => toggleList(v, a, b, 'bullet'))}>Bullet list</button>
+          <button type="button" className={BTN} onClick={() => apply((v, a, b) => toggleList(v, a, b, 'numbered'))}>Numbered list</button>
         </div>
       )}
       {locked && (
