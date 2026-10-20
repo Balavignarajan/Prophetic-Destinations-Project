@@ -1,0 +1,210 @@
+'use client';
+
+import React, { useState } from 'react';
+import { api } from '../lib/api';
+import type { QuizQuestion } from '../lib/types';
+import { friendlyError } from '../lib/ui-messages';
+import QuestionLevelsField from './QuestionLevelsField';
+
+/**
+ * The ONE quiz creation form: used by the Quizzes section ("Create Draft Quiz") and by the lesson editor (Add content, Quiz, Create new quiz), so both create
+ * quizzes through the same fields, the same checks and the same API (POST /admin/quizzes). A new quiz is always a DRAFT; publishing stays in the Quizzes
+ * section under its existing rules. Nothing here attaches a quiz to a lesson: the owner does that with the quiz it is handed after a successful save.
+ */
+export interface CreatedQuiz {
+  id: string;
+  title: string;
+  description: string | null;
+  version: number;
+  questionCount: number;
+}
+
+interface Props {
+  /** Called once, after the server created the quiz. */
+  onCreated: (quiz: CreatedQuiz) => void;
+  onCancel: () => void;
+  submitLabel: string;
+  /** Kept up to date with whether the form holds unsaved input, so the owner can ask before closing. */
+  dirtyRef: React.MutableRefObject<boolean>;
+  /** Makes element ids unique when the form is used in more than one place. */
+  idPrefix: string;
+}
+
+const LABEL = 'block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5';
+const FIELD = 'w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500 disabled:opacity-60';
+
+const blankQuestion = (n: number): QuizQuestion => ({
+  id: `q${n}`,
+  type: 'SINGLE_CHOICE',
+  prompt: '',
+  explanation: '',
+  options: [
+    { id: 'o1', text: '', correct: true },
+    { id: 'o2', text: '', correct: false },
+  ],
+});
+
+export default function QuizCreateForm({ onCreated, onCancel, submitLabel, dirtyRef, idPrefix }: Props) {
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [questions, setQuestions] = useState<QuizQuestion[]>([blankQuestion(1)]);
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  dirtyRef.current = Boolean(
+    title.trim() ||
+      description.trim() ||
+      questions.some((q) => q.prompt.trim() || (q.explanation ?? '').trim() || q.levels !== undefined || q.options.some((o) => o.text.trim())),
+  );
+
+  const setQuestion = (index: number, change: (q: QuizQuestion) => QuizQuestion) => setQuestions((list) => list.map((q, i) => (i === index ? change(q) : q)));
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (creating) return;
+    setError(null);
+    for (const q of questions) {
+      if (!q.prompt.trim()) return setError('Every question must have a prompt.');
+      if (q.levels && q.levels.length === 0) return setError('Every question needs at least one level.');
+      if (q.options.length < 2 || q.options.length > 6) return setError('Each question must have between 2 and 6 options.');
+      if (q.options.filter((o) => o.correct).length !== 1) return setError('Each question must have exactly one correct option.');
+      if (q.options.some((o) => !o.text.trim())) return setError('Option text cannot be empty.');
+    }
+    setCreating(true);
+    try {
+      const created = await api.request<{ id: string; title: string; description: string | null; version: number; questions: unknown[] }>('/admin/quizzes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: title.trim(),
+          description: description.trim() || null,
+          questions: questions.map((q) => ({
+            levels: q.levels ?? null,
+            prompt: q.prompt.trim(),
+            explanation: q.explanation?.trim() || null,
+            options: q.options.map((o) => ({ text: o.text.trim(), correct: o.correct })),
+          })),
+        }),
+      });
+      dirtyRef.current = false;
+      onCreated({ id: created.id, title: created.title, description: created.description, version: created.version, questionCount: created.questions.length });
+    } catch (err: unknown) {
+      // everything typed stays; nothing was created
+      setError(friendlyError(err, 'Failed to create the quiz.'));
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  return (
+    <form onSubmit={submit} className="space-y-5">
+      {error && (
+        <div role="alert" className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs">
+          {error} What you typed here is unchanged.
+        </div>
+      )}
+
+      <div>
+        <label htmlFor={`${idPrefix}-title`} className={LABEL}>Quiz title *</label>
+        <input id={`${idPrefix}-title`} type="text" required value={title} disabled={creating} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Minor Prophets Comprehension Check" className={FIELD} />
+      </div>
+
+      <div>
+        <label htmlFor={`${idPrefix}-description`} className={LABEL}>Description (optional)</label>
+        <input id={`${idPrefix}-description`} type="text" value={description} disabled={creating} onChange={(e) => setDescription(e.target.value)} placeholder="Brief assessment description..." className={FIELD} />
+      </div>
+
+      <div className="space-y-4 pt-2">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold uppercase tracking-wider text-slate-700">Questions builder</span>
+          <button type="button" disabled={creating} onClick={() => setQuestions((list) => [...list, blankQuestion(list.length + 1)])} className="text-xs font-semibold text-amber-700 hover:text-amber-800 disabled:opacity-50">
+            + Add Question
+          </button>
+        </div>
+
+        {questions.map((q, qIndex) => (
+          <div key={qIndex} className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-700 font-mono">Question #{qIndex + 1}</span>
+              {questions.length > 1 && (
+                <button type="button" disabled={creating} onClick={() => setQuestions((list) => list.filter((_, i) => i !== qIndex))} className="text-xs text-rose-600 hover:underline" aria-label={`Remove question ${qIndex + 1}`}>
+                  Remove
+                </button>
+              )}
+            </div>
+
+            <label htmlFor={`${idPrefix}-q${qIndex}-prompt`} className="sr-only">Question {qIndex + 1} prompt</label>
+            <input id={`${idPrefix}-q${qIndex}-prompt`} type="text" required placeholder="Question prompt..." value={q.prompt} disabled={creating} onChange={(e) => setQuestion(qIndex, (x) => ({ ...x, prompt: e.target.value }))} className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm disabled:opacity-60" />
+
+            <label htmlFor={`${idPrefix}-q${qIndex}-expl`} className="sr-only">Question {qIndex + 1} explanation (optional)</label>
+            <input id={`${idPrefix}-q${qIndex}-expl`} type="text" placeholder="Optional answer explanation..." value={q.explanation || ''} disabled={creating} onChange={(e) => setQuestion(qIndex, (x) => ({ ...x, explanation: e.target.value }))} className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs disabled:opacity-60" />
+
+            <QuestionLevelsField idPrefix={`${idPrefix}-q${qIndex}`} questionLabel={`Question ${qIndex + 1}`} value={q.levels} onChange={(levels) => setQuestion(qIndex, (x) => ({ ...x, levels }))} disabled={creating} />
+
+            <div className="space-y-2 pt-1">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-semibold text-slate-500 uppercase">Options (select the single correct option)</span>
+                {q.options.length < 6 && (
+                  <button type="button" disabled={creating} onClick={() => setQuestion(qIndex, (x) => ({ ...x, options: [...x.options, { id: `o${x.options.length + 1}`, text: '', correct: false }] }))} className="text-[11px] font-semibold text-amber-700 hover:underline">
+                    + Add Option
+                  </button>
+                )}
+              </div>
+              {q.options.map((opt, oIndex) => (
+                <div key={oIndex} className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name={`${idPrefix}-correct-${qIndex}`}
+                    aria-label={`Option ${oIndex + 1} of question ${qIndex + 1} is the correct answer`}
+                    checked={opt.correct}
+                    disabled={creating}
+                    onChange={() => setQuestion(qIndex, (x) => ({ ...x, options: x.options.map((o, i) => ({ ...o, correct: i === oIndex })) }))}
+                    className="w-4 h-4 text-emerald-600"
+                  />
+                  <input
+                    type="text"
+                    required
+                    aria-label={`Option ${oIndex + 1} text, question ${qIndex + 1}`}
+                    placeholder={`Option ${oIndex + 1}`}
+                    value={opt.text}
+                    disabled={creating}
+                    onChange={(e) => setQuestion(qIndex, (x) => ({ ...x, options: x.options.map((o, i) => (i === oIndex ? { ...o, text: e.target.value } : o)) }))}
+                    className="flex-1 px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs disabled:opacity-60"
+                  />
+                  {q.options.length > 2 && (
+                    <button
+                      type="button"
+                      disabled={creating}
+                      aria-label={`Remove option ${oIndex + 1} of question ${qIndex + 1}`}
+                      onClick={() =>
+                        setQuestion(qIndex, (x) => {
+                          const options = x.options.filter((_, i) => i !== oIndex);
+                          // removing the correct option leaves the first one correct, as before
+                          if (opt.correct && options.length > 0) options[0] = { ...options[0], correct: true };
+                          return { ...x, options };
+                        })
+                      }
+                      className="text-slate-400 hover:text-rose-600 text-xs px-1"
+                    >
+                      &times;
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
+        <button type="button" onClick={onCancel} disabled={creating} className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50">
+          Cancel
+        </button>
+        <button type="submit" disabled={creating} aria-busy={creating} className="px-4 py-2 text-sm font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-lg flex items-center gap-2 disabled:opacity-50">
+          {creating && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" aria-hidden="true" />}
+          {submitLabel}
+        </button>
+      </div>
+    </form>
+  );
+}

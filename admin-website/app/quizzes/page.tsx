@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { api } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { QuizSummary, AdminQuiz, QuizQuestion } from '../../lib/types';
 import { LoadingSpinner, StatusBadge, EmptyState, Modal, ConfirmDialog } from '../../components/ui';
 import QuestionLevelsField, { levelsText, questionLevelSet } from '../../components/QuestionLevelsField';
+import QuizCreateForm from '../../components/QuizCreateForm';
 
 export default function QuizzesPage() {
   const { user } = useAuth();
@@ -23,22 +24,12 @@ export default function QuizzesPage() {
 
   // Create quiz modal
   const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [newTitle, setNewTitle] = useState('');
-  const [newDescription, setNewDescription] = useState('');
-  const [newQuestions, setNewQuestions] = useState<QuizQuestion[]>([
-    {
-      id: 'q1',
-      type: 'SINGLE_CHOICE',
-      prompt: '',
-      explanation: '',
-      options: [
-        { id: 'o1', text: '', correct: true },
-        { id: 'o2', text: '', correct: false },
-      ],
-    },
-  ]);
-  const [creating, setCreating] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
+  const createDirtyRef = useRef(false);
+  const closeCreate = () => {
+    if (createDirtyRef.current && !window.confirm('Discard your unsaved changes?')) return;
+    createDirtyRef.current = false;
+    setCreateModalOpen(false);
+  };
 
   // Edit quiz modal
   const [editModalOpen, setEditModalOpen] = useState(false);
@@ -82,7 +73,7 @@ export default function QuizzesPage() {
   // Unsaved changes protection
   useEffect(() => {
     const isDirty = Boolean(
-      (createModalOpen && (newTitle.trim() || newQuestions.some((q) => q.prompt.trim()))) ||
+      (createModalOpen && createDirtyRef.current) ||
       (editModalOpen && (editTitle.trim() || editQuestions.some((q) => q.prompt.trim())))
     );
 
@@ -95,7 +86,7 @@ export default function QuizzesPage() {
 
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [createModalOpen, newTitle, newQuestions, editModalOpen, editTitle, editQuestions]);
+  }, [createModalOpen, editModalOpen, editTitle, editQuestions]);
 
   const fetchQuizDetails = async (quizId: string) => {
     setLoadingQuizDetails(true);
@@ -121,70 +112,6 @@ export default function QuizzesPage() {
     );
     setUpdateError(null);
     setEditModalOpen(true);
-  };
-
-  const handleCreateQuiz = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setCreateError(null);
-
-    // Validation
-    for (const q of newQuestions) {
-      if (!q.prompt.trim()) {
-        setCreateError('Every question must have a prompt.');
-        return;
-      }
-      if (q.levels && q.levels.length === 0) {
-        setCreateError('Every question needs at least one level.');
-        return;
-      }
-      if (q.options.length < 2 || q.options.length > 6) {
-        setCreateError('Each question must have between 2 and 6 options.');
-        return;
-      }
-      const correctCount = q.options.filter((o) => o.correct).length;
-      if (correctCount !== 1) {
-        setCreateError('Each question must have exactly one correct option.');
-        return;
-      }
-      for (const o of q.options) {
-        if (!o.text.trim()) {
-          setCreateError('Option text cannot be empty.');
-          return;
-        }
-      }
-    }
-
-    setCreating(true);
-
-    try {
-      await api.request('/admin/quizzes', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: newTitle.trim(),
-          description: newDescription.trim() || null,
-          questions: newQuestions.map((q) => ({
-            levels: q.levels ?? null,
-            prompt: q.prompt.trim(),
-            explanation: q.explanation?.trim() || null,
-            options: q.options.map((o) => ({
-              text: o.text.trim(),
-              correct: o.correct,
-            })),
-          })),
-        }),
-      });
-
-      setCreateModalOpen(false);
-      setNewTitle('');
-      setNewDescription('');
-      fetchQuizzes();
-    } catch (err: unknown) {
-      const e = err as { payload?: { message?: string }; message?: string };
-      setCreateError(e.payload?.message || e.message || 'Failed to create quiz draft.');
-    } finally {
-      setCreating(false);
-    }
   };
 
   const handleUpdateQuiz = async (e: React.FormEvent) => {
@@ -597,231 +524,27 @@ export default function QuizzesPage() {
         </div>
       </div>
 
-      {/* Create Quiz Modal */}
+      {/* Create Quiz Modal (the same form is used in the lesson editor's Add content, Quiz) */}
       <Modal
         isOpen={createModalOpen}
-        onClose={() => setCreateModalOpen(false)}
+        onClose={closeCreate}
         title="Create Draft Quiz"
         description="Add a quiz with 2–6 options per question and mark exactly one correct option."
         maxWidth="2xl"
       >
-        <form onSubmit={handleCreateQuiz} className="space-y-5">
-          {createError && (
-            <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs">
-              {createError}
-            </div>
-          )}
-
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5">
-              Quiz Title *
-            </label>
-            <input
-              type="text"
-              required
-              value={newTitle}
-              onChange={(e) => setNewTitle(e.target.value)}
-              placeholder="e.g. Minor Prophets Comprehension Check"
-              className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5">
-              Description (Optional)
-            </label>
-            <input
-              type="text"
-              value={newDescription}
-              onChange={(e) => setNewDescription(e.target.value)}
-              placeholder="Brief assessment description..."
-              className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500"
-            />
-          </div>
-
-          {/* Questions Editor */}
-          <div className="space-y-4 pt-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-700">
-                Questions Builder
-              </span>
-              <button
-                type="button"
-                onClick={() =>
-                  setNewQuestions([
-                    ...newQuestions,
-                    {
-                      id: `q${newQuestions.length + 1}`,
-                      type: 'SINGLE_CHOICE',
-                      prompt: '',
-                      explanation: '',
-                      options: [
-                        { id: 'o1', text: '', correct: true },
-                        { id: 'o2', text: '', correct: false },
-                      ],
-                    },
-                  ])
-                }
-                className="text-xs font-semibold text-amber-700 hover:text-amber-800"
-              >
-                + Add Question
-              </button>
-            </div>
-
-            {newQuestions.map((q, qIndex) => (
-              <div
-                key={qIndex}
-                className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-700 font-mono">
-                    Question #{qIndex + 1}
-                  </span>
-                  {newQuestions.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setNewQuestions(newQuestions.filter((_, i) => i !== qIndex))
-                      }
-                      className="text-xs text-rose-600 hover:underline"
-                    >
-                      Remove
-                    </button>
-                  )}
-                </div>
-
-                <input
-                  type="text"
-                  required
-                  placeholder="Question prompt..."
-                  value={q.prompt}
-                  onChange={(e) => {
-                    const updated = [...newQuestions];
-                    updated[qIndex].prompt = e.target.value;
-                    setNewQuestions(updated);
-                  }}
-                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm"
-                />
-
-                <input
-                  type="text"
-                  placeholder="Optional answer explanation..."
-                  value={q.explanation || ''}
-                  onChange={(e) => {
-                    const updated = [...newQuestions];
-                    updated[qIndex].explanation = e.target.value;
-                    setNewQuestions(updated);
-                  }}
-                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs"
-                />
-
-                <QuestionLevelsField
-                  idPrefix={`new-q${qIndex}`}
-                  questionLabel={`Question ${qIndex + 1}`}
-                  value={q.levels}
-                  onChange={(levels) => {
-                    const updated = [...newQuestions];
-                    updated[qIndex] = { ...updated[qIndex], levels };
-                    setNewQuestions(updated);
-                  }}
-                  disabled={creating}
-                />
-
-                {/* Options */}
-                <div className="space-y-2 pt-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-semibold text-slate-500 uppercase">
-                      Options (select the single correct option)
-                    </span>
-                    {q.options.length < 6 && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const updated = [...newQuestions];
-                          updated[qIndex].options.push({
-                            id: `o${updated[qIndex].options.length + 1}`,
-                            text: '',
-                            correct: false,
-                          });
-                          setNewQuestions(updated);
-                        }}
-                        className="text-[11px] font-semibold text-amber-700 hover:underline"
-                      >
-                        + Add Option
-                      </button>
-                    )}
-                  </div>
-
-                  {q.options.map((opt, oIndex) => (
-                    <div key={oIndex} className="flex items-center gap-2">
-                      <input
-                        type="radio"
-                        name={`correct-opt-${qIndex}`}
-                        checked={opt.correct}
-                        onChange={() => {
-                          const updated = [...newQuestions];
-                          updated[qIndex].options.forEach((o, i) => {
-                            o.correct = i === oIndex;
-                          });
-                          setNewQuestions(updated);
-                        }}
-                        className="w-4 h-4 text-emerald-600"
-                      />
-                      <input
-                        type="text"
-                        required
-                        placeholder={`Option ${oIndex + 1}`}
-                        value={opt.text}
-                        onChange={(e) => {
-                          const updated = [...newQuestions];
-                          updated[qIndex].options[oIndex].text = e.target.value;
-                          setNewQuestions(updated);
-                        }}
-                        className="flex-1 px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs"
-                      />
-                      {q.options.length > 2 && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const updated = [...newQuestions];
-                            updated[qIndex].options = updated[qIndex].options.filter(
-                              (_, i) => i !== oIndex
-                            );
-                            if (opt.correct && updated[qIndex].options.length > 0) {
-                              updated[qIndex].options[0].correct = true;
-                            }
-                            setNewQuestions(updated);
-                          }}
-                          className="text-slate-400 hover:text-rose-600 text-xs px-1"
-                        >
-                          &times;
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
-            <button
-              type="button"
-              onClick={() => setCreateModalOpen(false)}
-              className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={creating}
-              className="px-4 py-2 text-sm font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-lg flex items-center gap-2 disabled:opacity-50"
-            >
-              {creating && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
-              Save Draft Quiz
-            </button>
-          </div>
-        </form>
+        {createModalOpen && (
+          <QuizCreateForm
+            idPrefix="new-quiz"
+            submitLabel="Save Draft Quiz"
+            dirtyRef={createDirtyRef}
+            onCancel={closeCreate}
+            onCreated={() => {
+              createDirtyRef.current = false;
+              setCreateModalOpen(false);
+              fetchQuizzes();
+            }}
+          />
+        )}
       </Modal>
 
       {/* Edit Quiz Modal */}
