@@ -100,7 +100,7 @@ function Body({ mode, lessonId, lessonVersion, lessonLevels, initial, saving, er
               <p className="text-xs text-slate-700 mt-1">If left empty, learners see &ldquo;Continue exploring&rdquo;.</p>
             </div>
             {mode === 'create' && <LevelChoice lessonLevels={lessonLevels} levels={levels} setLevels={setLevels} disabled={saving} legend="Show this block at" />}
-          </>
+          </div>
         ),
         onSave: (links: EditedLink[]) => onSave(buildExploring(title, links, stored.links), levels),
       }}

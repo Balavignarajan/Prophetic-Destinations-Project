@@ -746,7 +746,7 @@ export default function ModuleDetailPage() {
             </div>
           </div>
 
-          <CoverImageField subject="lesson" value={newLessonCover} onChange={setNewLessonCover} disabled={creatingLesson} />
+          <CoverImageField subject="lesson" mode="create" saveLabel="Create Lesson" value={newLessonCover} onChange={setNewLessonCover} disabled={creatingLesson} />
 
           <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
             <button

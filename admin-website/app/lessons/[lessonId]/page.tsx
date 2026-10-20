@@ -1961,7 +1961,7 @@ export default function LessonAuthoringPage() {
             />
           </div>
 
-          <CoverImageField subject="lesson" value={editCoverMediaId} onChange={setEditCoverMediaId} disabled={updatingMetadata} />
+          <CoverImageField subject="lesson" mode="edit" saveLabel="Save lesson details" value={editCoverMediaId} onChange={setEditCoverMediaId} disabled={updatingMetadata} />
 
           <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
             <button

@@ -617,7 +617,7 @@ export default function CourseDetailPage() {
             />
           </div>
 
-          <CoverImageField subject="course" value={editCoverMediaId} onChange={setEditCoverMediaId} disabled={updatingCourse} />
+          <CoverImageField subject="course" mode="edit" saveLabel="Save Changes" value={editCoverMediaId} onChange={setEditCoverMediaId} disabled={updatingCourse} />
 
           <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
             <button
@@ -650,7 +650,7 @@ export default function CourseDetailPage() {
           {createLessonError && <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs">{createLessonError}</div>}
           <div><label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5">Lesson title *</label><input required value={newLessonTitle} onChange={(e) => setNewLessonTitle(e.target.value)} className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm" /></div>
           <div><span className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-2">Available learning levels *</span><div className="flex flex-wrap gap-2">{(['BEGINNER', 'INTERMEDIATE', 'ADVANCED'] as LearningLevel[]).map((level) => <button key={level} type="button" onClick={() => setNewLessonLevels((current) => current.includes(level) ? current.filter((item) => item !== level) : [...current, level])} className={`px-3 py-2 rounded-lg text-xs font-semibold border ${newLessonLevels.includes(level) ? 'bg-amber-100 text-amber-900 border-amber-300' : 'bg-white text-slate-600 border-slate-200'}`}>{level}</button>)}</div></div>
-          <CoverImageField subject="lesson" value={newLessonCover} onChange={setNewLessonCover} disabled={creatingLesson} />
+          <CoverImageField subject="lesson" mode="create" saveLabel="Add lesson" value={newLessonCover} onChange={setNewLessonCover} disabled={creatingLesson} />
           <div className="flex justify-end gap-3 pt-3 border-t border-slate-100"><button type="button" onClick={() => confirmDiscard(Boolean(newLessonTitle.trim() || newLessonCover), () => setCreateLessonModalOpen(false))} className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg">Cancel</button><button type="submit" disabled={creatingLesson} className="px-4 py-2 text-sm font-medium text-white bg-slate-900 rounded-lg disabled:opacity-50">{creatingLesson ? 'Adding…' : 'Add lesson'}</button></div>
         </form>
       </Modal>

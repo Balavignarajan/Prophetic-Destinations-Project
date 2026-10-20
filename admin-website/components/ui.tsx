@@ -19,6 +19,10 @@ export function Modal({
 }: ModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
+  // Callers often pass a NEW onClose function on every render (an inline arrow). The latest one is kept in a ref so the effect below depends only on
+  // isOpen: otherwise every keystroke in a form inside the dialog re-ran it, which moved focus back to the first button (the close icon) and to the trigger.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!isOpen) return;
@@ -33,7 +37,7 @@ export function Modal({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
       }
       if (event.key !== 'Tab' || !dialogRef.current) return;
       const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
@@ -51,7 +55,7 @@ export function Modal({
       window.removeEventListener('keydown', onKeyDown);
       triggerRef.current?.focus();
     };
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 

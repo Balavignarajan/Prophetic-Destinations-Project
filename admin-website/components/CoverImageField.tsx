@@ -14,6 +14,14 @@ interface Props {
   /** Called with the chosen asset id, or null for "Remove cover". Nothing is saved here: the form's Save button saves it. */
   onChange: (mediaId: string | null, asset?: MediaAsset) => void;
   disabled?: boolean;
+  /**
+   * Whether the form CREATES the course/lesson or EDITS an existing one. It decides the help text: a new item has no earlier published version, so the
+   * text says when the cover is saved and when learners see it; an edit explains that the published cover stays until it is published again.
+   * Ignored for the other subjects (images inside lesson blocks), whose text never mentions courses or lessons. Default: edit.
+   */
+  mode?: 'create' | 'edit';
+  /** The exact label of the form's submit button ("Add lesson", "Create Course", "Save lesson details"), quoted in the help text. */
+  saveLabel?: string;
   /** Only offer library files of this exact type (an animated-WebP field accepts WebP only). The server still checks the file itself when the block is saved. */
   contentType?: 'image/webp';
 }
@@ -25,7 +33,7 @@ const BTN = 'px-3.5 py-2 text-sm font-medium bg-white border border-slate-300 ro
  * edits the form's draft value; removing a cover never deletes the image from the library. The picker opens inside the form
  * (not as a second dialog) so keyboard focus stays in one place.
  */
-export default function CoverImageField({ subject, value, onChange, disabled = false, contentType }: Props) {
+export default function CoverImageField({ subject, value, onChange, disabled = false, contentType, mode = 'edit', saveLabel }: Props) {
   const isContent = subject !== 'course' && subject !== 'lesson';
   const [picking, setPicking] = useState(false);
   const [tab, setTab] = useState<'upload' | 'library'>('library');
@@ -52,10 +60,14 @@ export default function CoverImageField({ subject, value, onChange, disabled = f
           <div className="space-y-2">
             <p className="text-xs text-slate-600">
               {isContent
-                ? 'Shown with this ' + (subject === 'event' ? 'event' : subject === 'section' ? 'heading' : subject === 'symbol' ? 'symbol' : subject === 'scene' ? 'scene' : subject === 'animation' || subject === 'poster' ? 'animation' : 'evidence') + '. Press Save on the form to keep a change; the image is only referenced, never copied.'
+                ? 'Shown with this ' + (subject === 'event' ? 'event' : subject === 'section' ? 'heading' : subject === 'symbol' ? 'symbol' : subject === 'scene' ? 'scene' : subject === 'animation' || subject === 'poster' ? 'animation' : 'evidence') + '. The image is kept when you save this form; it is only referenced, never copied.'
+                : mode === 'create'
+                ? subject === 'course'
+                  ? `The cover is saved when you select ${saveLabel ?? 'the button below'}. Learners see it once the course is published.`
+                  : `The cover is saved when you select ${saveLabel ?? 'the button below'}. Learners see it once the lesson is published and available in the course.`
                 : subject === 'course'
-                ? 'Press Save to keep a change. Learners see a new or changed course cover only after the course is approved and published again; until then they keep seeing the published one.'
-                : 'Press Save to keep a change. Learners see a new or changed lesson cover only after this lesson is published again (course lists pick it up from then); until then they keep seeing the published one.'}
+                ? `Select ${saveLabel ?? 'Save'} to keep a change. Learners see a new or changed course cover only after the course is approved and published again; until then they keep seeing the published one.`
+                : `Select ${saveLabel ?? 'Save'} to keep a change. Learners see a new or changed lesson cover only after this lesson is published again (course lists pick it up from then); until then they keep seeing the published one.`}
             </p>
             <div className="flex flex-wrap gap-2">
               <button type="button" className={BTN} onClick={() => setPicking((open) => !open)} aria-expanded={picking}>

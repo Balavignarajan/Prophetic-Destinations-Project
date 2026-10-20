@@ -484,7 +484,7 @@ export default function CoursesPage() {
             />
           </div>
 
-          <CoverImageField subject="course" value={newCoverMediaId} onChange={setNewCoverMediaId} disabled={creating} />
+          <CoverImageField subject="course" mode="create" saveLabel="Create Course" value={newCoverMediaId} onChange={setNewCoverMediaId} disabled={creating} />
 
           <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
             <button
