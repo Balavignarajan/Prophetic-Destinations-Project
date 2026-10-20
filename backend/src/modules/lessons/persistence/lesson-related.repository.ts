@@ -106,16 +106,16 @@ export class LessonRelatedRepository {
   async existingLocked(ids: readonly string[], manager: EntityManager): Promise<Set<string>> {
     if (ids.length === 0) return new Set();
     const rows: { id: string }[] = await manager.query(
-      `SELECT "id" FROM "lessons" WHERE "id" = ANY($1::uuid[]) ORDER BY "id" FOR SHARE NOWAIT`,
+      `SELECT "id" FROM "lessons" WHERE "id" = ANY($1::uuid[]) AND "course_id" IS NOT NULL ORDER BY "id" FOR SHARE NOWAIT`,
       [ids],
     );
     return new Set(rows.map((row) => row.id));
   }
 
-  /** Which of these ids are existing lessons. */
+  /** Which of these ids are existing PLACED lessons (a standalone library lesson is never a link target: learners can never reach it). */
   async existing(ids: readonly string[], manager?: EntityManager): Promise<Set<string>> {
     if (ids.length === 0) return new Set();
-    const rows: { id: string }[] = await this.db(manager).query(`SELECT "id" FROM "lessons" WHERE "id" = ANY($1::uuid[])`, [ids]);
+    const rows: { id: string }[] = await this.db(manager).query(`SELECT "id" FROM "lessons" WHERE "id" = ANY($1::uuid[]) AND "course_id" IS NOT NULL`, [ids]);
     return new Set(rows.map((row) => row.id));
   }
 

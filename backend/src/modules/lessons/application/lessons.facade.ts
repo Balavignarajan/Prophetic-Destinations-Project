@@ -22,7 +22,8 @@ import { toResolvable } from './resolvable.js';
 /** The little the workflow needs to know about a lesson (plain data, never an entity). */
 export interface LessonWorkflowState {
   id: string;
-  courseId: string;
+  /** null = a library lesson: it cannot enter the review/publish workflow. */
+  courseId: string | null;
   moduleId: string | null;
   status: ContentStatus;
   /** Counts effective authoring-content changes; moves for block changes too, never for status transitions. */
@@ -53,7 +54,7 @@ export interface AssembledLevel {
 /** The lesson's own fields, as a learner-facing snapshot would carry them. */
 export interface AssembledLessonFields {
   id: string;
-  courseId: string;
+  courseId: string | null;
   moduleId: string | null;
   title: string;
   shortTitle: string | null;
@@ -73,7 +74,7 @@ export interface AssembledLessonFields {
 /** Everything Publishing needs to judge and snapshot a lesson, resolved level by level. */
 export interface AssembledLesson {
   lessonId: string;
-  courseId: string;
+  courseId: string | null;
   moduleId: string | null;
   status: ContentStatus;
   contentRevision: number;
@@ -300,7 +301,7 @@ export class LessonsFacade {
 
 function toState(lesson: {
   id: string;
-  courseId: string;
+  courseId: string | null;
   moduleId: string | null;
   status: ContentStatus;
   contentRevision: number;

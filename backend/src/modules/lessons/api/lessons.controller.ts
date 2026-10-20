@@ -14,6 +14,7 @@ import {
 import { Roles } from '../../identity/index.js';
 import { LessonService } from '../application/lesson.service.js';
 import {
+  CreateLessonDto,
   RelatedLessonsResponseDto,
   SetRelatedLessonsDto,
   DuplicateLessonDto,
@@ -27,6 +28,23 @@ import { DELETE_LESSON_ROLES, READ_ROLES, WRITE_ROLES } from './roles.js';
 @Controller('admin/lessons')
 export class LessonsController {
   constructor(private readonly lessons: LessonService) {}
+
+  /** The lesson library: standalone lessons (no course, no module), newest change first, optional title search. Declared before ':lessonId'. */
+  @Get('library')
+  @Roles(...READ_ROLES)
+  async library(@Query('q') q?: string, @Query('limit') limit?: string, @Query('offset') offset?: string) {
+    const take = Math.min(Math.max(Number.parseInt(limit ?? '', 10) || 50, 1), 100);
+    const skip = Math.max(Number.parseInt(offset ?? '', 10) || 0, 0);
+    const { items, total } = await this.lessons.listLibrary(q ?? '', take, skip);
+    return { items: items.map((lesson) => LessonResponseDto.from(lesson)), total, limit: take, offset: skip };
+  }
+
+  /** Creates a standalone library lesson (no course, no module). It cannot be published; copy it into a course or module for that. */
+  @Post('library')
+  @Roles(...WRITE_ROLES)
+  async createLibrary(@Body() dto: CreateLessonDto): Promise<LessonResponseDto> {
+    return LessonResponseDto.from(await this.lessons.createLibrary(dto));
+  }
 
   /** Finds lessons by title, with course and module, for choosing related lessons. Declared before ':lessonId' so it is never read as an id. */
   @Get('search')
@@ -63,7 +81,10 @@ export class LessonsController {
     return LessonResponseDto.from(await this.lessons.update(lessonId, dto));
   }
 
-  /** Creates a separate Draft copy of the lesson's saved content in the same course/module, at the end of its group. */
+  /**
+   * Creates a separate Draft copy of the lesson's saved content, at the end of its group: in the same place by default, or in the course
+   * (directly) or module given by courseId / moduleId (this is how a library lesson is copied into a course or module).
+   */
   @Post(':lessonId/duplicate')
   @Roles(...WRITE_ROLES)
   async duplicate(
@@ -71,7 +92,11 @@ export class LessonsController {
     @Body() dto: DuplicateLessonDto,
   ): Promise<LessonResponseDto> {
     return LessonResponseDto.from(
-      await this.lessons.duplicate(lessonId, dto.title),
+      await this.lessons.duplicate(
+        lessonId,
+        dto.title,
+        dto.courseId ? { courseId: dto.courseId, moduleId: dto.moduleId ?? null } : undefined,
+      ),
     );
   }
 

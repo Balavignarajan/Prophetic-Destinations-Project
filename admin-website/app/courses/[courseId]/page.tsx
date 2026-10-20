@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation';
 import { api } from '../../../lib/api';
 import { WORKFLOW_ENDPOINT, catalogTransitionBody, type WorkflowAction } from '../../../lib/workflow';
 import { useAuth } from '../../../lib/auth';
+import AddLessonFlow from '../../../components/AddLessonFlow';
 import { STALE_CATALOG_MESSAGE, actionLabelFor, catalogPublishExplanation, visibleActions } from '../../../lib/review-guidance';
 import { Course, ModuleItem, LessonSummary, LearningLevel, WorkflowState, WorkflowEvent } from '../../../lib/types';
 import { LoadingSpinner, StatusBadge, EmptyState, Modal, ConfirmDialog } from '../../../components/ui';
@@ -47,6 +48,7 @@ export default function CourseDetailPage() {
 
   // Direct course lesson (modules are optional containers).
   const [createLessonModalOpen, setCreateLessonModalOpen] = useState(false);
+  const [addLessonFlowOpen, setAddLessonFlowOpen] = useState(false);
   const [newLessonTitle, setNewLessonTitle] = useState('');
   const [newLessonCover, setNewLessonCover] = useState<string | null>(null);
   const [newLessonMeta, setNewLessonMeta] = useState<LessonMetadataValues>(EMPTY_LESSON_METADATA);
@@ -420,10 +422,10 @@ export default function CourseDetailPage() {
       <section className="space-y-4">
         <div className="flex items-center justify-between gap-3">
           <div><h2 className="font-serif text-xl font-bold text-slate-900">Lessons directly in this course</h2><p className="text-xs text-slate-500 mt-0.5">These lessons do not need to belong to a module.</p></div>
-          {canWrite && <button onClick={() => setCreateLessonModalOpen(true)} className="px-3.5 py-2 text-xs font-medium bg-amber-600 hover:bg-amber-500 text-white rounded-lg shadow-xs">Add lesson</button>}
+          {canWrite && <button onClick={() => setAddLessonFlowOpen(true)} className="px-3.5 py-2 text-xs font-medium bg-amber-600 hover:bg-amber-500 text-white rounded-lg shadow-xs">Add lesson</button>}
         </div>
         {directLessons.length === 0 ? (
-          <EmptyState title="No direct lessons" description="Add a lesson here, or group lessons in an optional module." action={canWrite ? <button onClick={() => setCreateLessonModalOpen(true)} className="px-4 py-2 text-sm font-medium bg-amber-600 hover:bg-amber-500 text-white rounded-lg">Add lesson</button> : undefined} />
+          <EmptyState title="No direct lessons" description="Add a lesson here, or group lessons in an optional module." action={canWrite ? <button onClick={() => setAddLessonFlowOpen(true)} className="px-4 py-2 text-sm font-medium bg-amber-600 hover:bg-amber-500 text-white rounded-lg">Add lesson</button> : undefined} />
         ) : <div className="bg-white border border-slate-200 rounded-xl shadow-xs divide-y divide-slate-100">
           {directLessons.map((lesson, index) => <div key={lesson.id} className="p-4 flex items-center justify-between gap-4">
             <div className="flex items-center gap-3"><span className="w-7 h-7 rounded-md bg-slate-100 text-slate-700 font-bold text-xs flex items-center justify-center">{index + 1}</span><CoverThumb mediaId={lesson.coverMediaId} /><div><Link href={`/lessons/${lesson.id}`} className="font-semibold text-slate-900 hover:text-amber-700">{lesson.title}</Link><div className="mt-1 flex gap-2 items-center"><StatusBadge status={lesson.status} />{lesson.levels.map((level) => <span key={level} className="text-[10px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">{level}</span>)}</div></div></div>
@@ -656,6 +658,14 @@ export default function CourseDetailPage() {
         lesson={duplicateTarget}
         destination={`${course?.title ?? 'This course'} (directly in the course)`}
         onClose={() => setDuplicateTarget(null)}
+      />
+
+      <AddLessonFlow
+        isOpen={addLessonFlowOpen}
+        onClose={() => setAddLessonFlowOpen(false)}
+        destination={{ courseId }}
+        destinationLabel="this course"
+        onCreateNew={() => setCreateLessonModalOpen(true)}
       />
 
       <Modal isOpen={createLessonModalOpen} onClose={() => confirmDiscard(Boolean(newLessonTitle.trim() || newLessonCover || lessonMetadataTouched(newLessonMeta)), () => setCreateLessonModalOpen(false))} title="Add lesson" description="Add a lesson directly to this course. Modules are optional groups of lessons.">

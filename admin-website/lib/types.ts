@@ -55,7 +55,8 @@ export interface ModuleItem {
 
 export interface LessonSummary {
   id: string;
-  courseId: string;
+  /** null = a standalone library lesson (no course, no module; never published). */
+  courseId: string | null;
   moduleId: string | null;
   title: string;
   shortTitle: string | null;

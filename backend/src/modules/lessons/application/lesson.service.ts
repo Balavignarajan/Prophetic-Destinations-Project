@@ -115,6 +115,35 @@ export class LessonService {
     });
   }
 
+  /**
+   * Creates a standalone LIBRARY lesson: no course, no module, so no parent lock and no order. It is an authoring source that is copied into a course
+   * or module (see `duplicate`) to be reviewed, published and delivered; on its own it can never be published or reach a learner. Position is
+   * always 1 (it has no siblings).
+   */
+  async createLibrary(input: CreateLessonInput): Promise<Lesson> {
+    const title = checkTitle(input.title);
+    const shortTitle = checkOptionalText(input.shortTitle, 'shortTitle');
+    const subtitle = checkOptionalText(input.subtitle, 'subtitle');
+    const introduction = checkOptionalText(input.introduction, 'introduction');
+    const estimatedMinutes = checkEstimatedMinutes(input.estimatedMinutes);
+    const coverMediaId = checkCoverMediaId(input.coverMediaId);
+    const levels = checkLevels(input.levels ?? []);
+    return this.transactions.run(async (manager) => {
+      if (coverMediaId) await this.media.requireImage(coverMediaId);
+      const lesson = await this.lessons.insert(
+        { courseId: null, moduleId: null, title, shortTitle, subtitle, introduction, estimatedMinutes, coverMediaId, position: 1 },
+        manager,
+      );
+      await this.lessons.replaceLevels(lesson.id, levels, manager);
+      return this.lessons.reload(lesson.id, manager);
+    });
+  }
+
+  /** The library: standalone lessons, most recently changed first, optionally filtered by a title search. */
+  listLibrary(text: string, limit: number, offset: number) {
+    return this.lessons.listLibrary(text.trim(), limit, offset);
+  }
+
   /** Creates a lesson directly inside a course; modules are optional groups, never implicit containers. */
   async createDirect(courseId: string, input: CreateLessonInput): Promise<Lesson> {
     const title = checkTitle(input.title);
@@ -141,21 +170,38 @@ export class LessonService {
   }
 
   /**
-   * Copies the saved working content of a lesson into a new DRAFT lesson in the same course (and module, if any),
-   * appended to the end of that group. Locks the parent (module or course), then the source lesson, and does
-   * everything in one transaction. Copied: metadata, levels, blocks in order, and every block level row (visibility
-   * and variants) with the content JSON unchanged, so media ids stay shared references (files are not copied and
-   * media-usage protection sees both lessons). Not copied: status, version/revision counters, timestamps, workflow
-   * events, publications. Block content holds no ids of other blocks, so nothing needs remapping. A lesson with a
-   * block type that is not implemented cannot be copied safely, so it is refused.
+   * Copies the saved working content of a lesson into a new, independent DRAFT lesson, appended to the end of its destination. Without a
+   * `destination` the copy goes where the source is (the same course and module; a library lesson's copy is another library lesson). With one, the
+   * copy goes into that course (directly) or into that module of it: the destination parent is locked first, then the source lesson, in one transaction.
+   * Copied: metadata, the cover reference, levels, blocks in order, every block level row (visibility and variants) with the content JSON unchanged
+   * (media and quiz ids stay shared references, files are not copied, media-usage protection sees both lessons; Scripture stamps are kept as they
+   * are), and the authored related links. Not copied: status (always Draft), version/revision counters, timestamps, workflow events, approvals,
+   * publications, learner progress. Block content holds no ids of other blocks, so nothing needs remapping. A lesson with a block type that is not
+   * implemented cannot be copied safely, so it is refused. The source is never modified.
    */
-  async duplicate(lessonId: string, requestedTitle?: string): Promise<Lesson> {
+  async duplicate(
+    lessonId: string,
+    requestedTitle?: string,
+    destination?: { courseId: string; moduleId?: string | null },
+  ): Promise<Lesson> {
     const existing = await this.lessons.findById(lessonId);
     if (!existing) throw lessonNotFound();
+    if (destination?.moduleId && !destination.courseId) {
+      throw new BusinessRuleError('A module needs its course', { code: 'DESTINATION_COURSE_REQUIRED' });
+    }
+    // Where the copy goes: the explicit destination, otherwise next to the source (a library source stays in the library).
+    const target: { courseId: string | null; moduleId: string | null } = destination
+      ? { courseId: destination.courseId, moduleId: destination.moduleId ?? null }
+      : { courseId: existing.courseId, moduleId: existing.moduleId };
 
     return this.transactions.run(async (manager) => {
-      if (existing.moduleId) await this.curriculum.lockModule(existing.moduleId, manager);
-      else await this.curriculum.lockCourse(existing.courseId, manager);
+      // Lock order: the destination parent (module, else course), then the source lesson. A library destination has no parent to lock.
+      if (target.moduleId) {
+        const module = await this.curriculum.lockModule(target.moduleId, manager);
+        if (module.courseId !== target.courseId) throw moduleNotFound();
+      } else if (target.courseId) {
+        await this.curriculum.lockCourse(target.courseId, manager);
+      }
       const source = await this.lockLesson(lessonId, manager);
       if (source.moduleId !== existing.moduleId || source.courseId !== existing.courseId) {
         throw new ConflictError('The lesson was moved while it was being copied. Try again.');
@@ -176,20 +222,22 @@ export class LessonService {
       }
 
       // Append after the highest existing position (the parent lock is held), so a gap can never cause a collision.
-      const last = source.moduleId
-        ? await this.lessons.maxPositionByModule(source.moduleId, manager)
-        : await this.lessons.maxPositionDirect(source.courseId, manager);
+      const last = target.moduleId
+        ? await this.lessons.maxPositionByModule(target.moduleId, manager)
+        : target.courseId
+          ? await this.lessons.maxPositionDirect(target.courseId, manager)
+          : 0;
       const copy = await this.lessons.insert(
         {
-          courseId: source.courseId,
-          moduleId: source.moduleId,
+          courseId: target.courseId,
+          moduleId: target.moduleId,
           title,
           shortTitle: source.shortTitle,
           subtitle: source.subtitle,
           introduction: source.introduction,
           estimatedMinutes: source.estimatedMinutes,
           coverMediaId: source.coverMediaId,
-          position: last + 1,
+          position: target.courseId ? last + 1 : 1,
         },
         manager,
       );
@@ -376,7 +424,8 @@ export class LessonService {
 
     await this.transactions.run(async (manager) => {
       if (existing.moduleId) await this.curriculum.lockModule(existing.moduleId, manager);
-      else await this.curriculum.lockCourse(existing.courseId, manager);
+      else if (existing.courseId) await this.curriculum.lockCourse(existing.courseId, manager);
+      // (a library lesson has no parent to lock)
       // Lock order: parent (module or course), then this lesson TOGETHER with every lesson that links to it, in ascending id order.
       await this.lockWithSources(lessonId, manager);
       const current = await this.lockLesson(lessonId, manager);
@@ -394,7 +443,7 @@ export class LessonService {
 
       await this.lessons.delete(lessonId, manager);
       if (current.moduleId) await this.lessons.shiftFrom(current.moduleId, current.position + 1, -1, manager);
-      else await this.lessons.shiftDirectFrom(current.courseId, current.position + 1, -1, manager);
+      else if (current.courseId) await this.lessons.shiftDirectFrom(current.courseId, current.position + 1, -1, manager);
     });
   }
 

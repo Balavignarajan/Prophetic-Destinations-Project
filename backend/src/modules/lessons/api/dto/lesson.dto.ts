@@ -34,6 +34,18 @@ export class DuplicateLessonDto {
   @IsNotEmpty()
   @MaxLength(LIMITS.title)
   title?: string;
+
+  /**
+   * Where the copy goes. Omit both to copy next to the original (the previous behaviour). `courseId` alone = directly in that course; with
+   * `moduleId` = in that module (which must belong to the course).
+   */
+  @IsOptional()
+  @IsUUID('all')
+  courseId?: string;
+
+  @IsOptional()
+  @IsUUID('all')
+  moduleId?: string;
 }
 
 export class CreateLessonDto {
@@ -220,7 +232,8 @@ export class ReorderLessonsDto {
 
 export class LessonResponseDto {
   id: string;
-  courseId: string;
+  /** null = a standalone library lesson. */
+  courseId: string | null;
   moduleId: string | null;
   title: string;
   shortTitle: string | null;

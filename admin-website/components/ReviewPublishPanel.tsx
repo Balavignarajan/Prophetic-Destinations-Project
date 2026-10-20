@@ -36,7 +36,7 @@ interface CatalogInfo {
 
 interface Props {
   lessonId: string;
-  courseId: string;
+  courseId: string | null;
   workflowState: WorkflowState | null;
   blocks: LessonBlock[];
   /** Changes whenever the lesson content or status changed, so the checks are repeated. */
@@ -48,6 +48,8 @@ interface Props {
   /** Opens the existing editor of a block. */
   onEditBlock: (blockId: string) => void;
   canWrite: boolean;
+  /** A standalone library lesson: it is checked here but never reviewed, published or shown to learners, so those parts are replaced by the next step. */
+  library?: boolean;
   /** The signed-in role: administrators publish directly, so the review steps are not offered to them. */
   role?: string | null;
   /** Told every time the readiness result changes, so other views (the level coverage table) can show it without asking the server again. */
@@ -64,7 +66,7 @@ const typeName = friendlyBlockName;
  * existing readiness, workflow, publication and catalog endpoints and the existing block editors; it adds no rule. Previous results stay on
  * screen while the checks repeat, and a failed request is shown as a failure, not as "no problems".
  */
-export default function ReviewPublishPanel({ lessonId, courseId, workflowState, blocks, refreshKey, onAction, onGoToBlock, onEditBlock, canWrite, role, onReadiness }: Props) {
+export default function ReviewPublishPanel({ lessonId, courseId, workflowState, blocks, refreshKey, onAction, onGoToBlock, onEditBlock, canWrite, library = false, role, onReadiness }: Props) {
   const [report, setReport] = useState<ReadinessReport | null>(null);
   const [reportFailed, setReportFailed] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
@@ -86,6 +88,10 @@ export default function ReviewPublishPanel({ lessonId, courseId, workflowState, 
     } catch (err: unknown) {
       if (run === runRef.current) setReportFailed(friendlyError(err, 'The publishing checks could not be run.'));
     }
+    if (library) {
+      if (run === runRef.current) setChecking(false);
+      return;
+    }
     // 2. What is published and who can see it (existing history endpoints; any failure means "could not be checked", never a guess).
     try {
       const pubs = await api.request<{ items: PublicationInfo[] }>(`/admin/lessons/${lessonId}/publications?limit=20`);
@@ -98,6 +104,7 @@ export default function ReviewPublishPanel({ lessonId, courseId, workflowState, 
         return;
       }
       let catalog: CatalogInfo | null = null;
+      if (!courseId) return;
       const cats = await api.request<{ items: CatalogInfo[] }>(`/admin/courses/${courseId}/publications?limit=20`);
       catalog = cats.items.find((c) => c.active) ?? null;
       const results: LevelVisibility[] = [];
@@ -129,7 +136,7 @@ export default function ReviewPublishPanel({ lessonId, courseId, workflowState, 
     } finally {
       if (run === runRef.current) setChecking(false);
     }
-  }, [lessonId, courseId]);
+  }, [lessonId, courseId, library]);
 
   useEffect(() => {
     void check();
@@ -157,7 +164,19 @@ export default function ReviewPublishPanel({ lessonId, courseId, workflowState, 
         Review and publishing
       </h2>
 
+      {library && (
+        <section aria-labelledby="rp-library" className="rounded-lg border border-sky-200 bg-sky-50 p-3 space-y-1">
+          <h3 id="rp-library" className="text-sm font-semibold text-sky-900">Library lesson — copy it into a course or module to publish it.</h3>
+          <p className="text-sm text-sky-900">
+            This lesson belongs to no course. It can be edited and previewed here, but it cannot be submitted, approved or published, and learners never see it. Open a
+            course or a module, choose <strong>Add lesson &rarr; Copy existing lesson</strong>, and publish the copy from there. The copy is independent: changing it never
+            changes this lesson.
+          </p>
+        </section>
+      )}
+
       {/* Where the lesson is */}
+      {!library && (
       <section aria-labelledby="rp-status" className="space-y-2">
         <h3 id="rp-status" className="text-xs font-semibold uppercase tracking-wider text-slate-600">Where this lesson is now</h3>
         <p className="text-sm text-slate-800 flex flex-wrap items-center gap-2">
@@ -171,7 +190,10 @@ export default function ReviewPublishPanel({ lessonId, courseId, workflowState, 
         </ul>
       </section>
 
+      )}
+
       {/* What can be done */}
+      {!library && (
       <section aria-labelledby="rp-actions" className="space-y-2">
         <h3 id="rp-actions" className="text-xs font-semibold uppercase tracking-wider text-slate-600">What you can do</h3>
         {actions.length === 0 ? (
@@ -193,6 +215,8 @@ export default function ReviewPublishPanel({ lessonId, courseId, workflowState, 
           </ul>
         )}
       </section>
+
+      )}
 
       {/* Readiness */}
       <section aria-labelledby="rp-ready" className="space-y-2">
@@ -274,6 +298,7 @@ export default function ReviewPublishPanel({ lessonId, courseId, workflowState, 
       </section>
 
       {/* Published vs working */}
+      {!library && (
       <section aria-labelledby="rp-published" className="space-y-2">
         <h3 id="rp-published" className="text-xs font-semibold uppercase tracking-wider text-slate-600">What is published, and who can see this lesson</h3>
         <p className="text-xs text-slate-700">
@@ -312,6 +337,7 @@ export default function ReviewPublishPanel({ lessonId, courseId, workflowState, 
           </div>
         )}
       </section>
+      )}
     </div>
   );
 }

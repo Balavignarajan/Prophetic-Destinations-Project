@@ -20,6 +20,7 @@ import {
   type NewLevelSnapshot,
   PublicationRepository,
 } from '../persistence/publication.repository.js';
+import { libraryLessonRefused } from '../domain/library-lesson.js';
 
 export interface PublishEffect {
   /** The newly created, active publication. */
@@ -57,6 +58,9 @@ export class PublicationService {
       lessonId,
       manager,
     );
+    // Last line of defence (the workflow refuses first): a standalone library lesson has no course and is never published.
+    if (assembled.courseId === null) throw libraryLessonRefused();
+    const courseId = assembled.courseId;
     if (assembled.contentRevision !== expectedContentRevision) {
       // Cannot happen while the lesson lock is held; never snapshot content that is not what was locked.
       throw new ConflictError(
@@ -101,7 +105,7 @@ export class PublicationService {
       {
         lessonId,
         version,
-        courseId: assembled.courseId,
+        courseId,
         moduleId: assembled.moduleId,
         sourceContentRevision: assembled.contentRevision,
         snapshotSchemaVersion: SNAPSHOT_SCHEMA_VERSION,

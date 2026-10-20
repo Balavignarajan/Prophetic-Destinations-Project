@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { WORKFLOW_ENDPOINT, catalogTransitionBody, type WorkflowAction } from '@/lib/workflow';
 import { useAuth } from '@/lib/auth';
+import AddLessonFlow from '@/components/AddLessonFlow';
 import { STALE_CATALOG_MESSAGE, actionLabelFor, catalogPublishExplanation, visibleActions } from '@/lib/review-guidance';
 import {
   Course,
@@ -47,6 +48,7 @@ export default function ModuleDetailPage() {
 
   // Create lesson modal
   const [createLessonModalOpen, setCreateLessonModalOpen] = useState(false);
+  const [addLessonFlowOpen, setAddLessonFlowOpen] = useState(false);
   const [newLessonTitle, setNewLessonTitle] = useState('');
   const [newLessonCover, setNewLessonCover] = useState<string | null>(null);
   const [newShortTitle, setNewShortTitle] = useState('');
@@ -448,7 +450,7 @@ export default function ModuleDetailPage() {
 
           {canWrite && (
             <button
-              onClick={() => setCreateLessonModalOpen(true)}
+              onClick={() => setAddLessonFlowOpen(true)}
               className="px-3.5 py-2 text-xs font-medium bg-slate-900 hover:bg-slate-800 text-white rounded-lg flex items-center gap-1.5 shadow-xs"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -466,7 +468,7 @@ export default function ModuleDetailPage() {
             action={
               canWrite ? (
                 <button
-                  onClick={() => setCreateLessonModalOpen(true)}
+                  onClick={() => setAddLessonFlowOpen(true)}
                   className="px-4 py-2 text-sm font-medium bg-amber-600 hover:bg-amber-500 text-white rounded-lg"
                 >
                   Create First Lesson
@@ -648,6 +650,14 @@ export default function ModuleDetailPage() {
           </div>
         </form>
       </Modal>
+
+      <AddLessonFlow
+        isOpen={addLessonFlowOpen}
+        onClose={() => setAddLessonFlowOpen(false)}
+        destination={{ courseId, moduleId }}
+        destinationLabel={`the module "${moduleData?.title ?? ''}"`}
+        onCreateNew={() => setCreateLessonModalOpen(true)}
+      />
 
       {/* Create Lesson Modal */}
       <Modal

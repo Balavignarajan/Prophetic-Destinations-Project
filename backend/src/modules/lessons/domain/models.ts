@@ -6,7 +6,8 @@ import type {
 
 export interface Lesson {
   id: string;
-  courseId: string;
+  /** null = a standalone library lesson: an authoring source with no course or module, never published or delivered. */
+  courseId: string | null;
   moduleId: string | null;
   title: string;
   shortTitle: string | null;

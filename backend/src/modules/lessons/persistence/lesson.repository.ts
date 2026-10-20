@@ -16,7 +16,8 @@ import { LessonLevelEntity } from './lesson-level.entity.js';
 import { LessonEntity } from './lesson.entity.js';
 
 export interface NewLesson {
-  courseId: string;
+  /** null = a library lesson (no course, no module). */
+  courseId: string | null;
   moduleId: string | null;
   title: string;
   shortTitle: string | null;
@@ -165,6 +166,30 @@ export class LessonRepository {
   async listDirectPlacements(courseId: string, manager?: EntityManager): Promise<{ lessonId: string; position: number }[]> {
     const rows: { id: string; position: number }[] = await (manager ?? this.repo().manager).query(`SELECT "id", "position" FROM "lessons" WHERE "course_id" = $1 AND "module_id" IS NULL ORDER BY "position"`, [courseId]);
     return rows.map((row) => ({ lessonId: row.id, position: row.position }));
+  }
+
+  /** Library lessons (standalone, no course), newest change first; `text` filters by title. Never includes a placed lesson. */
+  async listLibrary(
+    text: string,
+    limit: number,
+    offset: number,
+    manager?: EntityManager,
+  ): Promise<{ items: Lesson[]; total: number }> {
+    const pattern = `%${text.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    const db = manager ?? this.repo().manager;
+    const [{ total }]: { total: number }[] = await db.query(
+      `SELECT count(*)::int AS "total" FROM "lessons" WHERE "course_id" IS NULL AND "title" ILIKE $1`,
+      [pattern],
+    );
+    const ids: { id: string }[] = await db.query(
+      `SELECT "id" FROM "lessons" WHERE "course_id" IS NULL AND "title" ILIKE $1 ORDER BY "updated_at" DESC, "id" LIMIT $2 OFFSET $3`,
+      [pattern, limit, offset],
+    );
+    if (ids.length === 0) return { items: [], total };
+    const rows = await this.repo(manager).find({ where: { id: In(ids.map((r) => r.id)) } });
+    const levels = await this.levelsOf(rows.map((row) => row.id), manager);
+    const byId = new Map(rows.map((row) => [row.id, toLesson(row, levels.get(row.id) ?? [])]));
+    return { items: ids.map((r) => byId.get(r.id)).filter((l): l is Lesson => l !== undefined), total };
   }
 
   /** The highest position in the module (0 when it has no lessons): the base for appending safely. */

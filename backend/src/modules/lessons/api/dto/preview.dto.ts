@@ -32,7 +32,7 @@ export class PreviewResponseDto {
   available: boolean;
   lesson: {
     id: string;
-    courseId: string;
+    courseId: string | null;
     moduleId: string | null;
     title: string;
     shortTitle: string | null;

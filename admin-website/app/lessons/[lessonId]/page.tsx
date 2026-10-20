@@ -260,8 +260,9 @@ export default function LessonAuthoringPage() {
         ]);
 
       setLesson(lessonRes);
-      api.request<Course>(`/admin/courses/${lessonRes.courseId}`).then(setParentCourse).catch(() => setParentCourse(null));
-      if (lessonRes.moduleId) {
+      if (lessonRes.courseId) api.request<Course>(`/admin/courses/${lessonRes.courseId}`).then(setParentCourse).catch(() => setParentCourse(null));
+      else setParentCourse(null);
+      if (lessonRes.courseId && lessonRes.moduleId) {
         api.request<{ title: string }>(`/admin/courses/${lessonRes.courseId}/modules/${lessonRes.moduleId}`).then((m) => setParentModuleTitle(m.title)).catch(() => setParentModuleTitle(null));
       } else {
         setParentModuleTitle(null);
@@ -304,6 +305,18 @@ export default function LessonAuthoringPage() {
   useEffect(() => {
     fetchLessonData();
   }, [fetchLessonData]);
+
+  // After "Copy existing lesson" (Add lesson in a course or module) the copy opens with ?copied=1: confirm once, with a way back to where it went.
+  const [justCopied, setJustCopied] = useState(false);
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('copied') === '1') {
+      setJustCopied(true);
+      setSuccessMessage('Lesson copied as an independent draft at the end of its course or module. The original is unchanged. It is not published and the catalog was not refreshed.');
+      url.searchParams.delete('copied');
+      window.history.replaceState(null, '', url.pathname + url.search);
+    }
+  }, [lessonId]);
 
   // After "Duplicate lesson" the new draft opens with ?duplicated=1: confirm once, then clean the address.
   useEffect(() => {
@@ -1469,19 +1482,40 @@ export default function LessonAuthoringPage() {
       )}
       {successMessage && (
         <div role="status" className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm flex items-center justify-between gap-3">
-          <span>{successMessage}</span>
-          <button onClick={() => setSuccessMessage(null)} aria-label="Dismiss success message" className="text-emerald-700 hover:text-emerald-900">&times;</button>
+          <span>
+            {successMessage}
+            {justCopied && lesson.courseId && (
+              <>
+                {' '}
+                <Link href={lesson.moduleId ? `/courses/${lesson.courseId}/modules/${lesson.moduleId}` : `/courses/${lesson.courseId}`} className="underline font-medium">
+                  Back to {lesson.moduleId ? parentModuleTitle || 'the module' : parentCourse?.title || 'the course'}
+                </Link>
+              </>
+            )}
+          </span>
+          <button onClick={() => { setSuccessMessage(null); setJustCopied(false); }} aria-label="Dismiss success message" className="text-emerald-700 hover:text-emerald-900">&times;</button>
         </div>
       )}
       {/* Breadcrumb Navigation */}
       <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
-        <Link href="/courses" className="hover:text-slate-800">
-          Courses
-        </Link>
-        <span>/</span>
-        <Link href={`/courses/${lesson.courseId}`} className="hover:text-slate-800">{parentCourse?.title || 'Course'}</Link>
-        <span>/</span>
-        {lesson.moduleId && <><Link href={`/courses/${lesson.courseId}/modules/${lesson.moduleId}`} className="hover:text-slate-800">{parentModuleTitle || 'Module'}</Link><span>/</span></>}
+        {lesson.courseId ? (
+          <>
+            <Link href="/courses" className="hover:text-slate-800">
+              Courses
+            </Link>
+            <span>/</span>
+            <Link href={`/courses/${lesson.courseId}`} className="hover:text-slate-800">{parentCourse?.title || 'Course'}</Link>
+            <span>/</span>
+            {lesson.moduleId && <><Link href={`/courses/${lesson.courseId}/modules/${lesson.moduleId}`} className="hover:text-slate-800">{parentModuleTitle || 'Module'}</Link><span>/</span></>}
+          </>
+        ) : (
+          <>
+            <Link href="/lessons" className="hover:text-slate-800">
+              Lessons
+            </Link>
+            <span>/</span>
+          </>
+        )}
         <span className="text-slate-800 truncate max-w-xs">{lesson.title}</span>
       </div>
 
@@ -1565,6 +1599,7 @@ export default function LessonAuthoringPage() {
 
         <ReviewPublishPanel
           role={user?.role}
+          library={lesson.courseId === null}
           lessonId={lessonId}
           courseId={lesson.courseId}
           workflowState={workflowState}
@@ -1881,7 +1916,7 @@ export default function LessonAuthoringPage() {
       {/* Edit Lesson Metadata Modal */}
       <DuplicateLessonDialog
         lesson={duplicateOpen && lesson ? { id: lesson.id, title: lesson.title } : null}
-        destination={`${parentModuleTitle ? `${parentModuleTitle} in ` : ''}${parentCourse?.title ?? 'this course'}${lesson?.moduleId ? '' : ' (directly in the course)'}`}
+        destination={lesson && lesson.courseId === null ? 'the lesson library' : `${parentModuleTitle ? `${parentModuleTitle} in ` : ''}${parentCourse?.title ?? 'this course'}${lesson?.moduleId ? '' : ' (directly in the course)'}`}
         onClose={() => setDuplicateOpen(false)}
       />
 

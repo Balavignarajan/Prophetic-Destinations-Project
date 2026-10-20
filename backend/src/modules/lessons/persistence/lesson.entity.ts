@@ -39,6 +39,8 @@ import {
   'chk_lessons_estimated_minutes',
   `"estimated_minutes" IS NULL OR "estimated_minutes" > 0`,
 )
+// A library lesson (course_id NULL) is standalone: it has no module either.
+@Check('chk_lessons_library_has_no_module', `"course_id" IS NOT NULL OR "module_id" IS NULL`)
 @Check(
   'chk_lessons_status',
   `"status" IN ('DRAFT', 'READY_FOR_REVIEW', 'APPROVED', 'PUBLISHED')`,
@@ -47,8 +49,9 @@ export class LessonEntity {
   @PrimaryColumn({ type: 'uuid', default: () => 'gen_random_uuid()' })
   id: string;
 
-  @Column({ name: 'course_id', type: 'uuid' })
-  courseId: string;
+  /** NULL = a standalone library lesson (an authoring source that is copied into a course or module to be published). */
+  @Column({ name: 'course_id', type: 'uuid', nullable: true })
+  courseId: string | null;
 
   @Column({ name: 'module_id', type: 'uuid', nullable: true })
   moduleId: string | null;

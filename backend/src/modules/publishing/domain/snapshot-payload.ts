@@ -19,7 +19,7 @@ export interface LevelSnapshotPayload {
   level: LearningLevel;
   lesson: {
     id: string;
-    courseId: string;
+    courseId: string | null;
     moduleId: string | null;
     title: string;
     shortTitle: string | null;

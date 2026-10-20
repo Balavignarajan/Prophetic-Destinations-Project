@@ -1,5 +1,6 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import { TransactionRunner } from '../../../database/transaction-runner.js';
+import { libraryLessonRefused } from '../domain/library-lesson.js';
 import {
   ConflictError,
   ForbiddenError,
@@ -122,6 +123,9 @@ export class WorkflowService {
       async (manager) => {
         const state = await this.lessons.lockForWorkflow(lessonId, manager);
 
+        // A library lesson is an authoring source: it has no course, so it is never reviewed, published or delivered. Copy it into a course or module first.
+        if (state.courseId === null) throw libraryLessonRefused();
+
         if (
           input.expectedContentRevision !== undefined &&
           input.expectedContentRevision !== state.contentRevision
@@ -240,6 +244,7 @@ export class WorkflowService {
       contentRevision: state.contentRevision,
       allowedActions: WORKFLOW_ACTIONS.filter(
         (action) =>
+          state.courseId !== null &&
           canPerform(action, role) &&
           planTransition(
             action,
