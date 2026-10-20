@@ -42,7 +42,7 @@ export default function ScriptureRefList({ itemLabel, idPrefix, entries, onChang
     if (e.stampFingerprint === undefined) return null; // added in this session
     if (!info.available) return 'Kept as saved. It cannot be re-checked until the Scripture text is installed.';
     if (e.stampFingerprint === null) return 'Added before text fingerprints existed, so it is not treated as verified. Use Refresh, then save.';
-    if (info.fingerprint && e.stampFingerprint !== info.fingerprint) return 'The Scripture text on the server has changed since this was added. Use Refresh, save, and have the lesson approved again before publishing.';
+    if (info.fingerprint && e.stampFingerprint !== info.fingerprint) return 'The Scripture text on the server has changed since this was added. Use Refresh, save, and have the lesson reviewed again before publishing (administrators can publish directly).';
     return null;
   };
 

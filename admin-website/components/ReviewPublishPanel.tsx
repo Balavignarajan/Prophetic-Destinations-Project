@@ -5,7 +5,8 @@ import { api } from '../lib/api';
 import { friendlyBlockName } from '../lib/block-catalog';
 import {
   ACTION_EXPLANATION,
-  ACTION_LABEL,
+  actionLabelFor,
+  visibleActions,
   GENERAL_NOTES,
   type LessonStatus,
   type LevelVisibility,
@@ -47,6 +48,8 @@ interface Props {
   /** Opens the existing editor of a block. */
   onEditBlock: (blockId: string) => void;
   canWrite: boolean;
+  /** The signed-in role: administrators publish directly, so the review steps are not offered to them. */
+  role?: string | null;
   /** Told every time the readiness result changes, so other views (the level coverage table) can show it without asking the server again. */
   onReadiness?: (state: { report: ReadinessReport | null; failed: string | null; checking: boolean }) => void;
 }
@@ -61,7 +64,7 @@ const typeName = friendlyBlockName;
  * existing readiness, workflow, publication and catalog endpoints and the existing block editors; it adds no rule. Previous results stay on
  * screen while the checks repeat, and a failed request is shown as a failure, not as "no problems".
  */
-export default function ReviewPublishPanel({ lessonId, courseId, workflowState, blocks, refreshKey, onAction, onGoToBlock, onEditBlock, canWrite, onReadiness }: Props) {
+export default function ReviewPublishPanel({ lessonId, courseId, workflowState, blocks, refreshKey, onAction, onGoToBlock, onEditBlock, canWrite, role, onReadiness }: Props) {
   const [report, setReport] = useState<ReadinessReport | null>(null);
   const [reportFailed, setReportFailed] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
@@ -138,7 +141,8 @@ export default function ReviewPublishPanel({ lessonId, courseId, workflowState, 
   }, [report, reportFailed, checking]);
 
   const status = (workflowState?.status ?? 'DRAFT') as LessonStatus;
-  const actions = workflowState?.allowedActions ?? [];
+  const actions = visibleActions(workflowState?.allowedActions ?? [], role);
+  const hasPublished = Boolean(workflowState?.activePublication);
   const groups = report ? groupIssues(report.issues) : [];
   const blockInfo = (id?: string) => {
     if (!id) return null;
@@ -181,7 +185,7 @@ export default function ReviewPublishPanel({ lessonId, courseId, workflowState, 
                   onClick={() => onAction(action)}
                   className="px-3 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2"
                 >
-                  {ACTION_LABEL[action] ?? action}
+                  {actionLabelFor(action, hasPublished)}
                 </button>
                 <span className="min-w-0 flex-1 text-xs text-slate-700">{ACTION_EXPLANATION[action]}</span>
               </li>

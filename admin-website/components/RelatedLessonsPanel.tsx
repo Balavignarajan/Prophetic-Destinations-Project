@@ -179,7 +179,7 @@ export function RelatedLinksEditor({ lessonId, lessonVersion, initial, onClose, 
       {external ? <div className="text-sm text-slate-700">{external.intro}</div> : <p className="text-sm text-slate-700">
         Choose lessons learners may want to read next. You pick them yourself; nothing is suggested automatically. A lesson you link to is shown to
         learners only once it is published, and linking never publishes it. Changing this list, a label or the levels returns the lesson to Draft so it is
-        approved again. Editing a link never changes the linked lesson itself.
+        approved again (administrators can publish directly). Editing a link never changes the linked lesson itself.
       </p>}
 
       <section aria-labelledby="related-selected">

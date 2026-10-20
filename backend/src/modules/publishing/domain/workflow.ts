@@ -7,6 +7,10 @@ import type { ContentStatus } from '../../../shared-kernel/index.js';
  *
  *   DRAFT -> READY_FOR_REVIEW -> APPROVED -> PUBLISHED
  *
+ * That is the review path of EDITOR and REVIEWER. An ADMIN may also publish directly from DRAFT,
+ * READY_FOR_REVIEW or APPROVED (project decision: see docs/workflow-change-direct-admin-publishing.md); the
+ * event then records the status it really left, and no review step is invented.
+ *
  * Editing content (done in the lessons module) always returns the working copy to
  * DRAFT; that is not a workflow action and is not handled here.
  */
@@ -33,6 +37,9 @@ export type TransitionPlan =
       allowedFrom: ContentStatus[];
     };
 
+/** Where a direct (ADMIN) publish may start. */
+const DIRECT_PUBLISH_FROM: ContentStatus[] = ['DRAFT', 'READY_FOR_REVIEW', 'APPROVED'];
+
 /** Actions that move the status between two fixed states. */
 const FIXED_TRANSITIONS: Record<
   Exclude<WorkflowAction, 'UNPUBLISH'>,
@@ -57,6 +64,8 @@ export function planTransition(
   action: WorkflowAction,
   status: ContentStatus,
   hasActivePublication: boolean,
+  /** The actor may publish without review (ADMIN). Only PUBLISH is affected. */
+  directPublish = false,
 ): TransitionPlan {
   if (action === 'UNPUBLISH') {
     if (!hasActivePublication) {
@@ -67,6 +76,14 @@ export function planTransition(
       from: status,
       to: status === 'PUBLISHED' ? 'APPROVED' : status,
     };
+  }
+
+  if (action === 'PUBLISH' && directPublish) {
+    // A PUBLISHED working copy has nothing new to publish: editing returns it to DRAFT first.
+    if (status === 'PUBLISHED') {
+      return { allowed: false, reason: 'WRONG_STATUS', allowedFrom: DIRECT_PUBLISH_FROM };
+    }
+    return { allowed: true, from: status, to: 'PUBLISHED' };
   }
 
   const rule = FIXED_TRANSITIONS[action];

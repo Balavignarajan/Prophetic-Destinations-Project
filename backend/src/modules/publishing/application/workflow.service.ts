@@ -10,7 +10,7 @@ import type { AuthenticatedAdmin, Role } from '../../identity/index.js';
 import { LessonsFacade } from '../../lessons/index.js';
 import type { Publication, WorkflowEvent } from '../domain/models.js';
 import { normalizeNote } from '../domain/notes.js';
-import { canPerform } from '../domain/roles.js';
+import { canPerform, canPublishDirectly } from '../domain/roles.js';
 import {
   SEPARATION_OF_DUTIES_POLICY,
   type SeparationOfDutiesPolicy,
@@ -32,7 +32,7 @@ import { PublicationService } from './publication.service.js';
 export const WORKFLOW_LOCK_TIMEOUT_MS = Symbol('WORKFLOW_LOCK_TIMEOUT_MS');
 export const DEFAULT_WORKFLOW_LOCK_TIMEOUT_MS = 10_000;
 
-/** The review actions (everything except publishing and unpublishing, which are ADMIN-only and create/end publications). */
+/** The review actions (everything except publishing and unpublishing, which are ADMIN-only and create/end publications). ADMIN publishes without them. */
 export const REVIEW_ACTIONS = [
   'SUBMIT_FOR_REVIEW',
   'REQUEST_CHANGES',
@@ -137,7 +137,12 @@ export class WorkflowService {
           action === 'UNPUBLISH'
             ? await this.publications.findActive(lessonId, manager)
             : null;
-        const plan = planTransition(action, state.status, active !== null);
+        const plan = planTransition(
+          action,
+          state.status,
+          active !== null,
+          canPublishDirectly(actor.role),
+        );
         if (!plan.allowed) {
           throw new ConflictError(
             plan.reason === 'NOT_PUBLISHED'
@@ -236,8 +241,12 @@ export class WorkflowService {
       allowedActions: WORKFLOW_ACTIONS.filter(
         (action) =>
           canPerform(action, role) &&
-          planTransition(action, state.status, activePublication !== null)
-            .allowed,
+          planTransition(
+            action,
+            state.status,
+            activePublication !== null,
+            canPublishDirectly(role),
+          ).allowed,
       ),
       activePublication,
       latestEvent: await this.events.latest(lessonId),

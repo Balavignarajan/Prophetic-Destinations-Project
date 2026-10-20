@@ -96,6 +96,10 @@ export interface WorkflowState {
   contentRevision?: number;
   /** Course/module workflow state: catalog version (use for expectedVersion). */
   version?: number;
+  /** Course/module workflow state: it is in the course's active catalog version. */
+  published?: boolean;
+  /** Lesson: the publication learners get now (null if none). Course/module: the active catalog version. */
+  activePublication?: { version: number } | null;
   allowedActions: ('SUBMIT_FOR_REVIEW' | 'REQUEST_CHANGES' | 'APPROVE' | 'PUBLISH' | 'UNPUBLISH')[];
 }
 

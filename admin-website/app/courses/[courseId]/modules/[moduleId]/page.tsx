@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { WORKFLOW_ENDPOINT, catalogTransitionBody, type WorkflowAction } from '@/lib/workflow';
 import { useAuth } from '@/lib/auth';
+import { STALE_CATALOG_MESSAGE, actionLabelFor, catalogPublishExplanation, visibleActions } from '@/lib/review-guidance';
 import {
   Course,
   ModuleItem,
@@ -288,7 +289,13 @@ export default function ModuleDetailPage() {
       setSuccessMessage('Module status updated.');
       fetchModuleData();
     } catch (err: unknown) {
-      setTransitionError(friendlyError(err, 'This status change could not be completed.'));
+      if ((err as { status?: number }).status === 409) {
+        // Nothing was changed. The note the user typed is kept; the page data is refreshed so the next try uses the current version.
+        setTransitionError(friendlyError(err, STALE_CATALOG_MESSAGE));
+        fetchModuleData();
+      } else {
+        setTransitionError(friendlyError(err, 'This status change could not be completed.'));
+      }
     } finally {
       setTransitioning(false);
     }
@@ -382,10 +389,10 @@ export default function ModuleDetailPage() {
               <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
                 Module Workflow:
               </span>
-              {workflowState.allowedActions.length === 0 ? (
+              {visibleActions(workflowState.allowedActions, user?.role).length === 0 ? (
                 <span className="text-xs text-slate-400 italic">No transitions available</span>
               ) : (
-                workflowState.allowedActions.map((action) => {
+                visibleActions(workflowState.allowedActions, user?.role).map((action) => {
                   const labelMap: Record<string, string> = {
                     SUBMIT_FOR_REVIEW: 'Submit Module',
                     REQUEST_CHANGES: 'Request Changes',
@@ -770,7 +777,9 @@ export default function ModuleDetailPage() {
           )}
 
           <p className="text-sm text-slate-600">
-            Confirm module lifecycle state change.
+            {transitionAction === 'PUBLISH'
+              ? catalogPublishExplanation('module', Boolean(workflowState?.published))
+              : 'Confirm module lifecycle state change.'}
           </p>
 
           <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
@@ -791,7 +800,7 @@ export default function ModuleDetailPage() {
               className="px-4 py-2 text-sm font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-lg flex items-center gap-2 disabled:opacity-50"
             >
               {transitioning && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
-              Confirm Transition
+              {transitionAction === 'PUBLISH' ? actionLabelFor('PUBLISH', Boolean(workflowState?.published)) : 'Confirm Transition'}
             </button>
           </div>
         </div>

@@ -19,7 +19,7 @@ import type {
 } from '../domain/models.js';
 import { planCatalogTransition } from '../domain/catalog-transition.js';
 import { normalizeNote } from '../domain/notes.js';
-import { canPerform } from '../domain/roles.js';
+import { canPerform, canPublishDirectly } from '../domain/roles.js';
 import {
   SEPARATION_OF_DUTIES_POLICY,
   type SeparationOfDutiesPolicy,
@@ -163,7 +163,12 @@ export class CatalogWorkflowService {
           ? (active?.modules.some((m) => m.moduleId === module.id) ?? false)
           : active !== null;
 
-        const plan = planCatalogTransition(action, target.status, published);
+        const plan = planCatalogTransition(
+          action,
+          target.status,
+          published,
+          canPublishDirectly(actor.role),
+        );
         if (!plan.allowed) {
           throw new ConflictError(
             plan.reason === 'NOT_PUBLISHED'
@@ -336,7 +341,12 @@ export class CatalogWorkflowService {
       allowedActions: WORKFLOW_ACTIONS.filter(
         (action) =>
           canPerform(action, role) &&
-          planCatalogTransition(action, target.status, published).allowed &&
+          planCatalogTransition(
+            action,
+            target.status,
+            published,
+            canPublishDirectly(role),
+          ).allowed &&
           // a module can only be published into a course that is published
           !(module && action === 'PUBLISH' && !active),
       ),

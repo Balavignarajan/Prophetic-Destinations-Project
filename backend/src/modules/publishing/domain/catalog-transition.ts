@@ -17,9 +17,10 @@ export function planCatalogTransition(
   action: WorkflowAction,
   status: ContentStatus,
   isListed: boolean,
+  directPublish = false,
 ): TransitionPlan {
   if (action === 'PUBLISH' && status === 'PUBLISHED' && isListed) {
     return { allowed: true, from: 'PUBLISHED', to: 'PUBLISHED' };
   }
-  return planTransition(action, status, isListed);
+  return planTransition(action, status, isListed, directPublish);
 }

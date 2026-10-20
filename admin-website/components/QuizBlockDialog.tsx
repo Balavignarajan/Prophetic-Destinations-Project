@@ -133,7 +133,7 @@ function Body({ mode, lessonLevels, initialQuizId, saving, error, onSave, reques
       <p className="text-sm text-slate-700">
         Publishing the lesson includes the quiz's questions even if the quiz itself is still a Draft in the Quizzes section. (Whether a quiz must be
         published on its own first has not been decided.) Changing a quiz &mdash; including publishing or unpublishing it &mdash; after it was added means
-        this block must be saved again, and the lesson approved again, before the lesson can be published.
+        this block must be saved again, and the lesson reviewed again (editors and reviewers; administrators can publish directly), before the lesson can be published.
       </p>
 
       <fieldset disabled={saving} className="space-y-2">

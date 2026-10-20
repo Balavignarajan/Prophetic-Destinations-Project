@@ -279,7 +279,7 @@ CHECK constraints are unchanged). Slice 3F-a adds no tables for publishing and n
   with its type's `validateShape` and `validateComplete`). The pure `resolveLesson` and its types are exported too.
 - **Pure Publishing rules** (`publishing/domain`, no database):
   - `workflow.ts`: SUBMIT_FOR_REVIEW (DRAFT to READY_FOR_REVIEW), REQUEST_CHANGES (READY_FOR_REVIEW to DRAFT, note required), APPROVE
-    (READY_FOR_REVIEW to APPROVED), PUBLISH (APPROVED to PUBLISHED), UNPUBLISH (ends the active publication; PUBLISHED becomes APPROVED, and a working copy that was edited after publishing keeps its status: DRAFT, READY_FOR_REVIEW or APPROVED. See slice 3F-c).
+    (READY_FOR_REVIEW to APPROVED), PUBLISH (APPROVED to PUBLISHED for the review path; an ADMIN may also publish directly from DRAFT or READY_FOR_REVIEW, see `workflow-change-direct-admin-publishing.md`), UNPUBLISH (ends the active publication; PUBLISHED becomes APPROVED, and a working copy that was edited after publishing keeps its status: DRAFT, READY_FOR_REVIEW or APPROVED. See slice 3F-c).
   - `roles.ts`: ADMIN and EDITOR submit; ADMIN and REVIEWER request changes and approve; ADMIN alone publishes and unpublishes; all three roles read.
   - `separation-of-duties.ts`: policy S0 (nothing enforced); a policy is a plain function, so stricter ones can be added later without touching the workflow.
   - `readiness.ts`: aggregates every blocking issue (never just the first). Sources are kept apart: RULE (title, at least one level, block
@@ -321,7 +321,7 @@ ADMIN-only publish and unpublish of lessons, with immutable per-level snapshots.
 
 | Method and path                           | Roles     | Effect                                                                                           |
 | ----------------------------------------- | --------- | ------------------------------------------------------------------------------------------------ |
-| `POST workflow/publish`                   | ADMIN     | APPROVED → PUBLISHED: creates the next publication version with one snapshot per available level |
+| `POST workflow/publish`                   | ADMIN     | DRAFT / READY_FOR_REVIEW / APPROVED → PUBLISHED (direct admin publishing): creates the next publication version with one snapshot per available level |
 | `POST workflow/unpublish`                 | ADMIN     | ends the active publication; PUBLISHED → APPROVED, other statuses preserved                      |
 | `GET publications`                        | all three | version history, newest first, `limit`/`offset`                                                  |
 | `GET publications/:version`               | all three | one version: times, actors, end reason, per-level hash and size                                  |

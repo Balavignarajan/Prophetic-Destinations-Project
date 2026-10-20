@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation';
 import { api } from '../../../lib/api';
 import { WORKFLOW_ENDPOINT, catalogTransitionBody, type WorkflowAction } from '../../../lib/workflow';
 import { useAuth } from '../../../lib/auth';
+import { STALE_CATALOG_MESSAGE, actionLabelFor, catalogPublishExplanation, visibleActions } from '../../../lib/review-guidance';
 import { Course, ModuleItem, LessonSummary, LearningLevel, WorkflowState, WorkflowEvent } from '../../../lib/types';
 import { LoadingSpinner, StatusBadge, EmptyState, Modal, ConfirmDialog } from '../../../components/ui';
 import { friendlyError } from '../../../lib/ui-messages';
@@ -275,7 +276,13 @@ export default function CourseDetailPage() {
       setSuccessMessage('Course status updated.');
       fetchCourseData();
     } catch (err: unknown) {
-      setTransitionError(friendlyError(err, 'This status change could not be completed.'));
+      if ((err as { status?: number }).status === 409) {
+        // Nothing was changed. The note the user typed is kept; the page data is refreshed so the next try uses the current version.
+        setTransitionError(friendlyError(err, STALE_CATALOG_MESSAGE));
+        fetchCourseData();
+      } else {
+        setTransitionError(friendlyError(err, 'This status change could not be completed.'));
+      }
     } finally {
       setTransitioning(false);
     }
@@ -357,15 +364,15 @@ export default function CourseDetailPage() {
               <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
                 Workflow Actions:
               </span>
-              {workflowState.allowedActions.length === 0 ? (
+              {visibleActions(workflowState.allowedActions, user?.role).length === 0 ? (
                 <span className="text-xs text-slate-400 italic">No transitions available for your role</span>
               ) : (
-                workflowState.allowedActions.map((action) => {
+                visibleActions(workflowState.allowedActions, user?.role).map((action) => {
                   const labelMap: Record<string, string> = {
                     SUBMIT_FOR_REVIEW: 'Submit for Review',
                     REQUEST_CHANGES: 'Request Changes',
                     APPROVE: 'Approve Course',
-                    PUBLISH: 'Publish Catalog',
+                    PUBLISH: actionLabelFor('PUBLISH', Boolean(workflowState.published)),
                     UNPUBLISH: 'Unpublish Catalog',
                   };
                   const colorMap: Record<string, string> = {
@@ -766,8 +773,7 @@ export default function CourseDetailPage() {
           )}
 
           <p className="text-sm text-slate-600">
-            {transitionAction === 'PUBLISH' &&
-              'Publishing this course will generate an immutable catalog version including all approved modules.'}
+            {transitionAction === 'PUBLISH' && catalogPublishExplanation('course', Boolean(workflowState?.published))}
             {transitionAction === 'UNPUBLISH' &&
               'Unpublishing will remove this course from learner catalog availability.'}
             {transitionAction === 'APPROVE' &&
@@ -794,7 +800,7 @@ export default function CourseDetailPage() {
               className="px-4 py-2 text-sm font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-lg flex items-center gap-2 disabled:opacity-50"
             >
               {transitioning && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
-              Confirm Transition
+              {transitionAction === 'PUBLISH' ? actionLabelFor('PUBLISH', Boolean(workflowState?.published)) : 'Confirm Transition'}
             </button>
           </div>
         </div>

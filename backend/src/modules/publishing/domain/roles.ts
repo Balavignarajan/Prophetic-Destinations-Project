@@ -21,6 +21,15 @@ export const READ_ROLES: readonly Role[] = [
   Role.REVIEWER,
 ];
 
+/**
+ * Whether the role publishes straight from Draft (no submit, no approval). Project decision: ADMIN only;
+ * EDITOR and REVIEWER keep the review workflow. Only ADMIN may publish at all (PUBLISH above), so this is the
+ * rule that decides which statuses the publish is allowed from, not a second permission.
+ */
+export function canPublishDirectly(role: Role): boolean {
+  return role === Role.ADMIN;
+}
+
 export function canPerform(action: WorkflowAction, role: Role): boolean {
   return ACTION_ROLES[action].includes(role);
 }

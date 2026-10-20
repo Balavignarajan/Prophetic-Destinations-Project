@@ -24,7 +24,7 @@ import SummaryBlockView from '../../../components/SummaryBlockView';
 import LevelCoverage, { type ReadinessState } from '../../../components/LevelCoverage';
 import ReviewPublishPanel from '../../../components/ReviewPublishPanel';
 import RelatedLessonsPanel from '../../../components/RelatedLessonsPanel';
-import { ACTION_EXPLANATION, ACTION_LABEL } from '../../../lib/review-guidance';
+import { ACTION_EXPLANATION, actionLabelFor } from '../../../lib/review-guidance';
 import { CalloutBlockDialog, SectionBlockDialog } from '../../../components/SectionCalloutDialogs';
 import { CalloutBlockView, SectionBlockView } from '../../../components/SectionCalloutViews';
 import { readCallout, readSection } from '../../../lib/section-callout';
@@ -1564,6 +1564,7 @@ export default function LessonAuthoringPage() {
         </div>
 
         <ReviewPublishPanel
+          role={user?.role}
           lessonId={lessonId}
           courseId={lesson.courseId}
           workflowState={workflowState}
@@ -2634,7 +2635,7 @@ export default function LessonAuthoringPage() {
         onClose={() => {
           if (!transitioning) setTransitionAction(null);
         }}
-        title={`Confirm: ${transitionAction ? (ACTION_LABEL[transitionAction] ?? transitionAction) : ''}`}
+        title={`Confirm: ${transitionAction ? actionLabelFor(transitionAction, Boolean(workflowState?.activePublication)) : ''}`}
       >
         <div className="space-y-4">
           {transitionError && (
@@ -2680,7 +2681,7 @@ export default function LessonAuthoringPage() {
               className="px-4 py-2 text-sm font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-lg flex items-center gap-2 disabled:opacity-50"
             >
               {transitioning && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
-              {transitionAction ? (ACTION_LABEL[transitionAction] ?? 'Confirm') : 'Confirm'}
+              {transitionAction ? actionLabelFor(transitionAction, Boolean(workflowState?.activePublication), 'Confirm') : 'Confirm'}
             </button>
           </div>
         </div>
