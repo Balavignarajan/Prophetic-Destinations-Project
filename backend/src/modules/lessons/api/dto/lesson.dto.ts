@@ -228,6 +228,17 @@ export class ReorderLessonsDto {
   @ArrayMaxSize(500)
   @IsUUID('all', { each: true })
   lessonIds: string[];
+
+  /**
+   * The order the editor last saw (all lessons of the course/module). Optional for older clients. When sent for a course's direct lessons, it must
+   * equal the stored order (else 409, nothing changes), and lessons that are not PUBLISHED must keep their place (they never take part in the
+   * published ordering).
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(500)
+  @IsUUID('all', { each: true })
+  previousLessonIds?: string[];
 }
 
 export class LessonResponseDto {

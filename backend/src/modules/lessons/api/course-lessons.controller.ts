@@ -21,6 +21,6 @@ export class CourseLessonsController {
 
   @Put('order') @Roles(...WRITE_ROLES)
   async reorder(@Param('courseId', ParseUUIDPipe) courseId: string, @Body() dto: ReorderLessonsDto): Promise<LessonListResponseDto> {
-    return LessonListResponseDto.from(await this.lessons.reorderDirect(courseId, dto.lessonIds));
+    return LessonListResponseDto.from(await this.lessons.reorderDirect(courseId, dto.lessonIds, dto.previousLessonIds));
   }
 }

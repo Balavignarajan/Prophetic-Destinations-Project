@@ -7,6 +7,7 @@ import { api } from '../../../lib/api';
 import { WORKFLOW_ENDPOINT, catalogTransitionBody, type WorkflowAction } from '../../../lib/workflow';
 import { useAuth } from '../../../lib/auth';
 import AddLessonFlow from '../../../components/AddLessonFlow';
+import DirectLessonLists from '../../../components/DirectLessonLists';
 import { STALE_CATALOG_MESSAGE, actionLabelFor, catalogPublishExplanation, visibleActions } from '../../../lib/review-guidance';
 import { Course, ModuleItem, LessonSummary, LearningLevel, WorkflowState, WorkflowEvent } from '../../../lib/types';
 import { LoadingSpinner, StatusBadge, EmptyState, Modal, ConfirmDialog } from '../../../components/ui';
@@ -14,7 +15,6 @@ import { friendlyError } from '../../../lib/ui-messages';
 import DuplicateLessonDialog from '../../../components/DuplicateLessonDialog';
 import CoverImageField from '../../../components/CoverImageField';
 import LessonMetadataFields, { EMPTY_LESSON_METADATA, type LessonMetadataValues, durationProblem, lessonMetadataPayload, lessonMetadataTouched } from '../../../components/LessonMetadataFields';
-import CoverThumb from '../../../components/CoverThumb';
 
 export default function CourseDetailPage() {
   const params = useParams();
@@ -197,16 +197,6 @@ export default function CourseDetailPage() {
       setCreateLessonModalOpen(false); setNewLessonTitle(''); setNewLessonCover(null); setNewLessonMeta(EMPTY_LESSON_METADATA); setSuccessMessage('Lesson added directly to this course.'); fetchCourseData();
     } catch (err: unknown) { setCreateLessonError(friendlyError(err, 'Failed to add lesson.')); }
     finally { setCreatingLesson(false); }
-  };
-
-  const handleReorderDirectLessons = async (index: number, direction: 'up' | 'down') => {
-    const next = [...directLessons]; const target = direction === 'up' ? index - 1 : index + 1;
-    if (target < 0 || target >= next.length) return;
-    [next[index], next[target]] = [next[target], next[index]];
-    try {
-      const result = await api.request<{ items: LessonSummary[] }>(`/admin/courses/${courseId}/lessons/order`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lessonIds: next.map((lesson) => lesson.id) }) });
-      setDirectLessons(result.items); setSuccessMessage('Direct lesson order saved.'); fetchCourseData();
-    } catch (err: unknown) { setError(friendlyError(err, 'Failed to update direct lesson order.')); }
   };
 
   const handleDeleteModule = async () => {
@@ -418,21 +408,17 @@ export default function CourseDetailPage() {
         </div>
       )}
 
-      {/* Direct lessons are intentionally a separate group from optional modules. */}
-      <section className="space-y-4">
-        <div className="flex items-center justify-between gap-3">
-          <div><h2 className="font-serif text-xl font-bold text-slate-900">Lessons directly in this course</h2><p className="text-xs text-slate-500 mt-0.5">These lessons do not need to belong to a module.</p></div>
-          {canWrite && <button onClick={() => setAddLessonFlowOpen(true)} className="px-3.5 py-2 text-xs font-medium bg-amber-600 hover:bg-amber-500 text-white rounded-lg shadow-xs">Add lesson</button>}
-        </div>
-        {directLessons.length === 0 ? (
-          <EmptyState title="No direct lessons" description="Add a lesson here, or group lessons in an optional module." action={canWrite ? <button onClick={() => setAddLessonFlowOpen(true)} className="px-4 py-2 text-sm font-medium bg-amber-600 hover:bg-amber-500 text-white rounded-lg">Add lesson</button> : undefined} />
-        ) : <div className="bg-white border border-slate-200 rounded-xl shadow-xs divide-y divide-slate-100">
-          {directLessons.map((lesson, index) => <div key={lesson.id} className="p-4 flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3"><span className="w-7 h-7 rounded-md bg-slate-100 text-slate-700 font-bold text-xs flex items-center justify-center">{index + 1}</span><CoverThumb mediaId={lesson.coverMediaId} /><div><Link href={`/lessons/${lesson.id}`} className="font-semibold text-slate-900 hover:text-amber-700">{lesson.title}</Link><div className="mt-1 flex gap-2 items-center"><StatusBadge status={lesson.status} />{lesson.levels.map((level) => <span key={level} className="text-[10px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">{level}</span>)}</div></div></div>
-            <div className="flex items-center gap-2"><Link href={`/lessons/${lesson.id}`} className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg">Edit lesson</Link>{canWrite && <><button aria-label={`Duplicate lesson ${lesson.title}`} onClick={() => setDuplicateTarget({ id: lesson.id, title: lesson.title })} className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg">Duplicate lesson</button><button aria-label="Move lesson up" disabled={index === 0} onClick={() => handleReorderDirectLessons(index, 'up')} className="p-1 text-slate-500 disabled:opacity-30">↑</button><button aria-label="Move lesson down" disabled={index === directLessons.length - 1} onClick={() => handleReorderDirectLessons(index, 'down')} className="p-1 text-slate-500 disabled:opacity-30">↓</button></>}</div>
-          </div>)}
-        </div>}
-      </section>
+      {/* Direct lessons: Published (ordered by drag and drop), In review, Draft. */}
+      <DirectLessonLists
+        courseId={courseId}
+        lessons={directLessons}
+        canWrite={canWrite}
+        onAddLesson={() => setAddLessonFlowOpen(true)}
+        onDuplicate={setDuplicateTarget}
+        onSaved={setDirectLessons}
+        onReload={() => fetchCourseData()}
+        onPublishCatalog={workflowState?.allowedActions.includes('PUBLISH') ? () => setTransitionAction('PUBLISH') : undefined}
+      />
 
       {/* Modules Section */}
       <div className="space-y-4">

@@ -517,11 +517,30 @@ export class LessonService {
     });
   }
 
-  async reorderDirect(courseId: string, lessonIds: readonly string[]): Promise<Lesson[]> {
+  /**
+   * Sets the order of ALL of a course's direct lessons, under the course lock. With `previousLessonIds` (the order the editor last saw) the stored order
+   * must match it exactly, else 409 and nothing is written, so two editors cannot silently overwrite each other; then only PUBLISHED lessons may change
+   * places: every other lesson must stay at its own position. The request must still list every lesson exactly once (no duplicates, unknown or missing ids,
+   * and so no lesson of another course). It changes positions only: no lesson content, version, revision or status. What learners see changes when the
+   * course catalog is published again (the catalog takes the authoring order of direct lessons at a course publish).
+   */
+  async reorderDirect(courseId: string, lessonIds: readonly string[], previousLessonIds?: readonly string[]): Promise<Lesson[]> {
     return this.transactions.run(async (manager) => {
       await this.curriculum.lockCourse(courseId, manager);
       const current = await this.lessons.listDirectByCourse(courseId, manager);
+      if (previousLessonIds && (current.length !== previousLessonIds.length || current.some((lesson, index) => lesson.id !== previousLessonIds[index]))) {
+        throw new ConflictError('The lesson order was changed by someone else. Reload the course and try again.');
+      }
       checkReorder(current.map((lesson) => lesson.id), lessonIds);
+      if (previousLessonIds) {
+        const moved = current.filter((lesson, index) => lesson.status !== 'PUBLISHED' && lessonIds[index] !== lesson.id);
+        if (moved.length > 0) {
+          throw new BusinessRuleError('Only published lessons can be reordered here. Lessons that are not published must keep their place.', {
+            code: 'ONLY_PUBLISHED_REORDERABLE',
+            lessonIds: moved.map((lesson) => lesson.id),
+          });
+        }
+      }
       if (lessonIds.some((id, index) => id !== current[index]?.id)) {
         await this.lessons.applyDirectPositions(courseId, lessonIds, positionsFor(lessonIds), manager);
       }

@@ -15,6 +15,9 @@ import type { Lesson } from '../domain/models.js';
 import { LessonLevelEntity } from './lesson-level.entity.js';
 import { LessonEntity } from './lesson.entity.js';
 
+/** Positions are parked this far above any real position while lessons swap places (inside one transaction, so it is never visible). */
+const PARK = 1_000_000;
+
 export interface NewLesson {
   /** null = a library lesson (no course, no module). */
   courseId: string | null;
@@ -341,16 +344,20 @@ export class LessonRepository {
     delta: 1 | -1,
     manager: EntityManager,
   ): Promise<void> {
+    // Two statements: the position indexes are unique and NOT deferrable, so one UPDATE that moves rows onto each other's places fails midway.
     await manager.query(
-      `UPDATE "lessons"
-         SET "position" = "position" + $3, "updated_at" = now()
-       WHERE "module_id" = $1 AND "position" >= $2`,
+      `UPDATE "lessons" SET "position" = "position" + ${PARK} WHERE "module_id" = $1 AND "position" >= $2`,
+      [moduleId, fromPosition],
+    );
+    await manager.query(
+      `UPDATE "lessons" SET "position" = "position" - ${PARK} + $3, "updated_at" = now() WHERE "module_id" = $1 AND "position" >= ${PARK}`,
       [moduleId, fromPosition, delta],
     );
   }
 
   async shiftDirectFrom(courseId: string, fromPosition: number, delta: 1 | -1, manager: EntityManager): Promise<void> {
-    await manager.query(`UPDATE "lessons" SET "position" = "position" + $3, "updated_at" = now() WHERE "course_id" = $1 AND "module_id" IS NULL AND "position" >= $2`, [courseId, fromPosition, delta]);
+    await manager.query(`UPDATE "lessons" SET "position" = "position" + ${PARK} WHERE "course_id" = $1 AND "module_id" IS NULL AND "position" >= $2`, [courseId, fromPosition]);
+    await manager.query(`UPDATE "lessons" SET "position" = "position" - ${PARK} + $3, "updated_at" = now() WHERE "course_id" = $1 AND "module_id" IS NULL AND "position" >= ${PARK}`, [courseId, fromPosition, delta]);
   }
 
   /** Assigns positions in one statement: ids[i] gets positions[i]. Ignores ids of other modules. */
@@ -360,6 +367,11 @@ export class LessonRepository {
     positions: readonly number[],
     manager: EntityManager,
   ): Promise<void> {
+    // Park the affected lessons out of the way first (see shiftFrom), then give each its final position.
+    await manager.query(
+      `UPDATE "lessons" SET "position" = "position" + ${PARK} WHERE "id" = ANY($2::uuid[]) AND "module_id" = $1`,
+      [moduleId, ids],
+    );
     await manager.query(
       `UPDATE "lessons" AS l
           SET "position" = v."position", "updated_at" = now()
@@ -370,6 +382,7 @@ export class LessonRepository {
   }
 
   async applyDirectPositions(courseId: string, ids: readonly string[], positions: readonly number[], manager: EntityManager): Promise<void> {
+    await manager.query(`UPDATE "lessons" SET "position" = "position" + ${PARK} WHERE "id" = ANY($2::uuid[]) AND "course_id" = $1 AND "module_id" IS NULL`, [courseId, ids]);
     await manager.query(`UPDATE "lessons" AS l SET "position" = v."position", "updated_at" = now() FROM unnest($2::uuid[], $3::int[]) AS v("id", "position") WHERE l."id" = v."id" AND l."course_id" = $1 AND l."module_id" IS NULL`, [courseId, ids, positions]);
   }
 
