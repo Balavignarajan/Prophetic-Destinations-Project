@@ -73,6 +73,7 @@ import { validateScriptureReference, CANONICAL_BOOKS, ParseResult } from '../../
 import { friendlyError, readableLevel, readinessMessage } from '../../../lib/ui-messages';
 import DuplicateLessonDialog from '../../../components/DuplicateLessonDialog';
 import CoverImageField from '../../../components/CoverImageField';
+import LessonMetadataFields from '../../../components/LessonMetadataFields';
 
 export default function LessonAuthoringPage() {
   const params = useParams();
@@ -1909,57 +1910,17 @@ export default function LessonAuthoringPage() {
             />
           </div>
 
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5">
-              Short Title
-            </label>
-            <input
-              type="text"
-              value={editShortTitle}
-              onChange={(e) => setEditShortTitle(e.target.value)}
-              className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5">
-              Subtitle
-            </label>
-            <input
-              type="text"
-              value={editSubtitle}
-              onChange={(e) => setEditSubtitle(e.target.value)}
-              className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5">
-              Introduction
-            </label>
-            <textarea
-              rows={3}
-              value={editIntroduction}
-              onChange={(e) => setEditIntroduction(e.target.value)}
-              placeholder="Multi-paragraph orientation to the lesson theme..."
-              className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5">
-              Estimated Duration (Minutes)
-            </label>
-            <input
-              type="number"
-              min={1}
-              max={600}
-              value={editEstimatedMinutes}
-              onChange={(e) => setEditEstimatedMinutes(e.target.value)}
-              placeholder="e.g. 30"
-              className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500"
-            />
-          </div>
+          <LessonMetadataFields
+            idPrefix="edit-lesson"
+            values={{ shortTitle: editShortTitle, subtitle: editSubtitle, introduction: editIntroduction, estimatedMinutes: editEstimatedMinutes }}
+            onChange={(v) => {
+              setEditShortTitle(v.shortTitle);
+              setEditSubtitle(v.subtitle);
+              setEditIntroduction(v.introduction);
+              setEditEstimatedMinutes(v.estimatedMinutes);
+            }}
+            disabled={updatingMetadata}
+          />
 
           <CoverImageField subject="lesson" mode="edit" saveLabel="Save lesson details" value={editCoverMediaId} onChange={setEditCoverMediaId} disabled={updatingMetadata} />
 

@@ -11,6 +11,7 @@ import { LoadingSpinner, StatusBadge, EmptyState, Modal, ConfirmDialog } from '.
 import { friendlyError } from '../../../lib/ui-messages';
 import DuplicateLessonDialog from '../../../components/DuplicateLessonDialog';
 import CoverImageField from '../../../components/CoverImageField';
+import LessonMetadataFields, { EMPTY_LESSON_METADATA, type LessonMetadataValues, durationProblem, lessonMetadataPayload, lessonMetadataTouched } from '../../../components/LessonMetadataFields';
 import CoverThumb from '../../../components/CoverThumb';
 
 export default function CourseDetailPage() {
@@ -47,6 +48,7 @@ export default function CourseDetailPage() {
   const [createLessonModalOpen, setCreateLessonModalOpen] = useState(false);
   const [newLessonTitle, setNewLessonTitle] = useState('');
   const [newLessonCover, setNewLessonCover] = useState<string | null>(null);
+  const [newLessonMeta, setNewLessonMeta] = useState<LessonMetadataValues>(EMPTY_LESSON_METADATA);
   const [newLessonLevels, setNewLessonLevels] = useState<LearningLevel[]>(['BEGINNER', 'INTERMEDIATE', 'ADVANCED']);
   const [creatingLesson, setCreatingLesson] = useState(false);
   const [createLessonError, setCreateLessonError] = useState<string | null>(null);
@@ -181,11 +183,15 @@ export default function CourseDetailPage() {
 
   const handleCreateDirectLesson = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (creatingLesson) return;
     if (!newLessonLevels.length) { setCreateLessonError('Choose at least one learning level.'); return; }
+    const durationError = durationProblem(newLessonMeta.estimatedMinutes);
+    if (durationError) { setCreateLessonError(durationError); return; }
     setCreatingLesson(true); setCreateLessonError(null);
     try {
-      await api.request(`/admin/courses/${courseId}/lessons`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: newLessonTitle.trim(), levels: newLessonLevels, ...(newLessonCover ? { coverMediaId: newLessonCover } : {}) }) });
-      setCreateLessonModalOpen(false); setNewLessonTitle(''); setNewLessonCover(null); setSuccessMessage('Lesson added directly to this course.'); fetchCourseData();
+      // Everything is saved by this one create request (no second update); a failure keeps every entered value and the chosen cover.
+      await api.request(`/admin/courses/${courseId}/lessons`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: newLessonTitle.trim(), ...lessonMetadataPayload(newLessonMeta), levels: newLessonLevels, ...(newLessonCover ? { coverMediaId: newLessonCover } : {}) }) });
+      setCreateLessonModalOpen(false); setNewLessonTitle(''); setNewLessonCover(null); setNewLessonMeta(EMPTY_LESSON_METADATA); setSuccessMessage('Lesson added directly to this course.'); fetchCourseData();
     } catch (err: unknown) { setCreateLessonError(friendlyError(err, 'Failed to add lesson.')); }
     finally { setCreatingLesson(false); }
   };
@@ -645,13 +651,14 @@ export default function CourseDetailPage() {
         onClose={() => setDuplicateTarget(null)}
       />
 
-      <Modal isOpen={createLessonModalOpen} onClose={() => confirmDiscard(Boolean(newLessonTitle.trim() || newLessonCover), () => setCreateLessonModalOpen(false))} title="Add lesson" description="Add a lesson directly to this course. Modules are optional groups of lessons.">
+      <Modal isOpen={createLessonModalOpen} onClose={() => confirmDiscard(Boolean(newLessonTitle.trim() || newLessonCover || lessonMetadataTouched(newLessonMeta)), () => setCreateLessonModalOpen(false))} title="Add lesson" description="Add a lesson directly to this course. Modules are optional groups of lessons.">
         <form onSubmit={handleCreateDirectLesson} className="space-y-4">
           {createLessonError && <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs">{createLessonError}</div>}
-          <div><label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5">Lesson title *</label><input required value={newLessonTitle} onChange={(e) => setNewLessonTitle(e.target.value)} className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm" /></div>
+          <div><label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5">Lesson title *</label><input required value={newLessonTitle} onChange={(e) => setNewLessonTitle(e.target.value)} disabled={creatingLesson} className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm" /></div>
+          <LessonMetadataFields idPrefix="direct-lesson" values={newLessonMeta} onChange={setNewLessonMeta} disabled={creatingLesson} />
           <div><span className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-2">Available learning levels *</span><div className="flex flex-wrap gap-2">{(['BEGINNER', 'INTERMEDIATE', 'ADVANCED'] as LearningLevel[]).map((level) => <button key={level} type="button" onClick={() => setNewLessonLevels((current) => current.includes(level) ? current.filter((item) => item !== level) : [...current, level])} className={`px-3 py-2 rounded-lg text-xs font-semibold border ${newLessonLevels.includes(level) ? 'bg-amber-100 text-amber-900 border-amber-300' : 'bg-white text-slate-600 border-slate-200'}`}>{level}</button>)}</div></div>
           <CoverImageField subject="lesson" mode="create" saveLabel="Add lesson" value={newLessonCover} onChange={setNewLessonCover} disabled={creatingLesson} />
-          <div className="flex justify-end gap-3 pt-3 border-t border-slate-100"><button type="button" onClick={() => confirmDiscard(Boolean(newLessonTitle.trim() || newLessonCover), () => setCreateLessonModalOpen(false))} className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg">Cancel</button><button type="submit" disabled={creatingLesson} className="px-4 py-2 text-sm font-medium text-white bg-slate-900 rounded-lg disabled:opacity-50">{creatingLesson ? 'Adding…' : 'Add lesson'}</button></div>
+          <div className="flex justify-end gap-3 pt-3 border-t border-slate-100"><button type="button" onClick={() => confirmDiscard(Boolean(newLessonTitle.trim() || newLessonCover || lessonMetadataTouched(newLessonMeta)), () => setCreateLessonModalOpen(false))} className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg">Cancel</button><button type="submit" disabled={creatingLesson} className="px-4 py-2 text-sm font-medium text-white bg-slate-900 rounded-lg disabled:opacity-50">{creatingLesson ? 'Adding…' : 'Add lesson'}</button></div>
         </form>
       </Modal>
 

@@ -19,6 +19,7 @@ import { friendlyError } from '@/lib/ui-messages';
 import DuplicateLessonDialog from '@/components/DuplicateLessonDialog';
 import CoverThumb from '@/components/CoverThumb';
 import CoverImageField from '@/components/CoverImageField';
+import LessonMetadataFields, { durationProblem, lessonMetadataPayload } from '@/components/LessonMetadataFields';
 
 export default function ModuleDetailPage() {
   const params = useParams();
@@ -114,7 +115,7 @@ export default function ModuleDetailPage() {
   // Unsaved changes protection
   useEffect(() => {
     const isDirty = Boolean(
-      (createLessonModalOpen && (newLessonTitle.trim().length > 0 || newLessonCover !== null)) ||
+      (createLessonModalOpen && (newLessonTitle.trim().length > 0 || newLessonCover !== null || newShortTitle.trim().length > 0 || newSubtitle.trim().length > 0 || newIntroduction.trim().length > 0 || newEstimatedMinutes.trim().length > 0)) ||
       (editModuleModalOpen && moduleData && (
         editTitle !== moduleData.title ||
         editDescription !== (moduleData.description || '')
@@ -130,7 +131,7 @@ export default function ModuleDetailPage() {
 
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [createLessonModalOpen, newLessonTitle, newLessonCover, editModuleModalOpen, moduleData, editTitle, editDescription]);
+  }, [createLessonModalOpen, newLessonTitle, newLessonCover, newShortTitle, newSubtitle, newIntroduction, newEstimatedMinutes, editModuleModalOpen, moduleData, editTitle, editDescription]);
 
   const confirmDiscard = (hasChanges: boolean, close: () => void) => {
     if (!hasChanges || window.confirm('Discard your unsaved changes?')) close();
@@ -169,8 +170,14 @@ export default function ModuleDetailPage() {
 
   const handleCreateLesson = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (creatingLesson) return;
     setCreateLessonError(null);
 
+    const durationError = durationProblem(newEstimatedMinutes);
+    if (durationError) {
+      setCreateLessonError(durationError);
+      return;
+    }
     if (newLevels.length === 0) {
       setCreateLessonError('Please select at least one learning level.');
       return;
@@ -186,10 +193,7 @@ export default function ModuleDetailPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             title: newLessonTitle.trim(),
-            shortTitle: newShortTitle.trim() || undefined,
-            subtitle: newSubtitle.trim() || undefined,
-            introduction: newIntroduction.trim() || undefined,
-            estimatedMinutes: newEstimatedMinutes ? parseInt(newEstimatedMinutes, 10) : undefined,
+            ...lessonMetadataPayload({ shortTitle: newShortTitle, subtitle: newSubtitle, introduction: newIntroduction, estimatedMinutes: newEstimatedMinutes }),
             levels: newLevels,
             ...(newLessonCover ? { coverMediaId: newLessonCover } : {}),
           }),
@@ -643,7 +647,7 @@ export default function ModuleDetailPage() {
         isOpen={createLessonModalOpen}
         onClose={() => confirmDiscard(Boolean(newLessonTitle.trim() || newShortTitle.trim() || newSubtitle.trim() || newIntroduction.trim() || newEstimatedMinutes || newLessonCover), () => setCreateLessonModalOpen(false))}
         title="Create New Lesson"
-        description="Add a lesson with title and target learning levels."
+        description="Add a lesson with its title, optional descriptive details, learning levels and cover. Related lessons are chosen after it is created."
       >
         <form onSubmit={handleCreateLesson} className="space-y-4">
           {createLessonError && (
@@ -666,61 +670,17 @@ export default function ModuleDetailPage() {
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5">
-                Short Title (Optional)
-              </label>
-              <input
-                type="text"
-                value={newShortTitle}
-                onChange={(e) => setNewShortTitle(e.target.value)}
-                placeholder="Joel: Day of the Lord"
-                className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5">
-                Subtitle (Optional)
-              </label>
-              <input
-                type="text"
-                value={newSubtitle}
-                onChange={(e) => setNewSubtitle(e.target.value)}
-                placeholder="Judgment, Repentance, Restoration"
-                className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5">
-              Introduction (Optional)
-            </label>
-            <textarea
-              rows={2}
-              value={newIntroduction}
-              onChange={(e) => setNewIntroduction(e.target.value)}
-              placeholder="Multi-paragraph orientation to the lesson theme..."
-              className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5">
-              Estimated Duration (Minutes, Optional)
-            </label>
-            <input
-              type="number"
-              min={1}
-              max={600}
-              value={newEstimatedMinutes}
-              onChange={(e) => setNewEstimatedMinutes(e.target.value)}
-              placeholder="e.g. 25"
-              className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500"
-            />
-          </div>
+          <LessonMetadataFields
+            idPrefix="module-lesson"
+            values={{ shortTitle: newShortTitle, subtitle: newSubtitle, introduction: newIntroduction, estimatedMinutes: newEstimatedMinutes }}
+            onChange={(v) => {
+              setNewShortTitle(v.shortTitle);
+              setNewSubtitle(v.subtitle);
+              setNewIntroduction(v.introduction);
+              setNewEstimatedMinutes(v.estimatedMinutes);
+            }}
+            disabled={creatingLesson}
+          />
 
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-2">
