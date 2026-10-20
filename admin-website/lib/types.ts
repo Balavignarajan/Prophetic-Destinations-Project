@@ -32,6 +32,10 @@ export interface Course {
   title: string;
   description: string | null;
   status: 'DRAFT' | 'READY_FOR_REVIEW' | 'APPROVED' | 'PUBLISHED';
+  /** Working cover image (media asset id), or null. */
+  coverMediaId?: string | null;
+  /** 1-based place in the manual course order. */
+  position?: number;
   version: number;
   createdAt: string;
   updatedAt: string;
@@ -52,7 +56,7 @@ export interface ModuleItem {
 export interface LessonSummary {
   id: string;
   courseId: string;
-  moduleId: string;
+  moduleId: string | null;
   title: string;
   shortTitle: string | null;
   subtitle: string | null;
@@ -137,6 +141,17 @@ export interface MediaAsset {
   sha256: string;
   createdBy: string;
   createdAt: string;
+  /** Optional Media Library details (absent in responses from before they existed). Alt text and source are DEFAULTS offered when the image is chosen. */
+  title?: string | null;
+  altText?: string | null;
+  /** Default caption; offered only into an empty caption field of a content block that has one. */
+  caption?: string | null;
+  source?: string | null;
+  /** Internal note for staff; never shown to learners and not proof of permission. */
+  rightsNotes?: string | null;
+  tags?: string[];
+  /** Send back as `version` when changing the details (stale = refused). */
+  version?: number;
 }
 
 export interface QuizOption {
@@ -150,6 +165,8 @@ export interface QuizQuestion {
   type: string;
   prompt: string;
   explanation: string | null;
+  /** Levels the question is shown at; null or absent = every level (the default of questions created before this setting existed). */
+  levels?: string[] | null;
   options: QuizOption[];
 }
 

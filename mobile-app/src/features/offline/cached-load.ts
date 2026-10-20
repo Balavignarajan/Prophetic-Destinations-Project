@@ -1,7 +1,9 @@
 import { ApiError, NetworkError, ResponseShapeError } from '@/api/errors';
 import type { LearningLevel } from '@/learning/levels';
 
-import { type CacheKind, cacheRead, cacheRemove, cacheWrite } from './cache-store';
+import { type CacheKind, cacheRead, cacheRemove } from './cache-store';
+import { saveLoaded } from './offline-assets';
+import { currentEpoch } from './offline-media';
 
 /** A loaded value and where it came from. `cache` means a SAVED copy, shown because the live request could not be completed. */
 export type Loaded<T> = {
@@ -37,9 +39,12 @@ type Options<T> = {
  * is simply replaced by the fresh answer on each successful load.
  */
 export async function loadCached<T>({ kind, id, level, fetch, validate, signal }: Options<T>): Promise<Loaded<T>> {
+  const startedIn = currentEpoch(); // if the offline cache is cleared while this loads, nothing is written afterwards
   try {
     const value = await fetch();
-    await cacheWrite(kind, id, level, value);
+    // Saves the text (at once for a first save; staged until its images are on disk when it updates a completely saved lesson)
+    // and starts saving the images in the background. Missing images are retried on every successful load.
+    await saveLoaded(kind, id, level, value, startedIn);
     return { value, source: 'network', fetchedAt: Date.now() };
   } catch (error) {
     if (signal?.aborted) throw error;

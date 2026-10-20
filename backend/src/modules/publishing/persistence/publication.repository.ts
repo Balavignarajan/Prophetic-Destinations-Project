@@ -15,7 +15,8 @@ import type {
 export interface NewPublication {
   lessonId: string;
   version: number;
-  moduleId: string;
+  courseId: string;
+  moduleId: string | null;
   sourceContentRevision: number;
   snapshotSchemaVersion: number;
   publishedBy: string;
@@ -33,7 +34,8 @@ interface PublicationRow {
   id: string;
   lesson_id: string;
   version: number;
-  module_id: string;
+  course_id: string;
+  module_id: string | null;
   source_content_revision: number;
   snapshot_schema_version: number;
   published_at: Date;
@@ -57,18 +59,16 @@ interface LevelSummaryRow {
  * a learner can reach; a lesson it does not list is not delivered, whatever its own publication says.
  */
 const LISTED_IN_ACTIVE_CATALOG = `EXISTS (
-    SELECT 1 FROM "course_publication_modules" cm
-      JOIN "course_publications" cp
-        ON cp."id" = cm."publication_id" AND cp."ended_at" IS NULL
-      JOIN "course_publication_levels" cl
-        ON cl."publication_id" = cp."id" AND cl."level" = l."level"
-     WHERE cm."module_id" = p."module_id"
-       AND cl."content" @> jsonb_build_object('modules', jsonb_build_array(
-             jsonb_build_object('id', p."module_id"::text, 'lessons', jsonb_build_array(
-               jsonb_build_object('id', p."lesson_id"::text)))))
+    SELECT 1 FROM "course_publications" cp
+      JOIN "course_publication_levels" cl ON cl."publication_id" = cp."id" AND cl."level" = l."level"
+     WHERE cp."course_id" = p."course_id" AND cp."ended_at" IS NULL
+       AND ((p."module_id" IS NULL AND cl."content" @> jsonb_build_object('directLessons', jsonb_build_array(jsonb_build_object('id', p."lesson_id"::text))))
+         OR (p."module_id" IS NOT NULL AND EXISTS (
+           SELECT 1 FROM "course_publication_modules" cm WHERE cm."publication_id" = cp."id" AND cm."module_id" = p."module_id"
+         ) AND cl."content" @> jsonb_build_object('modules', jsonb_build_array(jsonb_build_object('id', p."module_id"::text, 'lessons', jsonb_build_array(jsonb_build_object('id', p."lesson_id"::text))))) )
   )`;
 
-const PUBLICATION_COLUMNS = `p."id", p."lesson_id", p."version", p."module_id", p."source_content_revision",
+const PUBLICATION_COLUMNS = `p."id", p."lesson_id", p."version", p."course_id", p."module_id", p."source_content_revision",
   p."snapshot_schema_version", p."published_at", p."published_by", p."ended_at", p."ended_by", p."ended_reason"`;
 
 /**
@@ -243,6 +243,7 @@ export class PublicationRepository {
         shortTitle: string | null;
         subtitle: string | null;
         estimatedMinutes: number | null;
+        coverMediaId?: string | null;
       };
     }[] = await this.db(manager).query(
       `SELECT p."lesson_id", l."level", l."content" -> 'lesson' AS "lesson"
@@ -262,6 +263,28 @@ export class PublicationRepository {
       result.set(row.lesson_id, levels);
     }
     return result;
+  }
+
+  /**
+   * The cover each given lesson has in its ACTIVE lesson snapshot at `level` (lessons without a cover are absent).
+   * Learners are shown this one, because it is the one the lesson media route will serve; a cover frozen into an older
+   * catalog version could name an image the lesson no longer publishes.
+   */
+  async findActiveCovers(
+    level: LearningLevel,
+    lessonIds: readonly string[],
+    manager?: EntityManager,
+  ): Promise<Map<string, string>> {
+    if (lessonIds.length === 0) return new Map();
+    const rows: { lesson_id: string; cover: string }[] = await this.db(manager).query(
+      `SELECT p."lesson_id", l."content" #>> '{lesson,coverMediaId}' AS "cover"
+         FROM "lesson_publications" p
+         JOIN "lesson_publication_levels" l ON l."publication_id" = p."id"
+        WHERE p."ended_at" IS NULL AND l."level" = $1 AND p."lesson_id" = ANY($2::uuid[])
+          AND l."content" #>> '{lesson,coverMediaId}' IS NOT NULL`,
+      [level, lessonIds],
+    );
+    return new Map(rows.map((row) => [row.lesson_id, row.cover]));
   }
 
   /** Of the given lessons, the ones that have an active lesson publication with a snapshot at `level` right now. */
@@ -325,13 +348,14 @@ export class PublicationRepository {
     const id = randomUUID();
     await manager.query(
       `INSERT INTO "lesson_publications"
-         ("id", "lesson_id", "version", "module_id", "source_content_revision",
+         ("id", "lesson_id", "version", "course_id", "module_id", "source_content_revision",
           "snapshot_schema_version", "published_by")
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [
         id,
         publication.lessonId,
         publication.version,
+        publication.courseId,
         publication.moduleId,
         publication.sourceContentRevision,
         publication.snapshotSchemaVersion,
@@ -410,6 +434,7 @@ function toPublication(
     id: row.id,
     lessonId: row.lesson_id,
     version: row.version,
+    courseId: row.course_id,
     moduleId: row.module_id,
     sourceContentRevision: row.source_content_revision,
     snapshotSchemaVersion: row.snapshot_schema_version,

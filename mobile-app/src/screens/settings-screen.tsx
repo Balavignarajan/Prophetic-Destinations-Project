@@ -101,22 +101,22 @@ export function SettingsScreen() {
         <View style={{ gap: spacing.md }}>
           <SectionHeader
             title="Saved data"
-            subtitle="Lessons you open are kept on this device for offline reading. Saved items (stars) and Daniel 2 progress are not affected by these buttons."
+            subtitle="Lessons, courses and course lists you open (with their images) are kept on this device for offline reading. Clearing offline lessons does not erase your reading progress or quiz results. Saved items (stars) and Daniel 2 progress are not affected by these buttons."
           />
           <ConfirmButton
-            label="Clear offline lessons"
-            confirmLabel="Tap again to clear offline lessons"
+            label="Clear offline lessons and courses"
+            confirmLabel="Tap again to clear offline lessons and courses"
             run={async () => {
               const count = await cacheClear();
-              return count === 0 ? 'Nothing was saved for offline reading.' : `Removed ${count} saved ${count === 1 ? 'item' : 'items'}.`;
+              return count === 0 ? 'Nothing was saved for offline reading.' : `Removed ${count} saved ${count === 1 ? 'item' : 'items'} (lessons, courses and course lists) and their saved images.`;
             }}
           />
           <ConfirmButton
-            label="Reset reading progress"
-            confirmLabel="Tap again to reset reading progress"
+            label="Reset reading progress and quiz results"
+            confirmLabel="Tap again to erase reading progress and saved quiz results"
             run={() => {
               reset();
-              return 'Reading progress was reset.';
+              return 'Reading progress and saved quiz results were erased from this device.';
             }}
           />
         </View>

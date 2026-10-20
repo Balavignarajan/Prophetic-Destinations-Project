@@ -3,13 +3,15 @@ import type { Readable } from 'node:stream';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
   BusinessRuleError,
+  ConflictError,
   NotFoundError,
 } from '../../../shared-kernel/index.js';
+import { MEDIA_METADATA_LIMITS, cleanMetadataText, cleanTags, sameMetadata } from '../domain/metadata.js';
 import { newStorageKey, sanitizeFilename } from '../domain/filename.js';
 import { detectMediaType, findSupportedType } from '../domain/media-types.js';
 import type { MediaAsset, StoredMediaAsset } from '../domain/models.js';
 import { MediaAssetRepository } from '../persistence/media-asset.repository.js';
-import { MediaUsageRepository } from '../persistence/media-usage.repository.js';
+import { type MediaUsageDetail, MediaUsageRepository } from '../persistence/media-usage.repository.js';
 import {
   MEDIA_STORAGE,
   type MediaStorage,
@@ -105,12 +107,50 @@ export class MediaService {
     }
   }
 
+  /**
+   * Changes the descriptive metadata (title, default alt text, caption, source, rights notes, tags) and nothing else: the file, its hash, type, size and
+   * identity are never touched. The editor's `expectedVersion` must be the stored one (409 otherwise, so no silent overwrite); an identical save
+   * changes nothing and does not raise the version. Content that already uses the image keeps its own text: these values are only defaults offered
+   * when an image is chosen, and are never read back into blocks, lessons or published snapshots.
+   */
+  async updateMetadata(
+    id: string,
+    expectedVersion: number,
+    input: { title?: string | null; altText?: string | null; caption?: string | null; source?: string | null; rightsNotes?: string | null; tags?: readonly string[] },
+  ): Promise<MediaAsset> {
+    const L = MEDIA_METADATA_LIMITS;
+    const next = {
+      title: cleanMetadataText(input.title, L.title, 'The title'),
+      altText: cleanMetadataText(input.altText, L.altText, 'The alternative text'),
+      caption: cleanMetadataText(input.caption, L.caption, 'The caption'),
+      source: cleanMetadataText(input.source, L.source, 'The source or credit'),
+      rightsNotes: cleanMetadataText(input.rightsNotes, L.rightsNotes, 'The rights information', true),
+      tags: cleanTags(input.tags),
+    };
+    const current = await this.require(id);
+    if (current.metadataVersion !== expectedVersion) throw staleMetadata();
+    if (sameMetadata(current, next)) return toPublic(current);
+    const updated = await this.assets.updateMetadata(id, expectedVersion, next);
+    if (!updated) {
+      // Nothing matched: it was deleted, or someone else saved first.
+      if (!(await this.assets.findById(id))) throw new NotFoundError('Media not found');
+      throw staleMetadata();
+    }
+    return toPublic(updated);
+  }
+
+  /** Where the image is used (admin only), working and published kept apart. Lists are cut at `limit` and say so; deletion never relies on this list. */
+  async usageDetail(id: string, limit = 50): Promise<MediaUsageDetail> {
+    await this.require(id);
+    return this.usage.detailOf(id, limit);
+  }
+
   async get(id: string): Promise<MediaAsset> {
     return toPublic(await this.require(id));
   }
 
-  async list(limit: number, offset: number, search?: string) {
-    const { items, total } = await this.assets.list(limit, offset, search);
+  async list(limit: number, offset: number, search?: string, contentType?: string) {
+    const { items, total } = await this.assets.list(limit, offset, search, contentType);
     return { items: items.map(toPublic), total };
   }
 
@@ -135,11 +175,16 @@ export class MediaService {
 
   async delete(id: string): Promise<void> {
     await this.require(id);
-    // An image a lesson still uses is never deleted: that would break the draft or the published lesson.
+    // An image a lesson or course still uses (content or cover) is never deleted: that would break the draft or the published item.
     const usage = await this.usage.usageOf(id);
-    if (usage.draftLessons > 0 || usage.publishedLessons > 0) {
+    if (
+      usage.draftLessons > 0 ||
+      usage.publishedLessons > 0 ||
+      usage.draftCourses > 0 ||
+      usage.publishedCourses > 0
+    ) {
       throw new BusinessRuleError(
-        'This image is used by one or more lessons. Remove it from those lessons (and unpublish them if it is published) before deleting it.',
+        'This image is still used by one or more lessons or courses (as content or as a cover), so it cannot be deleted. Open "Where this image is used" to see them, remove the image from each (change the cover or the block), and for published use republish or unpublish the lesson or course. Nothing is removed automatically.',
         { code: 'MEDIA_IN_USE', ...usage },
       );
     }
@@ -159,6 +204,10 @@ export class MediaService {
     if (!asset) throw new NotFoundError('Media not found');
     return asset;
   }
+}
+
+function staleMetadata(): ConflictError {
+  return new ConflictError('Someone else changed this image\u2019s details. Reload the image to see the latest details, then make your change again.');
 }
 
 function toPublic(asset: StoredMediaAsset): MediaAsset {

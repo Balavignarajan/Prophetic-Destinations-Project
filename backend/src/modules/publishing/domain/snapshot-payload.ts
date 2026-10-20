@@ -19,13 +19,18 @@ export interface LevelSnapshotPayload {
   level: LearningLevel;
   lesson: {
     id: string;
-    moduleId: string;
+    courseId: string;
+    moduleId: string | null;
     title: string;
     shortTitle: string | null;
     subtitle: string | null;
     introduction: string | null;
     estimatedMinutes: number | null;
     coverMediaId: string | null;
+    /** Related lessons chosen by the author (ids only, in order). Absent in snapshots written before related lessons existed. */
+    relatedLessonIds?: string[];
+    /** The same links with the author's optional `label` and level visibility `levels` (absent = title of the target / every level). Absent in snapshots written before link labels existed. */
+    relatedLinks?: { lessonId: string; label?: string; levels?: string[] }[];
   };
   blocks: {
     blockId: string;

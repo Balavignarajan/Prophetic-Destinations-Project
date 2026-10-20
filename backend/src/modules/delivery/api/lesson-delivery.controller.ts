@@ -72,6 +72,35 @@ export class LessonDeliveryController {
    * architecture notes). The lesson endpoint's envelope is unchanged; the course id lives only here.
    * 404 for anything that is not deliverable at that level or has no place in a published catalog.
    */
+  /**
+   * The related lessons chosen by the author, limited to those a learner can open right now at this level. 404 when the lesson itself is not
+   * deliverable. A related lesson that is not deliverable is left out entirely (no title, no placeholder).
+   */
+  @Get(':lessonId/related')
+  async related(
+    @Param('lessonId', ParseUUIDPipe) lessonId: string,
+    @Query() query: LessonDeliveryQueryDto,
+    @Headers('if-none-match') ifNoneMatch: string | undefined,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    return respond(res, await this.catalog.getRelated(lessonId, query.level, ifNoneMatch));
+  }
+
+  /**
+   * The targets of one Continue Exploring block, limited to those a learner can open right now at this level (same rules as the related list; a
+   * hidden or unpublished target is left out together with its label). 404 when the lesson or the block is not deliverable at this level.
+   */
+  @Get(':lessonId/explore/:blockId')
+  async exploring(
+    @Param('lessonId', ParseUUIDPipe) lessonId: string,
+    @Param('blockId', ParseUUIDPipe) blockId: string,
+    @Query() query: LessonDeliveryQueryDto,
+    @Headers('if-none-match') ifNoneMatch: string | undefined,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    return respond(res, await this.catalog.getExploring(lessonId, blockId, query.level, ifNoneMatch));
+  }
+
   @Get(':lessonId/navigation')
   async navigation(
     @Param('lessonId', ParseUUIDPipe) lessonId: string,

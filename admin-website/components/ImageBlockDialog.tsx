@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { ALT_TEXT_MAX, CAPTION_MAX, SOURCE_MAX, buildImageContent, type ImageContent } from '../lib/image-block';
+import { fillIfEmpty } from '../lib/media-api';
 import type { LearningLevel, MediaAsset } from '../lib/types';
 import ImageUploadPanel from './ImageUploadPanel';
 import MediaBrowser from './MediaBrowser';
@@ -33,7 +34,8 @@ function Body({ mode, lessonLevels, initial, saving, error, onClose, onSave }: O
   const [levels, setLevels] = useState<LearningLevel[]>(lessonLevels);
 
   const use = (asset: MediaAsset) => {
-    setDraft((d) => ({ ...d, mediaId: asset.id }));
+    // The library's alt text and credit are offered only where these fields are still empty, and stay editable.
+    setDraft((d) => ({ ...d, mediaId: asset.id, altText: fillIfEmpty(d.altText, asset.altText), caption: fillIfEmpty(d.caption, asset.caption), source: fillIfEmpty(d.source, asset.source) }));
     setChoosing(false);
     setPicked(null);
     setReload((n) => n + 1);

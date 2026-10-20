@@ -2,7 +2,7 @@ import { type ReactNode, createContext, useCallback, useContext, useEffect, useM
 
 import type { LearningLevel } from '@/learning/levels';
 
-import { type LessonPosition, withPosition } from './progress-model';
+import { type LessonPosition, type QuizIdentity, type QuizResult, matchingQuizResult, withPosition, withQuizResult } from './progress-model';
 import {
   type LearningProgress,
   type LessonRef,
@@ -23,9 +23,16 @@ type LearningContextValue = {
   savePosition: (lesson: LessonRef, offset: number) => void;
   /** The saved position of a lesson, or null. */
   positionOf: (lessonId: string, level: LearningLevel) => LessonPosition | null;
+  /** The saved result of a quiz block for exactly this content (lesson, level, block, quiz and published version), or null. */
+  quizResultFor: (identity: QuizIdentity) => QuizResult | null;
+  /**
+   * Keeps the finished attempt as the latest result of its quiz block. The result is available in memory at once; the promise says whether it
+   * was also stored on this device (false: the storage failed, or the progress was reset in the meantime).
+   */
+  recordQuizResult: (result: QuizResult) => Promise<boolean>;
   /** The explicit "mark complete / undo" action. */
   setCompleted: (lesson: LessonRef, completed: boolean) => void;
-  /** Forgets the resume point and all completion marks. */
+  /** Forgets the resume point, all completion marks, saved positions and saved quiz results. */
   reset: () => void;
 };
 
@@ -37,6 +44,8 @@ const LearningContext = createContext<LearningContextValue>({
   positionOf: () => null,
   isCompleted: () => false,
   setCompleted: () => undefined,
+  quizResultFor: () => null,
+  recordQuizResult: () => Promise.resolve(false),
   reset: () => undefined,
 });
 
@@ -44,13 +53,19 @@ export function LearningProgressProvider({ children }: { children: ReactNode }) 
   const [progress, setProgress] = useState<LearningProgress>(emptyLearningProgress);
   const [ready, setReady] = useState(false);
   const latest = useRef(progress);
+  // Counts resets. A load that was started before a reset must not bring the old progress back, and a result recorded before a reset must not
+  // report "saved" for data that has since been erased.
+  const generation = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
+    const startedIn = generation.current;
     loadLearningProgress().then((loaded) => {
       if (cancelled) return;
-      latest.current = loaded;
-      setProgress(loaded);
+      if (startedIn === generation.current) {
+        latest.current = loaded;
+        setProgress(loaded);
+      }
       setReady(true);
     });
     return () => {
@@ -101,7 +116,17 @@ export function LearningProgressProvider({ children }: { children: ReactNode }) 
     [commit],
   );
 
+  const recordQuizResult = useCallback(async (result: QuizResult): Promise<boolean> => {
+    const startedIn = generation.current;
+    const next = { ...latest.current, quizResults: withQuizResult(latest.current.quizResults, result) };
+    latest.current = next;
+    setProgress(next);
+    const stored = await saveLearningProgress(next);
+    return stored && startedIn === generation.current;
+  }, []);
+
   const reset = useCallback(() => {
+    generation.current += 1;
     latest.current = emptyLearningProgress;
     setProgress(emptyLearningProgress);
     void clearLearningProgress();
@@ -116,9 +141,11 @@ export function LearningProgressProvider({ children }: { children: ReactNode }) 
       positionOf: (lessonId, level) => progress.positions[completionKey(lessonId, level)] ?? null,
       isCompleted: (lessonId, level) => completionKey(lessonId, level) in progress.completed,
       setCompleted,
+      quizResultFor: (identity) => matchingQuizResult(progress.quizResults, identity),
+      recordQuizResult,
       reset,
     }),
-    [progress, ready, recordOpened, savePosition, setCompleted, reset],
+    [progress, ready, recordOpened, savePosition, setCompleted, recordQuizResult, reset],
   );
 
   return <LearningContext.Provider value={value}>{children}</LearningContext.Provider>;

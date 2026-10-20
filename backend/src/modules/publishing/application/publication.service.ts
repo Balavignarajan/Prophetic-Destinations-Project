@@ -101,6 +101,7 @@ export class PublicationService {
       {
         lessonId,
         version,
+        courseId: assembled.courseId,
         moduleId: assembled.moduleId,
         sourceContentRevision: assembled.contentRevision,
         snapshotSchemaVersion: SNAPSHOT_SCHEMA_VERSION,

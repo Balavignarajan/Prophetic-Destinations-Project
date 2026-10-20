@@ -13,10 +13,27 @@ import {
 import { type Bookmark } from '@/features/bookmarks/model';
 import { useBookmarks } from '@/features/bookmarks/bookmarks-provider';
 import { useDaniel2Lesson } from '@/features/daniel-2/use-daniel2-lesson';
+import { type OwnerStatus, mediaOwnerKey, useOfflineMedia } from '@/features/offline/offline-media';
 import { useCacheEntries } from '@/features/offline/use-cache-entries';
 import { formatSavedAt } from '@/features/offline/offline-banner';
 import { LEVEL_LABELS } from '@/learning/levels';
 import { useTheme } from '@/theme';
+
+/** Only a lesson whose images are all on the device is called saved; an older complete copy is not called the latest. */
+function savedLabel(status: OwnerStatus): string {
+  switch (status) {
+    case 'complete':
+      return 'Saved for offline reading';
+    case 'saving':
+      return 'Text saved. Saving images…';
+    case 'updating':
+      return 'Older version saved for offline reading. Saving the newest version…';
+    case 'update-failed':
+      return 'Older version saved for offline reading. The newest version' + '’s images are not saved yet.';
+    default:
+      return 'Text saved. Some images aren' + '’t saved yet; open the lesson online to save them.';
+  }
+}
 
 /** Everything the learner has saved: published lessons and scenes of the built-in Daniel 2 lesson, newest first. */
 export function SavedScreen() {
@@ -25,6 +42,7 @@ export function SavedScreen() {
   const { items, ready, remove } = useBookmarks();
   const [daniel] = useDaniel2Lesson();
   const cached = useCacheEntries();
+  const offlineMedia = useOfflineMedia();
   const sceneTitles = daniel.status === 'success' ? new Map(daniel.data.scenes.map((scene) => [scene.id as string, scene.title])) : null;
 
   const lessons = items.filter((item) => item.type === 'lesson');
@@ -41,7 +59,7 @@ export function SavedScreen() {
       : sceneGone
         ? 'This scene is no longer in the lesson'
         : lessonSaved
-          ? 'Saved for offline reading'
+          ? savedLabel(offlineMedia.status(mediaOwnerKey('lesson', item.lessonId, item.level)))
           : null;
 
     const open = () => {

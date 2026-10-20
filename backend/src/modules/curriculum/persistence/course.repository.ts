@@ -12,11 +12,14 @@ import { CourseEntity } from './course.entity.js';
 export interface NewCourse {
   title: string;
   description: string | null;
+  coverMediaId?: string | null;
+  position: number;
 }
 
 export interface CourseChanges {
   title?: string;
   description?: string | null;
+  coverMediaId?: string | null;
   status?: ContentStatus;
 }
 
@@ -50,18 +53,58 @@ export class CourseRepository {
     return row ? toCourse(row) : null;
   }
 
-  /** Oldest first, with id as the tie-breaker, so the order is always deterministic. */
+  /** In the manual course order, with id as the tie-breaker, so the order is always deterministic. */
   async list(
     limit: number,
     offset: number,
     manager?: EntityManager,
   ): Promise<{ items: Course[]; total: number }> {
     const [rows, total] = await this.repo(manager).findAndCount({
-      order: { createdAt: 'ASC', id: 'ASC' },
+      order: { position: 'ASC', id: 'ASC' },
       take: limit,
       skip: offset,
     });
     return { items: rows.map(toCourse), total };
+  }
+
+  /** Every course in the manual order. */
+  async listAll(manager?: EntityManager): Promise<Course[]> {
+    const rows = await this.repo(manager).find({
+      order: { position: 'ASC', id: 'ASC' },
+    });
+    return rows.map(toCourse);
+  }
+
+  /** Serializes everything that creates, deletes or reorders courses until the transaction ends. */
+  async lockOrdering(manager: EntityManager): Promise<void> {
+    await manager.query(
+      `SELECT pg_advisory_xact_lock(hashtext('courses_ordering'))`,
+    );
+  }
+
+  /** The position for a course appended at the end. Call it after `lockOrdering`. */
+  async nextPosition(manager: EntityManager): Promise<number> {
+    const [row]: { next: number }[] = await manager.query(
+      `SELECT COALESCE(max("position"), 0) + 1 AS "next" FROM "courses"`,
+    );
+    return Number(row.next);
+  }
+
+  /**
+   * Assigns positions in one statement: ids[i] gets positions[i]. Raw SQL on purpose: a reorder is not a content
+   * edit, so `version`, `status` and `updated_at` stay as they are.
+   */
+  async applyPositions(
+    ids: readonly string[],
+    positions: readonly number[],
+    manager: EntityManager,
+  ): Promise<void> {
+    await manager.query(
+      `UPDATE "courses" AS c SET "position" = v."position"
+         FROM unnest($1::uuid[], $2::int[]) AS v("id", "position")
+        WHERE c."id" = v."id" AND c."position" <> v."position"`,
+      [ids, positions],
+    );
   }
 
   async update(
@@ -122,6 +165,8 @@ function toCourse(row: CourseEntity): Course {
     title: row.title,
     description: row.description,
     status: row.status as ContentStatus,
+    coverMediaId: row.coverMediaId,
+    position: row.position,
     version: row.version,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

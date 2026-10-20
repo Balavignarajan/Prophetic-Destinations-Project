@@ -123,6 +123,14 @@ export class QuizService {
           'A published quiz cannot be deleted. Unpublish it first.',
         );
       }
+      // Lessons that use the quiz keep working content that points at it; published lessons hold their own frozen copy.
+      const used = await this.quizzes.countLessonReferences(id, manager);
+      if (used > 0) {
+        throw new ConflictError(
+          `This quiz is used by ${used} ${used === 1 ? 'lesson' : 'lessons'}. Remove the quiz block from ${used === 1 ? 'it' : 'them'} first (published lessons keep their own copy).`,
+          { lessons: used },
+        );
+      }
       await this.quizzes.delete(id, manager);
     });
   }

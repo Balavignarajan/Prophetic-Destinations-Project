@@ -23,6 +23,7 @@ export interface NewCatalogPublication {
   snapshotSchemaVersion: number;
   courseTitle: string;
   courseDescription: string | null;
+  courseCoverMediaId: string | null;
   sourceCourseVersion: number;
   publishedBy: string;
 }
@@ -35,6 +36,7 @@ interface PublicationRow {
   snapshot_schema_version: number;
   course_title: string;
   course_description: string | null;
+  course_cover_media_id: string | null;
   source_course_version: number;
   published_at: Date;
   published_by: string;
@@ -44,7 +46,7 @@ interface PublicationRow {
 }
 
 const COLUMNS = `p."id", p."course_id", p."version", p."cause", p."snapshot_schema_version", p."course_title",
-  p."course_description", p."source_course_version", p."published_at", p."published_by", p."ended_at", p."ended_by",
+  p."course_description", p."course_cover_media_id", p."source_course_version", p."published_at", p."published_by", p."ended_at", p."ended_by",
   p."ended_reason"`;
 
 const LEVEL_ORDER: LearningLevel[] = ['BEGINNER', 'INTERMEDIATE', 'ADVANCED'];
@@ -206,8 +208,8 @@ export class CatalogPublicationRepository {
     await manager.query(
       `INSERT INTO "course_publications"
          ("id", "course_id", "version", "cause", "snapshot_schema_version", "course_title",
-          "course_description", "source_course_version", "published_by")
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          "course_description", "course_cover_media_id", "source_course_version", "published_by")
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
       [
         id,
         publication.courseId,
@@ -216,6 +218,7 @@ export class CatalogPublicationRepository {
         publication.snapshotSchemaVersion,
         publication.courseTitle,
         publication.courseDescription,
+        publication.courseCoverMediaId,
         publication.sourceCourseVersion,
         publication.publishedBy,
       ],
@@ -315,6 +318,7 @@ export class CatalogPublicationRepository {
       snapshotSchemaVersion: row.snapshot_schema_version,
       courseTitle: row.course_title,
       courseDescription: row.course_description,
+      courseCoverMediaId: row.course_cover_media_id ?? null,
       sourceCourseVersion: row.source_course_version,
       publishedAt: row.published_at,
       publishedBy: row.published_by,

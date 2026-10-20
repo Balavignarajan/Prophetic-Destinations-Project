@@ -24,6 +24,16 @@ export async function writeJson(key: string, value: unknown): Promise<void> {
   }
 }
 
+/** Like writeJson, but says whether the value was stored (used where the learner must be told that something could not be saved). */
+export async function tryWriteJson(key: string, value: unknown): Promise<boolean> {
+  try {
+    await AsyncStorage.setItem(key, JSON.stringify(value));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function removeKey(key: string): Promise<void> {
   try {
     await AsyncStorage.removeItem(key);

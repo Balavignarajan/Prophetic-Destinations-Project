@@ -92,14 +92,6 @@ export function evaluateReadiness(assembled: AssembledLesson): ReadinessReport {
       message: 'The lesson must be available at one or more learning levels',
     });
   }
-  if (assembled.lesson.coverMediaId !== null) {
-    issues.push({
-      code: 'COVER_NOT_SUPPORTED',
-      severity: 'BLOCKING',
-      source: 'SAFEGUARD',
-      message: 'A cover cannot be published until the Media module exists',
-    });
-  }
 
   const levels: LevelReadiness[] = [];
   for (const level of assembled.levels) {

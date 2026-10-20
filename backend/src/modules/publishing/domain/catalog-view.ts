@@ -15,11 +15,13 @@ import type {
  */
 export interface PublishedLessonSummary {
   lessonId: string;
-  moduleId: string;
+  moduleId: string | null;
   title: string;
   shortTitle: string | null;
   subtitle: string | null;
   estimatedMinutes: number | null;
+  /** Published cover image of the lesson, or null (also for snapshots written before covers existed). */
+  coverMediaId: string | null;
 }
 
 export interface PublishedLessonItem extends PublishedLessonSummary {
@@ -40,16 +42,20 @@ export interface PublishedCourseView {
   catalogVersion: number;
   title: string;
   description: string | null;
+  /** Published cover image of the course, or null (also for snapshots written before covers existed). */
+  coverMediaId: string | null;
   moduleCount: number;
   lessonCount: number;
   modules: PublishedModuleView[];
+  directLessons: PublishedLessonItem[];
 }
 
 export interface LessonNavigation {
   lessonId: string;
   level: LearningLevel;
   courseId: string;
-  moduleId: string;
+  /** The lesson's module, or null for a lesson placed directly in the course (it has no module). */
+  moduleId: string | null;
   catalogVersion: number;
   previous: PublishedLessonSummary | null;
   next: PublishedLessonSummary | null;
@@ -70,7 +76,7 @@ function modulesOf(
 
 function summaryOf(
   lesson: CatalogLessonEntry,
-  moduleId: string,
+  moduleId: string | null,
 ): PublishedLessonSummary {
   return {
     lessonId: lesson.id,
@@ -79,6 +85,7 @@ function summaryOf(
     shortTitle: lesson.shortTitle,
     subtitle: lesson.subtitle,
     estimatedMinutes: lesson.estimatedMinutes,
+    coverMediaId: lesson.coverMediaId ?? null,
   };
 }
 
@@ -87,18 +94,18 @@ export function eligibleSequence(
   content: CatalogLevelContent,
   eligible: ReadonlySet<string>,
 ): PublishedLessonSummary[] {
-  return modulesOf(content).flatMap((module) =>
+  return [...(content.directLessons ?? []).filter((lesson) => eligible.has(lesson.id)).map((lesson) => summaryOf(lesson, null)), ...modulesOf(content).flatMap((module) =>
     module.lessons
       .filter((lesson) => eligible.has(lesson.id))
       .map((lesson) => summaryOf(lesson, module.id)),
-  );
+  )];
 }
 
 /** Every lesson id a snapshot lists (used to ask the database which of them are eligible now). */
 export function listedLessonIds(content: CatalogLevelContent): string[] {
-  return modulesOf(content).flatMap((module) =>
+  return [...(content.directLessons ?? []).map((lesson) => lesson.id), ...modulesOf(content).flatMap((module) =>
     module.lessons.map((lesson) => lesson.id),
-  );
+  )];
 }
 
 /** The view of one course at one level, or null when nothing in it is eligible. */
@@ -139,6 +146,7 @@ export function toCourseView(
       });
     }
   }
+  const directLessons: PublishedLessonItem[] = (content.directLessons ?? []).filter((lesson) => eligible.has(lesson.id)).map((lesson) => ({ ...summaryOf(lesson, null), previousLessonId: neighbours.get(lesson.id)!.previous, nextLessonId: neighbours.get(lesson.id)!.next }));
 
   return {
     courseId: content.course.id,
@@ -146,9 +154,30 @@ export function toCourseView(
     catalogVersion,
     title: content.course.title,
     description: content.course.description,
+    coverMediaId: content.course.coverMediaId ?? null,
     moduleCount: modules.length,
     lessonCount: sequence.length,
     modules,
+    directLessons,
+  };
+}
+
+/**
+ * Fills in each lesson's cover from `covers` (lesson id -> cover of its ACTIVE lesson snapshot). Catalog snapshots do not
+ * carry lesson covers, so this is the only source and it always matches what the lesson media route will serve.
+ */
+export function withLessonCovers(
+  view: PublishedCourseView,
+  covers: ReadonlyMap<string, string>,
+): PublishedCourseView {
+  const apply = (lesson: PublishedLessonItem): PublishedLessonItem => ({
+    ...lesson,
+    coverMediaId: covers.get(lesson.lessonId) ?? null,
+  });
+  return {
+    ...view,
+    modules: view.modules.map((module) => ({ ...module, lessons: module.lessons.map(apply) })),
+    directLessons: view.directLessons.map(apply),
   };
 }
 

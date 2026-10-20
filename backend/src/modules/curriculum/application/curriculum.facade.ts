@@ -15,8 +15,8 @@ export interface ModuleRef {
   courseId: string;
 }
 
-/** A course as Publishing needs to see it: plain data, never the entity. */
-export interface CourseWorkflowRef {
+/** What a course and a module have in common for the publishing workflow (status and version are all a workflow transition needs). */
+export interface WorkflowRef {
   id: string;
   title: string;
   description: string | null;
@@ -24,8 +24,14 @@ export interface CourseWorkflowRef {
   version: number;
 }
 
-/** A module as Publishing needs to see it. `position` is its place in the course (1..n). */
-export interface ModuleWorkflowRef extends CourseWorkflowRef {
+/** A course as Publishing needs to see it: plain data, never the entity. */
+export interface CourseWorkflowRef extends WorkflowRef {
+  /** Working cover image (media asset id), or null. */
+  coverMediaId: string | null;
+}
+
+/** A module as Publishing needs to see it. `position` is its place in the course (1..n). Modules have no cover image of their own. */
+export interface ModuleWorkflowRef extends WorkflowRef {
   courseId: string;
   position: number;
 }
@@ -47,6 +53,17 @@ export class CurriculumFacade {
   ): Promise<ModuleRef | null> {
     const module = await this.modules.findById(moduleId, manager);
     return module ? { id: module.id, courseId: module.courseId } : null;
+  }
+
+  async findCourse(courseId: string, manager?: EntityManager): Promise<CourseWorkflowRef | null> {
+    const course = await this.courses.findById(courseId, manager);
+    return course ? toCourseRef(course) : null;
+  }
+
+  async lockCourse(courseId: string, manager: EntityManager): Promise<CourseWorkflowRef> {
+    const course = await this.courses.findByIdForUpdate(courseId, manager);
+    if (!course) throw new NotFoundError('Course not found');
+    return toCourseRef(course);
   }
 
   /**
@@ -155,12 +172,17 @@ function toCourseRef(course: Course): CourseWorkflowRef {
     description: course.description,
     status: course.status,
     version: course.version,
+    coverMediaId: course.coverMediaId,
   };
 }
 
 function toModuleRef(module: CourseModule): ModuleWorkflowRef {
   return {
-    ...toCourseRef(module),
+    id: module.id,
+    title: module.title,
+    description: module.description,
+    status: module.status,
+    version: module.version,
     courseId: module.courseId,
     position: module.position,
   };

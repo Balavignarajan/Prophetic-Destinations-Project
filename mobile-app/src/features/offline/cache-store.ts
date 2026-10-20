@@ -3,6 +3,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { LearningLevel } from '@/learning/levels';
 import { isRecord, readJson, writeJson } from '@/storage/json-store';
 
+import { cleanUp, invalidateAllMedia, mediaOwnerKey, registerOwnersProvider } from './offline-media';
+
 /**
  * The offline cache of PUBLISHED content that was successfully fetched from the backend. Separate from the theme preference,
  * the bookmarks and all progress: clearing it never touches those.
@@ -24,7 +26,7 @@ import { isRecord, readJson, writeJson } from '@/storage/json-store';
  */
 export const CACHE_LIMITS = { maxEntries: 60, maxAgeMs: 30 * 24 * 60 * 60 * 1000 } as const;
 
-export type CacheKind = 'catalog' | 'course' | 'lesson' | 'navigation';
+export type CacheKind = 'catalog' | 'course' | 'lesson' | 'navigation' | 'related';
 
 const PREFIX = 'pd.cache.v1';
 const INDEX_KEY = `${PREFIX}.index`;
@@ -43,8 +45,19 @@ function serial<T>(task: () => Promise<T>): Promise<T> {
   return run;
 }
 
-const KINDS: readonly string[] = ['catalog', 'course', 'lesson', 'navigation'];
+const KINDS: readonly string[] = ['catalog', 'course', 'lesson', 'navigation', 'related'];
 const LEVELS: readonly string[] = ['BEGINNER', 'INTERMEDIATE', 'ADVANCED'];
+
+/** After the cache changed: the saved images follow it (a file is kept only while some remaining item still needs it). */
+function syncMedia(index: IndexItem[]): void {
+  const owners = new Set(index.filter((item) => item.kind !== 'navigation' && item.kind !== 'related').map((item) => mediaOwnerKey(item.kind, item.id, item.level)));
+  void cleanUp(owners).catch(() => undefined);
+}
+
+// At start-up the saved images are reconciled with what this cache still holds.
+registerOwnersProvider(() =>
+  serial(async () => new Set((await readIndex()).filter((item) => item.kind !== 'navigation' && item.kind !== 'related').map((item) => mediaOwnerKey(item.kind, item.id, item.level)))),
+);
 
 function parseIndex(raw: unknown): IndexItem[] | null {
   if (!Array.isArray(raw)) return null;
@@ -115,7 +128,9 @@ export function cacheRead<T>(
     const index = await readIndex();
     if (index.some((item) => item.key === key)) {
       await removeEntries([key]);
-      await writeJson(INDEX_KEY, index.filter((item) => item.key !== key));
+      const rest = index.filter((item) => item.key !== key);
+      await writeJson(INDEX_KEY, rest);
+      syncMedia(rest);
     } else if (entry) {
       await removeEntries([key]);
     }
@@ -138,6 +153,7 @@ export function cacheWrite(kind: CacheKind, id: string, level: LearningLevel, da
     const { keep, drop } = prune(index, now);
     await removeEntries(drop.map((item) => item.key));
     await writeJson(INDEX_KEY, keep);
+    syncMedia(keep);
   });
 }
 
@@ -147,7 +163,9 @@ export function cacheRemove(kind: CacheKind, id: string, level: LearningLevel): 
     const key = cacheKey(kind, id, level);
     await removeEntries([key]);
     const index = await readIndex();
-    if (index.some((item) => item.key === key)) await writeJson(INDEX_KEY, index.filter((item) => item.key !== key));
+    const rest = index.filter((item) => item.key !== key);
+    if (rest.length !== index.length) await writeJson(INDEX_KEY, rest);
+    syncMedia(rest);
   });
 }
 
@@ -163,6 +181,8 @@ export function cacheClear(): Promise<number> {
     }
     const removed = keys.filter((key) => key !== INDEX_KEY).length;
     await removeEntries(keys);
+    // Clearing ends everything pending: staged updates and running downloads are discarded and can recreate nothing.
+    void invalidateAllMedia().catch(() => undefined); // not awaited: start-up reconciliation reads this queue
     return removed;
   });
 }

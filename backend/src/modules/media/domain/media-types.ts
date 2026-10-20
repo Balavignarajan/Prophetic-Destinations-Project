@@ -57,6 +57,16 @@ export const SUPPORTED_MEDIA_TYPES: readonly SupportedMediaType[] = [
   },
 ];
 
+/**
+ * Whether the bytes (at least the first few KB) are an ANIMATED WebP: a RIFF/WEBP container whose first chunk is VP8X with the animation flag set and which
+ * carries an ANIM chunk. A still WebP, a GIF or anything else is not. Used to validate Media / Animation blocks (separately from the strict image types above).
+ */
+export function isAnimatedWebp(bytes: Buffer): boolean {
+  if (!(startsWith(bytes, ascii('RIFF')) && startsWith(bytes, ascii('WEBP'), 8) && startsWith(bytes, ascii('VP8X'), 12))) return false;
+  if (bytes.length < 21 || (bytes[20] & 0x02) === 0) return false;
+  return bytes.subarray(0, 4096).includes(Buffer.from('ANIM'));
+}
+
 /** The supported type whose signature the bytes carry, or null if none does. */
 export function detectMediaType(bytes: Buffer): SupportedMediaType | null {
   return SUPPORTED_MEDIA_TYPES.find((type) => type.matches(bytes)) ?? null;

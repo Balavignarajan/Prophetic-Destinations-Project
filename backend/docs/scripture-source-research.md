@@ -77,3 +77,30 @@ Obtain the answer to question 1 (and, if the answer is "permission needed", the 
 here the exact revision, its checksum evidence and the licence basis, and WP3 can proceed with the dataset schema, importer, parser, read facade and API.
 The parser, reference model and importer validation can be designed against either candidate's format, but no work that depends on the text has been
 started.
+
+## Implementation status (added with the shared Scripture foundation)
+
+Still **no source approved, nothing downloaded or bundled**. What now exists is independent of the choice of source:
+
+- **Data contract:** `src/modules/scripture/domain/dataset.ts` defines the one JSON format an approved set must be converted to (metadata with
+  provenance: id, translation, edition, version, source, checksum, optional declared totals; verses per chapter per OSIS book). `parseDataset`
+  checks structure only and enforces totals only if the file declares them: the project holds no verse counts of its own.
+- **Server:** `SCRIPTURE_DATA_PATH` names the converted file. Without it, or with a file that fails the contract, Scripture is "unavailable" and
+  says why. With it, references are verified against real chapters and verses and passages can be read through the read-only routes
+  `GET /admin/scripture/status | books | books/:bookId/chapters/:n | passage`. There is no write route.
+- **Admin:** a reusable `ScripturePicker` (book, chapter, verse range) that selects nothing unless the server confirms the passage.
+- **Mobile:** `features/scripture` holds the same contract and an offline lookup over a bundled set; the bundle is `null` until an approved file
+  is supplied (the steps are in `scripture-data.ts`).
+- **Artifact still required:** an approved, licence-cleared KJV file converted to the contract (answers to questions 1-4 above come first).
+- **Reference rules:** stored identity is { OSIS book id, chapter, start verse, end verse } within ONE chapter (the confirmed rule). Cross-chapter
+  ranges, whole chapters, comma lists and single-chapter-book shorthand stay rejected; whether to support them is an open product decision.
+- **Placeholders that remain:** the admin client-side syntax check (`admin-website/lib/scripture.ts`), which does not know verse counts; the
+  Daniel 2 lesson's local Scripture cards (`mobile-app/src/features/daniel-2`); and the unbuilt SCRIPTURE_PASSAGE and SCRIPTURE_CONNECTION blocks.
+
+### Update: text fingerprint and nested references
+
+- **Identity:** the server computes a SHA-256 fingerprint of the installed text (`computeFingerprint`). A declared `metadata.checksum` is accepted only if it equals
+  that fingerprint; otherwise the file is rejected. Block stamps and published passages record `{ id, version, fingerprint }`; changes are detected by the
+  fingerprint, not by the editable labels. Stamps written before this (no fingerprint) are never treated as verified.
+- **References on timeline events and hotspots** (`scripture` lists, up to 5 per item) use the same structured reference. Unchanged references keep their server
+  stamp during unrelated edits; a changed text requires an explicit Refresh (or reselection) and a new approval. Still blocked until a dataset is installed.

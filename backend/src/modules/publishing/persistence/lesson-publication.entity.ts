@@ -45,8 +45,11 @@ export class LessonPublicationEntity {
   @Column({ type: 'integer' })
   version: number;
 
-  @Column({ name: 'module_id', type: 'uuid' })
-  moduleId: string;
+  @Column({ name: 'course_id', type: 'uuid' })
+  courseId: string;
+
+  @Column({ name: 'module_id', type: 'uuid', nullable: true })
+  moduleId: string | null;
 
   @Column({ name: 'source_content_revision', type: 'integer' })
   sourceContentRevision: number;

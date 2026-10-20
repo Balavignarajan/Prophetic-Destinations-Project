@@ -67,6 +67,7 @@ export class QuizRepository {
       prompt: string;
       explanation: string | null;
       correctOptionId: string;
+      levels: string[] | null;
     }[] = [];
     const optionRows: {
       id: string;
@@ -93,15 +94,18 @@ export class QuizRepository {
         prompt: question.prompt,
         explanation: question.explanation ?? null,
         correctOptionId,
+        levels: question.levels ?? null,
       });
     });
 
     // The questions point at their correct option through a DEFERRED foreign key, so they go in first.
     await manager.query(
-      `INSERT INTO "quiz_questions" ("id", "quiz_id", "position", "prompt", "explanation", "correct_option_id")
-       SELECT v.id, $1, v.position, v.prompt, v.explanation, v.correct
-         FROM unnest($2::uuid[], $3::int[], $4::text[], $5::text[], $6::uuid[])
-              AS v(id, position, prompt, explanation, correct)`,
+      // levels travel as one text per question ('' = every level, otherwise comma-separated) because Postgres cannot unnest a jagged array.
+      `INSERT INTO "quiz_questions" ("id", "quiz_id", "position", "prompt", "explanation", "correct_option_id", "levels")
+       SELECT v.id, $1, v.position, v.prompt, v.explanation, v.correct,
+              CASE WHEN v.levels = '' THEN NULL ELSE string_to_array(v.levels, ',') END
+         FROM unnest($2::uuid[], $3::int[], $4::text[], $5::text[], $6::uuid[], $7::text[])
+              AS v(id, position, prompt, explanation, correct, levels)`,
       [
         quizId,
         questionRows.map((q) => q.id),
@@ -109,6 +113,7 @@ export class QuizRepository {
         questionRows.map((q) => q.prompt),
         questionRows.map((q) => q.explanation),
         questionRows.map((q) => q.correctOptionId),
+        questionRows.map((q) => (q.levels ? q.levels.join(',') : '')),
       ],
     );
     await manager.query(
@@ -149,6 +154,16 @@ export class QuizRepository {
     );
   }
 
+  /**
+   * Takes a SHARED lock on the quiz row until the transaction ends and returns its version (null if it does not exist). Quiz edits,
+   * status changes and deletion take the exclusive lock, so while this is held none of them can happen: a lesson publication reads
+   * one consistent quiz, and a lesson block cannot point at a quiz that is being deleted.
+   */
+  async lockShared(id: string, manager: EntityManager): Promise<number | null> {
+    const rows: { version: number }[] = await manager.query(`SELECT "version" FROM "quizzes" WHERE "id" = $1 FOR SHARE`, [id]);
+    return rows[0]?.version ?? null;
+  }
+
   /** The quiz row, locked until the transaction ends. */
   async lock(id: string, manager: EntityManager): Promise<Quiz | null> {
     const rows: QuizRow[] = await manager.query(
@@ -186,8 +201,9 @@ export class QuizRepository {
       prompt: string;
       explanation: string | null;
       correct_option_id: string;
+      levels: string[] | null;
     }[] = await this.db(manager).query(
-      `SELECT "id", "position", "type", "prompt", "explanation", "correct_option_id"
+      `SELECT "id", "position", "type", "prompt", "explanation", "correct_option_id", "levels"
          FROM "quiz_questions" WHERE "quiz_id" = $1 ORDER BY "position"`,
       [quizId],
     );
@@ -209,6 +225,7 @@ export class QuizRepository {
       prompt: q.prompt,
       explanation: q.explanation,
       correctOptionId: q.correct_option_id,
+      levels: q.levels ?? null,
       options: options
         .filter((o) => o.question_id === q.id)
         .map((o) => ({ id: o.id, position: o.position, text: o.text })),
@@ -235,6 +252,15 @@ export class QuizRepository {
       })),
       total,
     };
+  }
+
+  /** Lessons whose working content has a QUIZ block pointing at this quiz. */
+  async countLessonReferences(id: string, manager?: EntityManager): Promise<number> {
+    const [row]: { n: number }[] = await this.db(manager).query(
+      `SELECT count(DISTINCT "lesson_id")::int AS n FROM "lesson_blocks" WHERE "type" = 'QUIZ' AND "shared_content"->>'quizId' = $1`,
+      [id],
+    );
+    return row?.n ?? 0;
   }
 
   async delete(id: string, manager: EntityManager): Promise<void> {

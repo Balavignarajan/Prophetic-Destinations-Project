@@ -116,6 +116,21 @@ export class LessonBlockLevelRepository {
     );
   }
 
+  /** Copies every level row (including variants) of a block to a block of ANOTHER lesson (which must offer those levels). */
+  async copyToLesson(
+    fromBlockId: string,
+    toBlockId: string,
+    toLessonId: string,
+    manager: EntityManager,
+  ): Promise<void> {
+    await manager.query(
+      `INSERT INTO "lesson_block_levels" ("block_id", "lesson_id", "level", "content")
+       SELECT $2::uuid, $3::uuid, "level", "content"
+         FROM "lesson_block_levels" WHERE "block_id" = $1`,
+      [fromBlockId, toBlockId, toLessonId],
+    );
+  }
+
   /** Which blocks are visible at any of the given levels (used to refuse removing a lesson level). */
   async findVisibleAt(
     lessonId: string,

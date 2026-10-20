@@ -82,6 +82,16 @@ Uploaded media lives on the local filesystem during development, behind a storag
 - Back up the storage directory together with the database (the database lists the assets, the directory holds the bytes). Deleting an asset through the API
   removes both; deleting the directory by hand leaves rows that answer 404 on `content`.
 - The library is admin-only (`/api/v1/admin/media`, see [docs/api-reference.md](docs/api-reference.md)); nothing is served to the public.
+- **Single-project boundary.** This deployment serves one project (Prophetic Destinations): the code has no tenant or project model, so the
+  media library is one intentionally shared pool, usable by every course and lesson (images, lesson covers and course covers). Admin routes sit behind
+  the global JWT + roles guards (read: ADMIN, EDITOR, REVIEWER; upload, delete: ADMIN, EDITOR), files are never served as static assets, and the learner
+  routes serve an image only while an ACTIVE publication names it (an IMAGE block or lesson cover in the active lesson snapshot, or the course cover of the
+  active catalog version). If a second project ever shares this database or storage, media ownership must be added first; none is assumed here.
+- **Covers and publishing.** Course and lesson covers are working data until published. A lesson cover reaches learners when the lesson is published again
+  (course lists read it from the active lesson snapshot); a course cover is published with the course, together with its title and description.
+  A media asset cannot be deleted while a working cover, or an active publication, still references it.
+- **Offline limitation (not done).** The learner app does not yet explicitly cache lesson images or covers for offline use, and the system HTTP cache does
+  not give reliable offline support. Full offline media is a separate task and the documented offline requirement is NOT complete.
 
 ## Scripts
 

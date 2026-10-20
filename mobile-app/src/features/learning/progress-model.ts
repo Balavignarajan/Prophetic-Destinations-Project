@@ -16,6 +16,57 @@ export type LessonPosition = LessonRef & { offset: number; savedAt: number };
 export type LastOpened = LessonRef & { openedAt: number };
 export type CompletedLesson = { title: string; completedAt: number };
 
+/**
+ * A completed quiz attempt, saved on this device (PROG-001, FLOW-06, QUIZ-001: "result persists"). PROVISIONAL RULES (the documents do not
+ * define attempts, retention, scoring display or a pass mark, and none is invented here): only the LATEST submitted result of each quiz BLOCK
+ * is kept (one entry per lesson + level + block), so history cannot grow without limit; every question counts in `total`, an unanswered
+ * question simply scores 0 (as the on-screen scoring does); there is no pass mark and nothing is locked or unlocked by a result.
+ * Identity: lesson, level, block id, quiz id and the lesson's published `contentHash`. A result is shown only for content with exactly that
+ * identity, so a result for an older publication never appears as a result for changed content, and two blocks that use the same quiz keep
+ * separate results.
+ */
+export type QuizResult = {
+  lessonId: string;
+  level: ProgressLevel;
+  blockId: string;
+  quizId: string;
+  contentHash: string;
+  lessonTitle: string;
+  score: number;
+  total: number;
+  completedAt: number;
+  /** questionId -> chosen optionId, kept so the finished attempt can be reviewed. Unanswered questions are absent. */
+  answers: Record<string, string>;
+};
+
+export type QuizIdentity = { lessonId: string; level: ProgressLevel; blockId: string; quizId: string; contentHash: string };
+
+/** The most quiz results kept; the oldest are dropped first so the stored value stays small. */
+export const MAX_QUIZ_RESULTS = 300;
+
+export const quizResultKey = (lessonId: string, level: ProgressLevel, blockId: string) => `${lessonKey(lessonId, level)}:${blockId}`;
+
+/** Stores the result as the latest for its block (replacing the earlier one) and trims the oldest beyond the limit. */
+export function withQuizResult(results: Record<string, QuizResult>, result: QuizResult): Record<string, QuizResult> {
+  const next = { ...results, [quizResultKey(result.lessonId, result.level, result.blockId)]: result };
+  const keys = Object.keys(next);
+  if (keys.length <= MAX_QUIZ_RESULTS) return next;
+  keys.sort((a, b) => next[a].completedAt - next[b].completedAt);
+  for (const key of keys.slice(0, keys.length - MAX_QUIZ_RESULTS)) delete next[key];
+  return next;
+}
+
+/** The saved result for exactly this content, or null (also when the saved one belongs to another quiz or publication). */
+export function matchingQuizResult(results: Record<string, QuizResult>, identity: QuizIdentity): QuizResult | null {
+  const found = results[quizResultKey(identity.lessonId, identity.level, identity.blockId)];
+  return found && found.quizId === identity.quizId && found.contentHash === identity.contentHash ? found : null;
+}
+
+/** Saved results, most recent first (for the Progress screen). */
+export function quizResultsList(results: Record<string, QuizResult>): QuizResult[] {
+  return Object.values(results).sort((a, b) => b.completedAt - a.completedAt);
+}
+
 export type ProgressState = {
   lastOpened: LastOpened | null;
   /** Keyed by `lessonKey`. */
@@ -114,7 +165,7 @@ const isLevel = (value: unknown): value is ProgressLevel => value === 'BEGINNER'
  * no `positions` and loads with none, and any entry that does not look right is dropped rather than failing the whole value, so a
  * damaged value can never lose the rest of the learner's progress. Returns null only when it is not a version-1 record at all.
  */
-export function parseProgress(raw: unknown): (ProgressState & { version: 1 }) | null {
+export function parseProgress(raw: unknown): (ProgressState & { version: 1; quizResults: Record<string, QuizResult> }) | null {
   if (!isRecord(raw) || raw.version !== 1) return null;
   let lastOpened: LastOpened | null = null;
   const lo = raw.lastOpened;
@@ -153,5 +204,49 @@ export function parseProgress(raw: unknown): (ProgressState & { version: 1 }) | 
       }
     }
   }
-  return { version: 1, lastOpened, completed, positions };
+  return { version: 1, lastOpened, completed, positions, quizResults: parseQuizResults(raw.quizResults) };
+}
+
+/** Reads saved quiz results. An entry that does not look right (or an older file with none) is dropped; nothing else is affected. */
+function parseQuizResults(raw: unknown): Record<string, QuizResult> {
+  const out: Record<string, QuizResult> = {};
+  if (!isRecord(raw)) return out;
+  for (const value of Object.values(raw)) {
+    if (
+      !isRecord(value) ||
+      typeof value.lessonId !== 'string' ||
+      !isLevel(value.level) ||
+      typeof value.blockId !== 'string' ||
+      typeof value.quizId !== 'string' ||
+      typeof value.contentHash !== 'string' ||
+      typeof value.score !== 'number' ||
+      typeof value.total !== 'number' ||
+      !Number.isInteger(value.score) ||
+      !Number.isInteger(value.total) ||
+      value.total < 1 ||
+      value.score < 0 ||
+      value.score > value.total ||
+      typeof value.completedAt !== 'number' ||
+      !isRecord(value.answers)
+    ) {
+      continue;
+    }
+    const answers: Record<string, string> = {};
+    for (const [questionId, optionId] of Object.entries(value.answers).slice(0, 60)) {
+      if (typeof optionId === 'string') answers[questionId] = optionId;
+    }
+    out[quizResultKey(value.lessonId, value.level, value.blockId)] = {
+      lessonId: value.lessonId,
+      level: value.level,
+      blockId: value.blockId,
+      quizId: value.quizId,
+      contentHash: value.contentHash,
+      lessonTitle: typeof value.lessonTitle === 'string' ? value.lessonTitle : '',
+      score: value.score,
+      total: value.total,
+      completedAt: value.completedAt,
+      answers,
+    };
+  }
+  return out;
 }

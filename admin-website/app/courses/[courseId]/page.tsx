@@ -6,9 +6,12 @@ import { useParams } from 'next/navigation';
 import { api } from '../../../lib/api';
 import { WORKFLOW_ENDPOINT, catalogTransitionBody, type WorkflowAction } from '../../../lib/workflow';
 import { useAuth } from '../../../lib/auth';
-import { Course, ModuleItem, WorkflowState, WorkflowEvent } from '../../../lib/types';
+import { Course, ModuleItem, LessonSummary, LearningLevel, WorkflowState, WorkflowEvent } from '../../../lib/types';
 import { LoadingSpinner, StatusBadge, EmptyState, Modal, ConfirmDialog } from '../../../components/ui';
 import { friendlyError } from '../../../lib/ui-messages';
+import DuplicateLessonDialog from '../../../components/DuplicateLessonDialog';
+import CoverImageField from '../../../components/CoverImageField';
+import CoverThumb from '../../../components/CoverThumb';
 
 export default function CourseDetailPage() {
   const params = useParams();
@@ -17,6 +20,7 @@ export default function CourseDetailPage() {
 
   const [course, setCourse] = useState<Course | null>(null);
   const [modules, setModules] = useState<ModuleItem[]>([]);
+  const [directLessons, setDirectLessons] = useState<LessonSummary[]>([]);
   const [workflowState, setWorkflowState] = useState<WorkflowState | null>(null);
   const [workflowEvents, setWorkflowEvents] = useState<WorkflowEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -28,6 +32,7 @@ export default function CourseDetailPage() {
   const [editCourseModalOpen, setEditCourseModalOpen] = useState(false);
   const [editTitle, setEditTitle] = useState('');
   const [editDescription, setEditDescription] = useState('');
+  const [editCoverMediaId, setEditCoverMediaId] = useState<string | null>(null);
   const [updatingCourse, setUpdatingCourse] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
 
@@ -38,7 +43,16 @@ export default function CourseDetailPage() {
   const [creatingModule, setCreatingModule] = useState(false);
   const [createModuleError, setCreateModuleError] = useState<string | null>(null);
 
+  // Direct course lesson (modules are optional containers).
+  const [createLessonModalOpen, setCreateLessonModalOpen] = useState(false);
+  const [newLessonTitle, setNewLessonTitle] = useState('');
+  const [newLessonCover, setNewLessonCover] = useState<string | null>(null);
+  const [newLessonLevels, setNewLessonLevels] = useState<LearningLevel[]>(['BEGINNER', 'INTERMEDIATE', 'ADVANCED']);
+  const [creatingLesson, setCreatingLesson] = useState(false);
+  const [createLessonError, setCreateLessonError] = useState<string | null>(null);
+
   // Delete Module
+  const [duplicateTarget, setDuplicateTarget] = useState<{ id: string; title: string } | null>(null);
   const [deleteModuleId, setDeleteModuleId] = useState<string | null>(null);
   const [deletingModule, setDeletingModule] = useState(false);
   const [deleteModuleError, setDeleteModuleError] = useState<string | null>(null);
@@ -55,18 +69,21 @@ export default function CourseDetailPage() {
     setError(null);
 
     try {
-      const [courseRes, modulesRes, wfStateRes, wfEventsRes] = await Promise.all([
+      const [courseRes, modulesRes, directLessonsRes, wfStateRes, wfEventsRes] = await Promise.all([
         api.request<Course>(`/admin/courses/${courseId}`),
         api.request<{ items: ModuleItem[] }>(`/admin/courses/${courseId}/modules`),
+        api.request<{ items: LessonSummary[] }>(`/admin/courses/${courseId}/lessons`),
         api.request<WorkflowState>(`/admin/courses/${courseId}/workflow`),
         api.request<{ items: WorkflowEvent[] }>(`/admin/courses/${courseId}/workflow/events?limit=10`),
       ]);
 
       setCourse(courseRes);
       setModules(modulesRes.items);
+      setDirectLessons(directLessonsRes.items);
       setWorkflowState(wfStateRes);
       setWorkflowEvents(wfEventsRes.items);
       setEditTitle(courseRes.title);
+      setEditCoverMediaId(courseRes.coverMediaId ?? null);
       setEditDescription(courseRes.description || '');
     } catch (err: unknown) {
       setError(friendlyError(err, 'Failed to load course details.'));
@@ -86,7 +103,8 @@ export default function CourseDetailPage() {
       (createModuleModalOpen && newModuleTitle.trim().length > 0) ||
       (editCourseModalOpen && course && (
         editTitle !== course.title ||
-        editDescription !== (course.description || '')
+        editDescription !== (course.description || '') ||
+        editCoverMediaId !== (course.coverMediaId ?? null)
       ))
     );
 
@@ -99,7 +117,7 @@ export default function CourseDetailPage() {
 
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [createModuleModalOpen, newModuleTitle, editCourseModalOpen, course, editTitle, editDescription]);
+  }, [createModuleModalOpen, newModuleTitle, editCourseModalOpen, course, editTitle, editDescription, editCoverMediaId]);
 
   const confirmDiscard = (hasChanges: boolean, close: () => void) => {
     if (!hasChanges || window.confirm('Discard your unsaved changes?')) close();
@@ -118,6 +136,7 @@ export default function CourseDetailPage() {
         body: JSON.stringify({
           title: editTitle.trim(),
           description: editDescription.trim() || null,
+          coverMediaId: editCoverMediaId,
           version: course.version,
         }),
       });
@@ -158,6 +177,27 @@ export default function CourseDetailPage() {
     } finally {
       setCreatingModule(false);
     }
+  };
+
+  const handleCreateDirectLesson = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newLessonLevels.length) { setCreateLessonError('Choose at least one learning level.'); return; }
+    setCreatingLesson(true); setCreateLessonError(null);
+    try {
+      await api.request(`/admin/courses/${courseId}/lessons`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: newLessonTitle.trim(), levels: newLessonLevels, ...(newLessonCover ? { coverMediaId: newLessonCover } : {}) }) });
+      setCreateLessonModalOpen(false); setNewLessonTitle(''); setNewLessonCover(null); setSuccessMessage('Lesson added directly to this course.'); fetchCourseData();
+    } catch (err: unknown) { setCreateLessonError(friendlyError(err, 'Failed to add lesson.')); }
+    finally { setCreatingLesson(false); }
+  };
+
+  const handleReorderDirectLessons = async (index: number, direction: 'up' | 'down') => {
+    const next = [...directLessons]; const target = direction === 'up' ? index - 1 : index + 1;
+    if (target < 0 || target >= next.length) return;
+    [next[index], next[target]] = [next[target], next[index]];
+    try {
+      const result = await api.request<{ items: LessonSummary[] }>(`/admin/courses/${courseId}/lessons/order`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lessonIds: next.map((lesson) => lesson.id) }) });
+      setDirectLessons(result.items); setSuccessMessage('Direct lesson order saved.'); fetchCourseData();
+    } catch (err: unknown) { setError(friendlyError(err, 'Failed to update direct lesson order.')); }
   };
 
   const handleDeleteModule = async () => {
@@ -363,6 +403,22 @@ export default function CourseDetailPage() {
         </div>
       )}
 
+      {/* Direct lessons are intentionally a separate group from optional modules. */}
+      <section className="space-y-4">
+        <div className="flex items-center justify-between gap-3">
+          <div><h2 className="font-serif text-xl font-bold text-slate-900">Lessons directly in this course</h2><p className="text-xs text-slate-500 mt-0.5">These lessons do not need to belong to a module.</p></div>
+          {canWrite && <button onClick={() => setCreateLessonModalOpen(true)} className="px-3.5 py-2 text-xs font-medium bg-amber-600 hover:bg-amber-500 text-white rounded-lg shadow-xs">Add lesson</button>}
+        </div>
+        {directLessons.length === 0 ? (
+          <EmptyState title="No direct lessons" description="Add a lesson here, or group lessons in an optional module." action={canWrite ? <button onClick={() => setCreateLessonModalOpen(true)} className="px-4 py-2 text-sm font-medium bg-amber-600 hover:bg-amber-500 text-white rounded-lg">Add lesson</button> : undefined} />
+        ) : <div className="bg-white border border-slate-200 rounded-xl shadow-xs divide-y divide-slate-100">
+          {directLessons.map((lesson, index) => <div key={lesson.id} className="p-4 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3"><span className="w-7 h-7 rounded-md bg-slate-100 text-slate-700 font-bold text-xs flex items-center justify-center">{index + 1}</span><CoverThumb mediaId={lesson.coverMediaId} /><div><Link href={`/lessons/${lesson.id}`} className="font-semibold text-slate-900 hover:text-amber-700">{lesson.title}</Link><div className="mt-1 flex gap-2 items-center"><StatusBadge status={lesson.status} />{lesson.levels.map((level) => <span key={level} className="text-[10px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">{level}</span>)}</div></div></div>
+            <div className="flex items-center gap-2"><Link href={`/lessons/${lesson.id}`} className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg">Edit lesson</Link>{canWrite && <><button aria-label={`Duplicate lesson ${lesson.title}`} onClick={() => setDuplicateTarget({ id: lesson.id, title: lesson.title })} className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg">Duplicate lesson</button><button aria-label="Move lesson up" disabled={index === 0} onClick={() => handleReorderDirectLessons(index, 'up')} className="p-1 text-slate-500 disabled:opacity-30">↑</button><button aria-label="Move lesson down" disabled={index === directLessons.length - 1} onClick={() => handleReorderDirectLessons(index, 'down')} className="p-1 text-slate-500 disabled:opacity-30">↓</button></>}</div>
+          </div>)}
+        </div>}
+      </section>
+
       {/* Modules Section */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
@@ -371,7 +427,7 @@ export default function CourseDetailPage() {
               Curriculum Modules
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Modules organize lessons systematically within this course.
+              Modules are optional groups of lessons.
             </p>
           </div>
 
@@ -390,15 +446,15 @@ export default function CourseDetailPage() {
 
         {modules.length === 0 ? (
           <EmptyState
-            title="No Modules in this Course"
-            description="Start building your course structure by adding the first module."
+            title="No modules yet"
+            description="Modules are optional groups of lessons. You can add one whenever it helps organize this course."
             action={
               canWrite ? (
                 <button
                   onClick={() => setCreateModuleModalOpen(true)}
                   className="px-4 py-2 text-sm font-medium bg-amber-600 hover:bg-amber-500 text-white rounded-lg"
                 >
-                  Create First Module
+                  Add module
                 </button>
               ) : undefined
             }
@@ -524,8 +580,9 @@ export default function CourseDetailPage() {
       {/* Edit Course Modal */}
       <Modal
         isOpen={editCourseModalOpen}
-        onClose={() => confirmDiscard(editTitle !== course.title || editDescription !== (course.description || ''), () => setEditCourseModalOpen(false))}
+        onClose={() => confirmDiscard(editTitle !== course.title || editDescription !== (course.description || '') || editCoverMediaId !== (course.coverMediaId ?? null), () => setEditCourseModalOpen(false))}
         title="Edit Course Details"
+        maxWidth="xl"
         description="Saving changes returns this course to Draft, so it must be reviewed again before publishing."
       >
         <form onSubmit={handleUpdateCourse} className="space-y-4">
@@ -560,10 +617,12 @@ export default function CourseDetailPage() {
             />
           </div>
 
+          <CoverImageField subject="course" value={editCoverMediaId} onChange={setEditCoverMediaId} disabled={updatingCourse} />
+
           <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
             <button
               type="button"
-              onClick={() => confirmDiscard(editTitle !== course.title || editDescription !== (course.description || ''), () => setEditCourseModalOpen(false))}
+              onClick={() => confirmDiscard(editTitle !== course.title || editDescription !== (course.description || '') || editCoverMediaId !== (course.coverMediaId ?? null), () => setEditCourseModalOpen(false))}
               className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50"
             >
               Cancel
@@ -577,6 +636,22 @@ export default function CourseDetailPage() {
               Save Changes
             </button>
           </div>
+        </form>
+      </Modal>
+
+      <DuplicateLessonDialog
+        lesson={duplicateTarget}
+        destination={`${course?.title ?? 'This course'} (directly in the course)`}
+        onClose={() => setDuplicateTarget(null)}
+      />
+
+      <Modal isOpen={createLessonModalOpen} onClose={() => confirmDiscard(Boolean(newLessonTitle.trim() || newLessonCover), () => setCreateLessonModalOpen(false))} title="Add lesson" description="Add a lesson directly to this course. Modules are optional groups of lessons.">
+        <form onSubmit={handleCreateDirectLesson} className="space-y-4">
+          {createLessonError && <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs">{createLessonError}</div>}
+          <div><label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5">Lesson title *</label><input required value={newLessonTitle} onChange={(e) => setNewLessonTitle(e.target.value)} className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg text-sm" /></div>
+          <div><span className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-2">Available learning levels *</span><div className="flex flex-wrap gap-2">{(['BEGINNER', 'INTERMEDIATE', 'ADVANCED'] as LearningLevel[]).map((level) => <button key={level} type="button" onClick={() => setNewLessonLevels((current) => current.includes(level) ? current.filter((item) => item !== level) : [...current, level])} className={`px-3 py-2 rounded-lg text-xs font-semibold border ${newLessonLevels.includes(level) ? 'bg-amber-100 text-amber-900 border-amber-300' : 'bg-white text-slate-600 border-slate-200'}`}>{level}</button>)}</div></div>
+          <CoverImageField subject="lesson" value={newLessonCover} onChange={setNewLessonCover} disabled={creatingLesson} />
+          <div className="flex justify-end gap-3 pt-3 border-t border-slate-100"><button type="button" onClick={() => confirmDiscard(Boolean(newLessonTitle.trim() || newLessonCover), () => setCreateLessonModalOpen(false))} className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg">Cancel</button><button type="submit" disabled={creatingLesson} className="px-4 py-2 text-sm font-medium text-white bg-slate-900 rounded-lg disabled:opacity-50">{creatingLesson ? 'Adding…' : 'Add lesson'}</button></div>
         </form>
       </Modal>
 

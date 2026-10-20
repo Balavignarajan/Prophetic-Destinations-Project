@@ -6,7 +6,7 @@ import type {
 } from '../domain/catalog-view.js';
 import type { ActiveSnapshotInfo } from '../domain/models.js';
 import { PublicationRepository } from '../persistence/publication.repository.js';
-import { PublishedCatalogService } from './published-catalog.service.js';
+import { PublishedCatalogService, type RelatedLessonsResult } from './published-catalog.service.js';
 
 /**
  * What other modules (the Delivery module) may ask Publishing: the published snapshot a learner
@@ -45,7 +45,7 @@ export class PublishingFacade {
     return this.publications.findActiveSnapshotContent(publicationId, level);
   }
 
-  /** Published courses with at least one currently eligible lesson at `level`, in first-published order. */
+  /** Published courses with at least one currently eligible lesson at `level`, in the manual course order. */
   listPublishedCourses(level: LearningLevel): Promise<PublishedCourseView[]> {
     return this.catalog.listCourses(level);
   }
@@ -56,6 +56,16 @@ export class PublishingFacade {
     level: LearningLevel,
   ): Promise<PublishedCourseView | null> {
     return this.catalog.findCourse(courseId, level);
+  }
+
+  /** Related lessons of a deliverable lesson that are themselves deliverable at `level`, with the identity of the source publication (null if the lesson is not deliverable). */
+  findRelatedLessons(lessonId: string, level: LearningLevel): Promise<RelatedLessonsResult | null> {
+    return this.catalog.findRelated(lessonId, level);
+  }
+
+  /** The deliverable targets of one Continue Exploring block of a deliverable lesson, with the identity of the source publication (null if not deliverable or the block is not in that snapshot). */
+  findExploringLinks(lessonId: string, blockId: string, level: LearningLevel): Promise<(RelatedLessonsResult & { blockId: string }) | null> {
+    return this.catalog.findExploring(lessonId, blockId, level);
   }
 
   /** Previous/next eligible lesson of a deliverable lesson, or null if it has no place in a published catalog. */

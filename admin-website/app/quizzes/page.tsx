@@ -5,6 +5,7 @@ import { api } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { QuizSummary, AdminQuiz, QuizQuestion } from '../../lib/types';
 import { LoadingSpinner, StatusBadge, EmptyState, Modal, ConfirmDialog } from '../../components/ui';
+import QuestionLevelsField, { levelsText, questionLevelSet } from '../../components/QuestionLevelsField';
 
 export default function QuizzesPage() {
   const { user } = useAuth();
@@ -132,6 +133,10 @@ export default function QuizzesPage() {
         setCreateError('Every question must have a prompt.');
         return;
       }
+      if (q.levels && q.levels.length === 0) {
+        setCreateError('Every question needs at least one level.');
+        return;
+      }
       if (q.options.length < 2 || q.options.length > 6) {
         setCreateError('Each question must have between 2 and 6 options.');
         return;
@@ -159,6 +164,7 @@ export default function QuizzesPage() {
           title: newTitle.trim(),
           description: newDescription.trim() || null,
           questions: newQuestions.map((q) => ({
+            levels: q.levels ?? null,
             prompt: q.prompt.trim(),
             explanation: q.explanation?.trim() || null,
             options: q.options.map((o) => ({
@@ -192,6 +198,10 @@ export default function QuizzesPage() {
         setUpdateError('Every question must have a prompt.');
         return;
       }
+      if (q.levels && q.levels.length === 0) {
+        setUpdateError('Every question needs at least one level.');
+        return;
+      }
       if (q.options.length < 2 || q.options.length > 6) {
         setUpdateError('Each question must have between 2 and 6 options.');
         return;
@@ -216,6 +226,7 @@ export default function QuizzesPage() {
             description: editDescription.trim() || null,
             version: activeQuiz.version,
             questions: editQuestions.map((q) => ({
+              levels: q.levels ?? null,
               prompt: q.prompt.trim(),
               explanation: q.explanation?.trim() || null,
               options: q.options.map((o) => ({
@@ -298,6 +309,8 @@ export default function QuizzesPage() {
           title: `${quiz.title} (Copy)`,
           description: quiz.description,
           questions: quiz.questions.map((q) => ({
+            // a copy keeps every question's level setting (null = every level)
+            levels: q.levels ?? null,
             prompt: q.prompt,
             explanation: q.explanation,
             options: q.options.map((o) => ({
@@ -518,6 +531,13 @@ export default function QuizzesPage() {
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
                   Questions ({activeQuiz.questions.length})
                 </h3>
+                <p className="text-xs text-slate-700">
+                  Questions learners get at each level:{' '}
+                  {(['BEGINNER', 'INTERMEDIATE', 'ADVANCED'] as const)
+                    .map((lv) => `${lv.charAt(0)}${lv.slice(1).toLowerCase()} ${activeQuiz.questions.filter((q) => questionLevelSet(q.levels).includes(lv)).length}`)
+                    .join(', ')}
+                  . A question without a setting is given at every level. This is separate from the quiz block&rsquo;s level setting in each lesson.
+                </p>
 
                 {activeQuiz.questions.length === 0 ? (
                   <p className="text-xs text-slate-400 italic">No questions defined in this quiz draft.</p>
@@ -535,6 +555,7 @@ export default function QuizzesPage() {
                           {q.prompt}
                         </h4>
                       </div>
+                      <p className="pl-7 text-[11px] text-slate-600">Shown at: {levelsText(q.levels)}</p>
 
                       {/* Options with correct indicator */}
                       <div className="pl-7 space-y-1.5">
@@ -692,6 +713,18 @@ export default function QuizzesPage() {
                     setNewQuestions(updated);
                   }}
                   className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs"
+                />
+
+                <QuestionLevelsField
+                  idPrefix={`new-q${qIndex}`}
+                  questionLabel={`Question ${qIndex + 1}`}
+                  value={q.levels}
+                  onChange={(levels) => {
+                    const updated = [...newQuestions];
+                    updated[qIndex] = { ...updated[qIndex], levels };
+                    setNewQuestions(updated);
+                  }}
+                  disabled={creating}
                 />
 
                 {/* Options */}
@@ -904,6 +937,18 @@ export default function QuizzesPage() {
                     setEditQuestions(updated);
                   }}
                   className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs"
+                />
+
+                <QuestionLevelsField
+                  idPrefix={`edit-q${qIndex}`}
+                  questionLabel={`Question ${qIndex + 1}`}
+                  value={q.levels}
+                  onChange={(levels) => {
+                    const updated = [...editQuestions];
+                    updated[qIndex] = { ...updated[qIndex], levels };
+                    setEditQuestions(updated);
+                  }}
+                  disabled={updating}
                 />
 
                 <div className="space-y-2 pt-1">

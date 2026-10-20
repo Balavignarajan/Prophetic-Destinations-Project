@@ -7,10 +7,36 @@
  * always allowed and is not affected. If the owners approve variants, change the backend registry first, then this table.
  * No runtime imports: unit-tested with plain Node.
  */
+/**
+ * NOTE: this table answers ONE question only: may this type have per-level variants? It does not say which types exist or can be created
+ * (see block-catalog.ts), and listing a type here with 'UNCONFIRMED' keeps variants disabled (only 'SUPPORTED' enables them).
+ */
 export type VariantSupport = 'SUPPORTED' | 'NOT_SUPPORTED' | 'UNCONFIRMED';
 
 export const BLOCK_VARIANT_SUPPORT: Record<string, VariantSupport> = {
   RICH_TEXT: 'UNCONFIRMED',
+  IMAGE: 'UNCONFIRMED',
+  SUMMARY: 'UNCONFIRMED',
+  QUIZ: 'UNCONFIRMED',
+  INTERACTIVE_IMAGE: 'UNCONFIRMED',
+  TIMELINE: 'UNCONFIRMED',
+  SCRIPTURE_PASSAGE: 'UNCONFIRMED',
+  HISTORICAL_EVIDENCE: 'UNCONFIRMED',
+  SECTION_INTRO: 'UNCONFIRMED',
+  CALLOUT: 'UNCONFIRMED',
+  SCRIPTURE_CONNECTION: 'UNCONFIRMED',
+  MAP: 'UNCONFIRMED',
+  NARRATIVE_SCENE: 'UNCONFIRMED',
+  MEDIA_ANIMATION: 'UNCONFIRMED',
+  CONTINUE_EXPLORING: 'UNCONFIRMED',
+  REFLECTION_STUDY_ACTIVITY: 'UNCONFIRMED',
+  GUIDED_DISCOVERY_QUESTION: 'UNCONFIRMED',
+  PROPHECY_EQUIVALENCE: 'UNCONFIRMED',
+  PROPHECY_COMPARISON: 'UNCONFIRMED',
+  PROPHECY_CALCULATION: 'UNCONFIRMED',
+  WORD_STUDY: 'UNCONFIRMED',
+  SYMBOL_STUDY: 'UNCONFIRMED',
+  EXPLORE_DEEPER: 'UNCONFIRMED',
 };
 
 /** True only when the backend confirms level-specific content for this block type; unknown types are treated as unsupported. */

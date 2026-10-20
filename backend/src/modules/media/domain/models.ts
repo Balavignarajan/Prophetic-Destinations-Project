@@ -10,6 +10,15 @@ export interface MediaAsset {
   sha256: string;
   createdBy: string;
   createdAt: Date;
+  /** Optional descriptive metadata (domain/metadata.ts). `rightsNotes` is internal and only ever returned by the admin API. */
+  title: string | null;
+  altText: string | null;
+  caption: string | null;
+  source: string | null;
+  rightsNotes: string | null;
+  tags: string[];
+  /** Concurrency counter of the descriptive metadata; rises only when it really changes. */
+  metadataVersion: number;
 }
 
 /** The asset plus where its bytes are kept. Internal to the media module. */

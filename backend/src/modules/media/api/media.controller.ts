@@ -6,7 +6,9 @@ import {
   HttpCode,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
+  Body,
   Query,
   Res,
   StreamableFile,
@@ -26,6 +28,8 @@ import {
   ListMediaQueryDto,
   MediaListResponseDto,
   MediaResponseDto,
+  MediaUsageQueryDto,
+  UpdateMediaMetadataDto,
 } from './dto/media.dto.js';
 import { DELETE_ROLES, READ_ROLES, WRITE_ROLES } from './roles.js';
 
@@ -69,7 +73,7 @@ export class MediaController {
   async list(@Query() query: ListMediaQueryDto): Promise<MediaListResponseDto> {
     const limit = query.limit ?? DEFAULT_LIMIT;
     const offset = query.offset ?? 0;
-    const { items, total } = await this.media.list(limit, offset, query.q);
+    const { items, total } = await this.media.list(limit, offset, query.q, query.contentType);
     return {
       items: items.map((asset) => MediaResponseDto.from(asset)),
       total,
@@ -85,6 +89,28 @@ export class MediaController {
     @Param('mediaId', ParseUUIDPipe) mediaId: string,
   ): Promise<MediaResponseDto> {
     return MediaResponseDto.from(await this.media.get(mediaId));
+  }
+
+  /** Changes the image's descriptive details (never the file). Stale `version` -> 409. ADMIN and EDITOR only; REVIEWER may read. */
+  @Patch(':mediaId')
+  @Roles(...WRITE_ROLES)
+  @Header('Cache-Control', 'no-store')
+  async updateMetadata(
+    @Param('mediaId', ParseUUIDPipe) mediaId: string,
+    @Body() dto: UpdateMediaMetadataDto,
+  ): Promise<MediaResponseDto> {
+    return MediaResponseDto.from(await this.media.updateMetadata(mediaId, dto.version, dto));
+  }
+
+  /** Where the image is used: working and published usage with course/lesson context. Admin roles only; learner endpoints never include it. */
+  @Get(':mediaId/usage')
+  @Roles(...READ_ROLES)
+  @Header('Cache-Control', 'no-store')
+  async usage(
+    @Param('mediaId', ParseUUIDPipe) mediaId: string,
+    @Query() query: MediaUsageQueryDto,
+  ) {
+    return this.media.usageDetail(mediaId, query.limit ?? 50);
   }
 
   /**

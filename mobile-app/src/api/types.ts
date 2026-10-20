@@ -12,6 +12,8 @@ export interface CourseListItem {
   catalogVersion: number;
   title: string;
   description: string | null;
+  /** Published cover image id. Optional: older cached responses (and courses without a cover) do not have it. */
+  coverMediaId?: string | null;
   moduleCount: number;
   lessonCount: number;
 }
@@ -27,6 +29,8 @@ export interface CatalogLesson {
   shortTitle: string | null;
   subtitle: string | null;
   estimatedMinutes: number | null;
+  /** Published cover image id. Optional: older cached responses (and lessons without a cover) do not have it. */
+  coverMediaId?: string | null;
   previousLessonId: string | null;
   nextLessonId: string | null;
 }
@@ -42,15 +46,18 @@ export interface CourseResponse {
   catalogVersion: number;
   title: string;
   description: string | null;
+  coverMediaId?: string | null;
   moduleCount: number;
   lessonCount: number;
   modules: CatalogModule[];
+  /** Optional-module compatibility: published lessons placed directly in a course. */
+  directLessons?: CatalogLesson[];
 }
 
 /** GET /lessons/:lessonId/navigation?level= */
 export interface NavigationLesson {
   lessonId: string;
-  moduleId: string;
+  moduleId: string | null;
   title: string;
   shortTitle: string | null;
   subtitle: string | null;
@@ -60,16 +67,47 @@ export interface NavigationResponse {
   lessonId: string;
   level: LearningLevel;
   courseId: string;
-  moduleId: string;
+  moduleId: string | null;
   catalogVersion: number;
   previous: NavigationLesson | null;
   next: NavigationLesson | null;
 }
 
+/** GET /lessons/:lessonId/related?level= — only related lessons that are deliverable at this level right now, in the author's order. */
+export interface RelatedLessonItem {
+  lessonId: string;
+  /** The author's custom link label. Absent in responses saved before labels existed, and null when there is none: then `title` is shown. */
+  label?: string | null;
+  courseId: string | null;
+  moduleId: string | null;
+  title: string;
+  shortTitle: string | null;
+  subtitle: string | null;
+  estimatedMinutes: number | null;
+  coverMediaId: string | null;
+}
+/** GET /lessons/:lessonId/explore/:blockId?level= — the targets of ONE Continue Exploring block that can be opened now (possibly none), bound to the source publication. */
+export interface ExploreResponse {
+  lessonId: string;
+  blockId: string;
+  level: LearningLevel;
+  publicationVersion: number;
+  contentHash: string;
+  lessons: RelatedLessonItem[];
+}
+export interface RelatedResponse {
+  lessonId: string;
+  level: LearningLevel;
+  /** The publication of the SOURCE lesson this list belongs to (same values as the lesson response). */
+  publicationVersion: number;
+  contentHash: string;
+  lessons: RelatedLessonItem[];
+}
+
 /** GET /lessons/:lessonId?level= — the envelope; `snapshot` is the immutable published payload of that level. */
 export interface LessonSnapshotBlock {
   blockId: string;
-  /** `RICH_TEXT` and `IMAGE` are enabled by the backend today. */
+  /** `RICH_TEXT`, `IMAGE` and `SUMMARY` are enabled by the backend today. */
   type: string;
   ordinal: number;
   source: 'VARIANT' | 'SHARED';
@@ -80,7 +118,8 @@ export interface LessonSnapshot {
   level: LearningLevel;
   lesson: {
     id: string;
-    moduleId: string;
+    courseId?: string;
+    moduleId: string | null;
     title: string;
     shortTitle: string | null;
     subtitle: string | null;

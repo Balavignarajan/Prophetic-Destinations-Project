@@ -9,6 +9,7 @@ import {
 } from './api/catalog-workflow.controller.js';
 import { ConsistencyController } from './api/consistency.controller.js';
 import { PublicationsController } from './api/publications.controller.js';
+import { ExploringPreviewController } from './api/exploring-preview.controller.js';
 import { ReadinessController } from './api/readiness.controller.js';
 import { WorkflowController } from './api/workflow.controller.js';
 import { CatalogHistoryService } from './application/catalog-history.service.js';
@@ -18,6 +19,7 @@ import { PublishedCatalogService } from './application/published-catalog.service
 import { ConsistencyService } from './application/consistency.service.js';
 import { PublishingFacade } from './application/publishing.facade.js';
 import { PublicationService } from './application/publication.service.js';
+import { ExploringPreviewService } from './application/exploring-preview.service.js';
 import { ReadinessService } from './application/readiness.service.js';
 import {
   DEFAULT_WORKFLOW_LOCK_TIMEOUT_MS,
@@ -55,6 +57,7 @@ import { WorkflowEventRepository } from './persistence/workflow-event.repository
     ConsistencyController,
     PublicationsController,
     ReadinessController,
+    ExploringPreviewController,
   ],
   providers: [
     WorkflowEventRepository,
@@ -72,6 +75,7 @@ import { WorkflowEventRepository } from './persistence/workflow-event.repository
     PublicationService,
     WorkflowService,
     ReadinessService,
+    ExploringPreviewService,
     // Workflow transitions give up waiting for a lock after 10 s (a retryable 409).
     {
       provide: WORKFLOW_LOCK_TIMEOUT_MS,

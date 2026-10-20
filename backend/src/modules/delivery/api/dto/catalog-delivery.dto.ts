@@ -7,6 +7,8 @@ export class CatalogLessonDto {
   shortTitle: string | null;
   subtitle: string | null;
   estimatedMinutes: number | null;
+  /** Published cover image id, or null. Fetch it with GET /lessons/:lessonId/media/:coverMediaId?level=. */
+  coverMediaId: string | null;
   previousLessonId: string | null;
   nextLessonId: string | null;
 }
@@ -29,9 +31,12 @@ export class CourseResponseDto {
   catalogVersion: number;
   title: string;
   description: string | null;
+  /** Published cover image id, or null. Fetch it with GET /courses/:courseId/media/:coverMediaId?level=. */
+  coverMediaId: string | null;
   moduleCount: number;
   lessonCount: number;
   modules: CatalogModuleDto[];
+  directLessons: CatalogLessonDto[];
 }
 
 export class CourseListItemDto {
@@ -39,6 +44,8 @@ export class CourseListItemDto {
   catalogVersion: number;
   title: string;
   description: string | null;
+  /** Published cover image id, or null. Fetch it with GET /courses/:courseId/media/:coverMediaId?level=. */
+  coverMediaId: string | null;
   moduleCount: number;
   lessonCount: number;
 }
@@ -51,11 +58,48 @@ export class CourseListResponseDto {
 
 export class NavigationLessonDto {
   lessonId: string;
-  moduleId: string;
+  moduleId: string | null;
   title: string;
   shortTitle: string | null;
   subtitle: string | null;
   estimatedMinutes: number | null;
+}
+
+export class RelatedLessonDto {
+  lessonId: string;
+  /** The author's custom link label, or null: then show `title`. Only ever present for a lesson the learner can open at this level. */
+  label: string | null;
+  courseId: string | null;
+  moduleId: string | null;
+  title: string;
+  shortTitle: string | null;
+  subtitle: string | null;
+  estimatedMinutes: number | null;
+  /** Published cover; fetch it with GET /lessons/:lessonId/media/:coverMediaId?level= using THIS related lesson's id. */
+  coverMediaId: string | null;
+}
+
+/** Response of `GET /api/v1/lessons/:lessonId/related?level=`: only related lessons that are deliverable at this level, in the author's order. */
+export class RelatedResponseDto {
+  lessonId: string;
+  level: LearningLevel;
+  /** Which publication of the SOURCE lesson this list belongs to (same values as the lesson response). A client must only show the list with that exact lesson version. */
+  publicationVersion: number;
+  contentHash: string;
+  lessons: RelatedLessonDto[];
+}
+
+/**
+ * Response of `GET /api/v1/lessons/:lessonId/explore/:blockId?level=`: the targets of ONE Continue Exploring block that a learner can open at this level,
+ * in the author's order. Separate from the lesson-metadata related list. Bound to the exact source publication like the related list.
+ */
+export class ExploreResponseDto {
+  lessonId: string;
+  blockId: string;
+  level: LearningLevel;
+  publicationVersion: number;
+  contentHash: string;
+  lessons: RelatedLessonDto[];
 }
 
 /** Response of `GET /api/v1/lessons/:lessonId/navigation?level=`. */
@@ -63,7 +107,7 @@ export class NavigationResponseDto {
   lessonId: string;
   level: LearningLevel;
   courseId: string;
-  moduleId: string;
+  moduleId: string | null;
   catalogVersion: number;
   previous: NavigationLessonDto | null;
   next: NavigationLessonDto | null;

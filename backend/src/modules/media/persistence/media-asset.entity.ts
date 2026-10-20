@@ -37,6 +37,28 @@ export class MediaAssetEntity {
   @Column({ name: 'created_by', type: 'uuid' })
   createdBy: string;
 
+  /** Descriptive metadata (optional; see domain/metadata.ts). Added by AddMediaMetadata1791780000000. */
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  title: string | null;
+
+  @Column({ name: 'alt_text', type: 'varchar', length: 500, nullable: true })
+  altText: string | null;
+
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  caption: string | null;
+
+  @Column({ type: 'varchar', length: 300, nullable: true })
+  source: string | null;
+
+  @Column({ name: 'rights_notes', type: 'varchar', length: 1000, nullable: true })
+  rightsNotes: string | null;
+
+  @Column({ type: 'text', array: true, default: () => "'{}'" })
+  tags: string[];
+
+  @Column({ name: 'metadata_version', type: 'int', default: 1 })
+  metadataVersion: number;
+
   @Index('idx_media_assets_created_at_id')
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;

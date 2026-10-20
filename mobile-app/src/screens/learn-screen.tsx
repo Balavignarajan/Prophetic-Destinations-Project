@@ -120,6 +120,7 @@ export function LearnScreen() {
               <CourseCard
                 key={course.courseId}
                 course={course}
+                level={level}
                 onPress={() =>
                   router.push({ pathname: '/course/[courseId]', params: { courseId: course.courseId, level } })
                 }

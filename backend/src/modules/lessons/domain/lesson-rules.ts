@@ -88,15 +88,16 @@ export function checkEstimatedMinutes(
   return value;
 }
 
-/** Media does not exist yet, so a lesson cannot have a cover. */
-export function checkCoverMediaId(value: string | null | undefined): null {
-  if (value !== null && value !== undefined) {
-    throw new BusinessRuleError(
-      'coverMediaId cannot be set until the Media module exists',
-      { field: 'coverMediaId' },
-    );
+/**
+ * The cover is a reference to a media asset (null = none). Only the shape is checked here; the application checks
+ * that the asset exists and is an image.
+ */
+export function checkCoverMediaId(value: string | null | undefined): string | null {
+  if (value === undefined || value === null) return null;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) {
+    throw new BusinessRuleError('coverMediaId must be a media asset id', { field: 'coverMediaId' });
   }
-  return null;
+  return value.toLowerCase();
 }
 
 /**
@@ -156,6 +157,7 @@ export function lessonFieldsDiffer(
     subtitle: string | null;
     introduction: string | null;
     estimatedMinutes: number | null;
+    coverMediaId: string | null;
   },
   changes: LessonFieldChanges,
 ): boolean {
@@ -167,7 +169,9 @@ export function lessonFieldsDiffer(
     (changes.introduction !== undefined &&
       changes.introduction !== current.introduction) ||
     (changes.estimatedMinutes !== undefined &&
-      changes.estimatedMinutes !== current.estimatedMinutes)
+      changes.estimatedMinutes !== current.estimatedMinutes) ||
+    (changes.coverMediaId !== undefined &&
+      changes.coverMediaId !== current.coverMediaId)
   );
 }
 

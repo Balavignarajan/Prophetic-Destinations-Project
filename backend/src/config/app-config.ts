@@ -16,6 +16,8 @@ export interface AppConfig {
   secureCookies: boolean;
   /** Where the local-filesystem media adapter keeps uploaded files (relative paths resolve against the working directory). */
   mediaStorageRoot: string;
+  /** Path of the approved Scripture data file (see scripture/domain/dataset.ts), or null when none is installed. */
+  scriptureDataPath: string | null;
   /** Largest accepted media upload, in bytes. */
   mediaMaxBytes: number;
   /** MIME types accepted for upload. The media module checks them against the types it can verify. */
@@ -99,6 +101,7 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
   );
 
   const mediaStorageRoot = env.MEDIA_STORAGE_ROOT?.trim() || './storage/media';
+  const scriptureDataPath = env.SCRIPTURE_DATA_PATH?.trim() || null;
   const mediaMaxBytes = positiveInt(
     env,
     'MEDIA_MAX_BYTES',
@@ -140,6 +143,7 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
     publicRateWindowSeconds,
     secureCookies: nodeEnv === 'production',
     mediaStorageRoot,
+    scriptureDataPath,
     mediaMaxBytes,
     mediaAllowedTypes,
   };

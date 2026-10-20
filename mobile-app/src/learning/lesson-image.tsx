@@ -3,6 +3,7 @@ import { Image, type ImageLoadEventData, type NativeSyntheticEvent, Pressable, V
 
 import { API_BASE_URL } from '@/config/api';
 import { AppText } from '@/components/ui';
+import { reportBrokenAsset, useAssetUri } from '@/features/offline/offline-media';
 import type { LearningLevel } from '@/learning/levels';
 import { useTheme } from '@/theme';
 
@@ -13,8 +14,9 @@ import { useTheme } from '@/theme';
  * lesson's active published snapshot contains it. No credentials are involved and no admin route is used.
  *
  * Shown at the full width of the column with its own aspect ratio (so tall, wide and square images all fit a narrow phone). If it
- * cannot be loaded the lesson carries on: the description (alt text) is shown with a Try again button. Images are NOT saved for
- * offline reading by this app: without a connection (and without the system's own HTTP cache) the fallback is shown.
+ * cannot be loaded the lesson carries on: the description (alt text) is shown with a Try again button. The image is shown from its saved copy on
+ * the device when there is one (features/offline/offline-media.ts, saved with the lesson), otherwise from the learner URL; with neither
+ * the fallback below is shown.
  */
 type ImageContent = { mediaId?: unknown; altText?: unknown; caption?: unknown; source?: unknown };
 
@@ -31,7 +33,8 @@ export function LessonImage({ lessonId, level, content }: { lessonId: string; le
   const alt = text(c.altText);
   const caption = text(c.caption);
   const source = text(c.source);
-  const uri = mediaId ? lessonImageUrl(lessonId, mediaId, level) : null;
+  const remoteUri = mediaId ? lessonImageUrl(lessonId, mediaId, level) : null;
+  const uri = useAssetUri(mediaId, remoteUri);
 
   const [status, setStatus] = useState<'loading' | 'ready' | 'failed'>('loading');
   const [ratio, setRatio] = useState(16 / 9);
@@ -61,6 +64,9 @@ export function LessonImage({ lessonId, level, content }: { lessonId: string; le
           <AppText variant="bodySmall" color="textSecondary" accessibilityRole="text">
             {alt ? `Image: ${alt}` : 'An image belongs here, but it could not be shown.'}
           </AppText>
+          <AppText variant="caption" color="textMuted">
+            This image is not saved on this device yet. It is saved when you open the lesson with an internet connection.
+          </AppText>
           {uri ? (
             <Pressable
               accessibilityRole="button"
@@ -88,7 +94,11 @@ export function LessonImage({ lessonId, level, content }: { lessonId: string; le
             accessibilityRole="image"
             accessibilityLabel={alt || caption || 'Lesson image'}
             onLoad={onLoad}
-            onError={() => setStatus('failed')}
+            onError={() => {
+              // a saved copy that cannot be shown is dropped (it is downloaded again later) and the learner URL is tried instead
+              if (uri !== remoteUri) reportBrokenAsset(mediaId);
+              else setStatus('failed');
+            }}
           />
           {status === 'loading' ? (
             <View style={{ position: 'absolute', inset: 0, alignItems: 'center', justifyContent: 'center' }} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">

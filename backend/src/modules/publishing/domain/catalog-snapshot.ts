@@ -18,7 +18,7 @@ import {
  * published lesson snapshot (never from a working copy). The nested order is the one and only
  * navigation order; there is no separate ordering list.
  */
-export const CATALOG_SNAPSHOT_SCHEMA_VERSION = 1;
+export const CATALOG_SNAPSHOT_SCHEMA_VERSION = 2;
 
 /** The display fields of a published lesson shown in a catalog. */
 export interface LessonSummary {
@@ -26,6 +26,8 @@ export interface LessonSummary {
   shortTitle: string | null;
   subtitle: string | null;
   estimatedMinutes: number | null;
+  /** Not written by current catalog builds: learners get a lesson's cover from its active lesson snapshot (see withLessonCovers). Older snapshots may lack it. */
+  coverMediaId?: string | null;
 }
 
 export interface CatalogLessonEntry extends LessonSummary {
@@ -42,8 +44,11 @@ export interface CatalogModuleSnapshot {
 export interface CatalogLevelContent {
   schemaVersion: number;
   level: LearningLevel;
-  course: { id: string; title: string; description: string | null };
+  /** `coverMediaId` is the course's PUBLISHED cover; absent in older snapshots and when there is none. */
+  course: { id: string; title: string; description: string | null; coverMediaId?: string };
   modules: CatalogModuleSnapshot[];
+  /** Lessons intentionally placed directly in the course, before optional module groups. */
+  directLessons?: CatalogLessonEntry[];
 }
 
 /** A module as it is published in a catalog version. `position` is its ordinal there (1..n). */
@@ -87,11 +92,12 @@ export function preserveOrder(
 }
 
 export interface CatalogBuildInput {
-  course: { id: string; title: string; description: string | null };
+  course: { id: string; title: string; description: string | null; coverMediaId?: string };
   /** The modules of this version, in the order learners see them. */
   modules: readonly PublishedModuleEntry[];
   /** Lessons of those modules in lesson order within each module (module order is taken from `modules`). */
   placements: readonly { lessonId: string; moduleId: string }[];
+  directPlacements?: readonly { lessonId: string }[];
   /** Published summaries: lesson id -> level -> summary, for lessons with an active publication at that level. */
   summaries: ReadonlyMap<string, ReadonlyMap<LearningLevel, LessonSummary>>;
   /** The version being replaced, per level. Its lesson order is kept except for `liveLessonOrder` modules. */
@@ -101,6 +107,7 @@ export interface CatalogBuildInput {
    * For every other module the order of `previous` is kept and only new lessons are inserted.
    */
   liveLessonOrder?: ReadonlySet<string>;
+  liveDirectLessonOrder?: boolean;
 }
 
 /**
@@ -119,6 +126,9 @@ export function buildCatalogLevels(
 
   const levels = new Map<LearningLevel, CatalogLevelContent>();
   for (const level of LEARNING_LEVELS) {
+    const directEligible = (input.directPlacements ?? []).map((placement) => placement.lessonId).filter((lessonId) => input.summaries.get(lessonId)?.get(level));
+    const previousDirect = input.previous?.get(level)?.directLessons?.map((lesson) => lesson.id) ?? [];
+    const directLessons = (input.liveDirectLessonOrder === false ? preserveOrder(directEligible, previousDirect) : directEligible).map((lessonId) => ({ id: lessonId, ...input.summaries.get(lessonId)!.get(level)! }));
     const modules: CatalogModuleSnapshot[] = [];
     for (const module of [...input.modules].sort(
       (a, b) => a.position - b.position,
@@ -149,12 +159,13 @@ export function buildCatalogLevels(
         });
       }
     }
-    if (modules.length > 0) {
+    if (modules.length > 0 || directLessons.length > 0) {
       levels.set(level, {
         schemaVersion: CATALOG_SNAPSHOT_SCHEMA_VERSION,
         level,
         course: { ...input.course },
         modules,
+        directLessons,
       });
     }
   }

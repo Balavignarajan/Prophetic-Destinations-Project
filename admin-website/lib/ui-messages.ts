@@ -26,8 +26,11 @@ export function readinessMessage(issue: ReadinessIssue): string {
       return 'Choose at least one learning level for this lesson before publishing.';
     case 'LESSON_TITLE_MISSING':
       return 'Add a lesson title before publishing.';
-    case 'BLOCK_CONTENT_INCOMPLETE':
-      return `Complete the content in this block for ${level} learners before publishing.`;
+    case 'BLOCK_CONTENT_INCOMPLETE': {
+      // Say what is missing when the server told us (for example an empty or edited quiz).
+      const detail = issue.problems?.map((problem) => problem.message).filter(Boolean).join(' ');
+      return detail ? `${level} learners: ${detail}` : `Complete the content in this block for ${level} learners before publishing.`;
+    }
     case 'BLOCK_CONTENT_INVALID':
       return `This block has content that cannot be shown to ${level} learners. Edit it before publishing.`;
     case 'BLOCK_TYPE_NOT_AVAILABLE':

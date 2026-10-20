@@ -46,7 +46,8 @@ export interface Publication {
   lessonId: string;
   /** Per-lesson, starting at 1, never reused. */
   version: number;
-  moduleId: string;
+  courseId: string;
+  moduleId: string | null;
   /** The lesson's content revision that was published. */
   sourceContentRevision: number;
   snapshotSchemaVersion: number;
@@ -98,6 +99,8 @@ export interface CatalogPublication {
   snapshotSchemaVersion: number;
   courseTitle: string;
   courseDescription: string | null;
+  /** The course cover as published in this version (null = none; also for versions created before covers). */
+  courseCoverMediaId: string | null;
   /** courses.version when this version was created (audit). */
   sourceCourseVersion: number;
   publishedAt: Date;

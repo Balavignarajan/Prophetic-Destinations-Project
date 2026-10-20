@@ -13,7 +13,9 @@ import type {
   CourseListResponseDto,
   CourseResponseDto,
   NavigationLessonDto,
+  ExploreResponseDto,
   NavigationResponseDto,
+  RelatedResponseDto,
 } from '../api/dto/catalog-delivery.dto.js';
 import { ifNoneMatchMatches, representationEtag } from '../domain/etag.js';
 
@@ -43,6 +45,7 @@ export class CatalogDeliveryService {
         catalogVersion: view.catalogVersion,
         title: view.title,
         description: view.description,
+        coverMediaId: view.coverMediaId,
         moduleCount: view.moduleCount,
         lessonCount: view.lessonCount,
       })),
@@ -61,6 +64,39 @@ export class CatalogDeliveryService {
       'course',
       [view.courseId, level],
       toCourseBody(view),
+      ifNoneMatch,
+    );
+  }
+
+  async getRelated(
+    lessonId: string,
+    level: LearningLevel,
+    ifNoneMatch?: string,
+  ): Promise<CatalogRepresentation<RelatedResponseDto>> {
+    const result = await this.publishing.findRelatedLessons(lessonId, level);
+    if (!result) throw new NotFoundError('Lesson not found');
+    // The tag is computed over this whole body (source publication identity AND the visible targets' published fields), so it changes whenever
+    // the list a learner would see changes, including a target becoming or ceasing to be deliverable.
+    return represent(
+      'related',
+      [lessonId, level],
+      { lessonId, level, publicationVersion: result.publicationVersion, contentHash: result.contentHash, lessons: result.lessons },
+      ifNoneMatch,
+    );
+  }
+
+  async getExploring(
+    lessonId: string,
+    blockId: string,
+    level: LearningLevel,
+    ifNoneMatch?: string,
+  ): Promise<CatalogRepresentation<ExploreResponseDto>> {
+    const result = await this.publishing.findExploringLinks(lessonId, blockId, level);
+    if (!result) throw new NotFoundError('Lesson not found');
+    return represent(
+      'explore',
+      [lessonId, blockId, level],
+      { lessonId, blockId, level, publicationVersion: result.publicationVersion, contentHash: result.contentHash, lessons: result.lessons },
       ifNoneMatch,
     );
   }
@@ -103,6 +139,7 @@ function toCourseBody(view: PublishedCourseView): CourseResponseDto {
     catalogVersion: view.catalogVersion,
     title: view.title,
     description: view.description,
+    coverMediaId: view.coverMediaId,
     moduleCount: view.moduleCount,
     lessonCount: view.lessonCount,
     modules: view.modules.map((module) => ({
@@ -115,9 +152,14 @@ function toCourseBody(view: PublishedCourseView): CourseResponseDto {
         shortTitle: lesson.shortTitle,
         subtitle: lesson.subtitle,
         estimatedMinutes: lesson.estimatedMinutes,
+        coverMediaId: lesson.coverMediaId,
         previousLessonId: lesson.previousLessonId,
         nextLessonId: lesson.nextLessonId,
       })),
+    })),
+    directLessons: view.directLessons.map((lesson) => ({
+      lessonId: lesson.lessonId, title: lesson.title, shortTitle: lesson.shortTitle, subtitle: lesson.subtitle,
+      estimatedMinutes: lesson.estimatedMinutes, coverMediaId: lesson.coverMediaId, previousLessonId: lesson.previousLessonId, nextLessonId: lesson.nextLessonId,
     })),
   };
 }

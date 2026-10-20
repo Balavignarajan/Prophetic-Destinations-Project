@@ -6,7 +6,8 @@ import type {
 
 export interface Lesson {
   id: string;
-  moduleId: string;
+  courseId: string;
+  moduleId: string | null;
   title: string;
   shortTitle: string | null;
   subtitle: string | null;

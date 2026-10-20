@@ -51,7 +51,7 @@ export class BlocksController {
     @Body() dto: ReorderBlocksDto,
   ): Promise<BlockListResponseDto> {
     return BlockListResponseDto.from(
-      await this.blocks.reorder(lessonId, dto.blockIds),
+      await this.blocks.reorder(lessonId, dto.blockIds, dto.previousBlockIds),
     );
   }
 

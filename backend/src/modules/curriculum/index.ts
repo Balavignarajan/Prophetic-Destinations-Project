@@ -5,4 +5,5 @@ export {
   type CourseWorkflowRef,
   type ModuleRef,
   type ModuleWorkflowRef,
+  type WorkflowRef,
 } from './application/curriculum.facade.js';

@@ -32,7 +32,8 @@ export class PreviewResponseDto {
   available: boolean;
   lesson: {
     id: string;
-    moduleId: string;
+    courseId: string;
+    moduleId: string | null;
     title: string;
     shortTitle: string | null;
     subtitle: string | null;
@@ -52,6 +53,7 @@ export class PreviewResponseDto {
       available: resolution.available,
       lesson: {
         id: lesson.id,
+        courseId: lesson.courseId,
         moduleId: lesson.moduleId,
         title: lesson.title,
         shortTitle: lesson.shortTitle,

@@ -48,6 +48,8 @@ interface VersionInput {
   /** What the catalog shows for the course: the approved (or carried-over) title/description. */
   courseTitle: string;
   courseDescription: string | null;
+  /** The cover published with this version: the approved cover on a course publish, otherwise carried over. */
+  courseCoverMediaId: string | null;
   /** The modules of the new version, in the order learners see them (ordinals are assigned here). */
   modules: Omit<PublishedModuleEntry, 'position'>[];
   cause: CatalogCause;
@@ -63,6 +65,8 @@ interface VersionInput {
   liveModuleOrder: boolean;
   /** Modules whose current lesson order is approved (they are APPROVED/PUBLISHED and being published here). */
   liveLessonOrder: ReadonlySet<string>;
+  /** Direct lesson order is approved only by a course publish. */
+  liveDirectLessonOrder: boolean;
 }
 
 /**
@@ -159,6 +163,7 @@ export class CatalogPublicationService {
         course,
         courseTitle: course.title,
         courseDescription: course.description,
+        courseCoverMediaId: course.coverMediaId,
         modules: included,
         cause: 'COURSE_PUBLISH',
         requireReady: true,
@@ -169,6 +174,7 @@ export class CatalogPublicationService {
             .map((m) => m.moduleId)
             .filter((id) => modules.some((x) => x.id === id && isApproved(x))),
         ),
+        liveDirectLessonOrder: true,
       },
       actor,
       manager,
@@ -292,12 +298,14 @@ export class CatalogPublicationService {
         // the course itself is not being published here: its metadata is the published one, not the working copy
         courseTitle: active.courseTitle,
         courseDescription: active.courseDescription,
+        courseCoverMediaId: active.courseCoverMediaId,
         modules,
         cause,
         requireReady,
         base: active,
         liveModuleOrder: false,
         liveLessonOrder: new Set(add ? [add.id] : []),
+        liveDirectLessonOrder: false,
       },
       actor,
       manager,
@@ -314,8 +322,9 @@ export class CatalogPublicationService {
       moduleIds,
       manager,
     );
+    const directPlacements = await this.lessons.listDirectLessonPlacements(input.course.id, manager);
     const summaries = await this.lessonPublications.findActiveSummaries(
-      placements.map((p) => p.lessonId),
+      [...placements.map((p) => p.lessonId), ...directPlacements.map((p) => p.lessonId)],
       manager,
     );
 
@@ -341,12 +350,15 @@ export class CatalogPublicationService {
         id: input.course.id,
         title: input.courseTitle,
         description: input.courseDescription,
+        ...(input.courseCoverMediaId ? { coverMediaId: input.courseCoverMediaId } : {}),
       },
       modules: entries,
       placements,
+      directPlacements,
       summaries,
       previous,
       liveLessonOrder: input.liveLessonOrder,
+      liveDirectLessonOrder: input.liveDirectLessonOrder,
     });
     const serialized = [...levels.values()].map(serializeCatalogLevel);
 
@@ -377,6 +389,7 @@ export class CatalogPublicationService {
         snapshotSchemaVersion: CATALOG_SNAPSHOT_SCHEMA_VERSION,
         courseTitle: input.courseTitle,
         courseDescription: input.courseDescription,
+        courseCoverMediaId: input.courseCoverMediaId,
         sourceCourseVersion: input.course.version,
         publishedBy: actor.id,
       },

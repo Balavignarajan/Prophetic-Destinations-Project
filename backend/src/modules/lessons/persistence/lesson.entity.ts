@@ -17,9 +17,6 @@ import {
  */
 @Entity({ name: 'lessons' })
 // Deferrable so a shift or whole-module reorder is checked once, at the end of the statement.
-@Unique('UQ_lessons_module_id_position', ['moduleId', 'position'], {
-  deferrable: 'INITIALLY IMMEDIATE',
-})
 @Check('chk_lessons_position', `"position" >= 1`)
 @Check('chk_lessons_content_revision', `"content_revision" >= 1`)
 @Check(
@@ -50,8 +47,11 @@ export class LessonEntity {
   @PrimaryColumn({ type: 'uuid', default: () => 'gen_random_uuid()' })
   id: string;
 
-  @Column({ name: 'module_id', type: 'uuid' })
-  moduleId: string;
+  @Column({ name: 'course_id', type: 'uuid' })
+  courseId: string;
+
+  @Column({ name: 'module_id', type: 'uuid', nullable: true })
+  moduleId: string | null;
 
   @Column({ type: 'varchar', length: 200 })
   title: string;

@@ -8,6 +8,7 @@ import {
   type PublicQuiz,
   type SubmissionResult,
   checkAnswers,
+  questionsForLevel,
   scoreSubmission,
   toPublicQuiz,
 } from '../domain/quiz-rules.js';
@@ -23,8 +24,8 @@ export class QuizDeliveryService {
   constructor(private readonly quizzes: QuizRepository) {}
 
   /** The quiz as a learner may see it: no correct answers, no explanations. */
-  async read(id: string): Promise<PublicQuiz> {
-    return toPublicQuiz(await this.requirePublished(id));
+  async read(id: string, level?: string): Promise<PublicQuiz> {
+    return toPublicQuiz(await this.requirePublished(id), level);
   }
 
   /**
@@ -34,13 +35,16 @@ export class QuizDeliveryService {
   async submit(
     id: string,
     answers: readonly Answer[],
+    level?: string,
   ): Promise<SubmissionResult> {
     const quiz = await this.requirePublished(id);
-    const problems = checkAnswers(quiz.questions, answers);
+    // With a level, only the questions enabled at it exist for this submission (an answer for any other question is refused as not belonging to the quiz).
+    const questions = questionsForLevel(quiz.questions, level);
+    const problems = checkAnswers(questions, answers);
     if (problems.length > 0) {
       throw new BusinessRuleError('The answers do not fit this quiz', problems);
     }
-    return scoreSubmission(quiz.id, quiz.questions, answers);
+    return scoreSubmission(quiz.id, questions, answers);
   }
 
   private async requirePublished(id: string) {

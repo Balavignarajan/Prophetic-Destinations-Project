@@ -16,6 +16,9 @@ import {
 } from '@/lib/types';
 import { LoadingSpinner, StatusBadge, EmptyState, Modal, ConfirmDialog } from '@/components/ui';
 import { friendlyError } from '@/lib/ui-messages';
+import DuplicateLessonDialog from '@/components/DuplicateLessonDialog';
+import CoverThumb from '@/components/CoverThumb';
+import CoverImageField from '@/components/CoverImageField';
 
 export default function ModuleDetailPage() {
   const params = useParams();
@@ -43,6 +46,7 @@ export default function ModuleDetailPage() {
   // Create lesson modal
   const [createLessonModalOpen, setCreateLessonModalOpen] = useState(false);
   const [newLessonTitle, setNewLessonTitle] = useState('');
+  const [newLessonCover, setNewLessonCover] = useState<string | null>(null);
   const [newShortTitle, setNewShortTitle] = useState('');
   const [newSubtitle, setNewSubtitle] = useState('');
   const [newIntroduction, setNewIntroduction] = useState('');
@@ -56,6 +60,7 @@ export default function ModuleDetailPage() {
   const [createLessonError, setCreateLessonError] = useState<string | null>(null);
 
   // Delete lesson
+  const [duplicateTarget, setDuplicateTarget] = useState<{ id: string; title: string } | null>(null);
   const [deleteLessonId, setDeleteLessonId] = useState<string | null>(null);
   const [deletingLesson, setDeletingLesson] = useState(false);
   const [deleteLessonError, setDeleteLessonError] = useState<string | null>(null);
@@ -109,7 +114,7 @@ export default function ModuleDetailPage() {
   // Unsaved changes protection
   useEffect(() => {
     const isDirty = Boolean(
-      (createLessonModalOpen && newLessonTitle.trim().length > 0) ||
+      (createLessonModalOpen && (newLessonTitle.trim().length > 0 || newLessonCover !== null)) ||
       (editModuleModalOpen && moduleData && (
         editTitle !== moduleData.title ||
         editDescription !== (moduleData.description || '')
@@ -125,7 +130,7 @@ export default function ModuleDetailPage() {
 
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [createLessonModalOpen, newLessonTitle, editModuleModalOpen, moduleData, editTitle, editDescription]);
+  }, [createLessonModalOpen, newLessonTitle, newLessonCover, editModuleModalOpen, moduleData, editTitle, editDescription]);
 
   const confirmDiscard = (hasChanges: boolean, close: () => void) => {
     if (!hasChanges || window.confirm('Discard your unsaved changes?')) close();
@@ -186,12 +191,14 @@ export default function ModuleDetailPage() {
             introduction: newIntroduction.trim() || undefined,
             estimatedMinutes: newEstimatedMinutes ? parseInt(newEstimatedMinutes, 10) : undefined,
             levels: newLevels,
+            ...(newLessonCover ? { coverMediaId: newLessonCover } : {}),
           }),
         }
       );
 
       setCreateLessonModalOpen(false);
       setNewLessonTitle('');
+      setNewLessonCover(null);
       setNewShortTitle('');
       setNewSubtitle('');
       setNewIntroduction('');
@@ -496,6 +503,7 @@ export default function ModuleDetailPage() {
                       )}
                     </div>
 
+                    <CoverThumb mediaId={lesson.coverMediaId} />
                     <div>
                       <div className="flex items-center gap-2.5 flex-wrap">
                         <Link
@@ -538,6 +546,16 @@ export default function ModuleDetailPage() {
 
                     {canWrite && (
                       <button
+                        onClick={() => setDuplicateTarget({ id: lesson.id, title: lesson.title })}
+                        aria-label={`Duplicate lesson ${lesson.title}`}
+                        className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg"
+                      >
+                        Duplicate lesson
+                      </button>
+                    )}
+
+                    {canWrite && (
+                      <button
                         onClick={() => setDeleteLessonId(lesson.id)}
                         className="text-xs font-medium text-rose-600 hover:text-rose-800 p-1.5"
                         title="Delete lesson"
@@ -554,6 +572,12 @@ export default function ModuleDetailPage() {
           </div>
         )}
       </div>
+
+      <DuplicateLessonDialog
+        lesson={duplicateTarget}
+        destination={`${moduleData?.title ?? 'This module'}${course ? ` in ${course.title}` : ''}`}
+        onClose={() => setDuplicateTarget(null)}
+      />
 
       {/* Edit Module Modal */}
       <Modal
@@ -617,7 +641,7 @@ export default function ModuleDetailPage() {
       {/* Create Lesson Modal */}
       <Modal
         isOpen={createLessonModalOpen}
-        onClose={() => confirmDiscard(Boolean(newLessonTitle.trim() || newShortTitle.trim() || newSubtitle.trim() || newIntroduction.trim() || newEstimatedMinutes), () => setCreateLessonModalOpen(false))}
+        onClose={() => confirmDiscard(Boolean(newLessonTitle.trim() || newShortTitle.trim() || newSubtitle.trim() || newIntroduction.trim() || newEstimatedMinutes || newLessonCover), () => setCreateLessonModalOpen(false))}
         title="Create New Lesson"
         description="Add a lesson with title and target learning levels."
       >
@@ -722,10 +746,12 @@ export default function ModuleDetailPage() {
             </div>
           </div>
 
+          <CoverImageField subject="lesson" value={newLessonCover} onChange={setNewLessonCover} disabled={creatingLesson} />
+
           <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
             <button
               type="button"
-              onClick={() => confirmDiscard(Boolean(newLessonTitle.trim() || newShortTitle.trim() || newSubtitle.trim() || newIntroduction.trim() || newEstimatedMinutes), () => setCreateLessonModalOpen(false))}
+              onClick={() => confirmDiscard(Boolean(newLessonTitle.trim() || newShortTitle.trim() || newSubtitle.trim() || newIntroduction.trim() || newEstimatedMinutes || newLessonCover), () => setCreateLessonModalOpen(false))}
               className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50"
             >
               Cancel

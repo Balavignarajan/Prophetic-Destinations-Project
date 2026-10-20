@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { type EntityManager, In, Repository } from 'typeorm';
+import { type EntityManager, In, IsNull, Repository } from 'typeorm';
 import {
   isForeignKeyViolation,
   isUniqueViolation,
@@ -16,12 +16,14 @@ import { LessonLevelEntity } from './lesson-level.entity.js';
 import { LessonEntity } from './lesson.entity.js';
 
 export interface NewLesson {
-  moduleId: string;
+  courseId: string;
+  moduleId: string | null;
   title: string;
   shortTitle: string | null;
   subtitle: string | null;
   introduction: string | null;
   estimatedMinutes: number | null;
+  coverMediaId?: string | null;
   position: number;
 }
 
@@ -31,6 +33,7 @@ export interface LessonChanges {
   subtitle?: string | null;
   introduction?: string | null;
   estimatedMinutes?: number | null;
+  coverMediaId?: string | null;
   status?: ContentStatus;
 }
 
@@ -120,6 +123,19 @@ export class LessonRepository {
     return toLesson(row, levels.get(row.id) ?? []);
   }
 
+  /**
+   * Locks several lesson rows in ONE statement, in ascending id order, until the transaction ends; returns the ids that exist. Always
+   * locking a set of lessons in this order is what keeps two transactions that each need several lessons from deadlocking.
+   */
+  async lockMany(ids: readonly string[], manager: EntityManager): Promise<string[]> {
+    if (ids.length === 0) return [];
+    const rows: { id: string }[] = await manager.query(
+      `SELECT "id" FROM "lessons" WHERE "id" = ANY($1::uuid[]) ORDER BY "id" FOR UPDATE`,
+      [ids],
+    );
+    return rows.map((row) => row.id);
+  }
+
   /** In module order. */
   async listByModule(
     moduleId: string,
@@ -138,6 +154,39 @@ export class LessonRepository {
 
   countByModule(moduleId: string, manager?: EntityManager): Promise<number> {
     return this.repo(manager).count({ where: { moduleId } });
+  }
+
+  async listDirectByCourse(courseId: string, manager?: EntityManager): Promise<Lesson[]> {
+    const rows = await this.repo(manager).find({ where: { courseId, moduleId: IsNull() }, order: { position: 'ASC' } });
+    const levels = await this.levelsOf(rows.map((row) => row.id), manager);
+    return rows.map((row) => toLesson(row, levels.get(row.id) ?? []));
+  }
+
+  async listDirectPlacements(courseId: string, manager?: EntityManager): Promise<{ lessonId: string; position: number }[]> {
+    const rows: { id: string; position: number }[] = await (manager ?? this.repo().manager).query(`SELECT "id", "position" FROM "lessons" WHERE "course_id" = $1 AND "module_id" IS NULL ORDER BY "position"`, [courseId]);
+    return rows.map((row) => ({ lessonId: row.id, position: row.position }));
+  }
+
+  /** The highest position in the module (0 when it has no lessons): the base for appending safely. */
+  async maxPositionByModule(moduleId: string, manager?: EntityManager): Promise<number> {
+    const [row]: { max: number }[] = await (manager ?? this.repo().manager).query(
+      `SELECT COALESCE(max("position"), 0)::int AS "max" FROM "lessons" WHERE "module_id" = $1`,
+      [moduleId],
+    );
+    return row?.max ?? 0;
+  }
+
+  /** The highest position among the course's direct lessons (0 when there are none). */
+  async maxPositionDirect(courseId: string, manager?: EntityManager): Promise<number> {
+    const [row]: { max: number }[] = await (manager ?? this.repo().manager).query(
+      `SELECT COALESCE(max("position"), 0)::int AS "max" FROM "lessons" WHERE "course_id" = $1 AND "module_id" IS NULL`,
+      [courseId],
+    );
+    return row?.max ?? 0;
+  }
+
+  countDirectByCourse(courseId: string, manager?: EntityManager): Promise<number> {
+    return this.repo(manager).count({ where: { courseId, moduleId: IsNull() } });
   }
 
   /**
@@ -275,6 +324,10 @@ export class LessonRepository {
     );
   }
 
+  async shiftDirectFrom(courseId: string, fromPosition: number, delta: 1 | -1, manager: EntityManager): Promise<void> {
+    await manager.query(`UPDATE "lessons" SET "position" = "position" + $3, "updated_at" = now() WHERE "course_id" = $1 AND "module_id" IS NULL AND "position" >= $2`, [courseId, fromPosition, delta]);
+  }
+
   /** Assigns positions in one statement: ids[i] gets positions[i]. Ignores ids of other modules. */
   async applyPositions(
     moduleId: string,
@@ -289,6 +342,10 @@ export class LessonRepository {
         WHERE l."id" = v."id" AND l."module_id" = $1`,
       [moduleId, ids, positions],
     );
+  }
+
+  async applyDirectPositions(courseId: string, ids: readonly string[], positions: readonly number[], manager: EntityManager): Promise<void> {
+    await manager.query(`UPDATE "lessons" AS l SET "position" = v."position", "updated_at" = now() FROM unnest($2::uuid[], $3::int[]) AS v("id", "position") WHERE l."id" = v."id" AND l."course_id" = $1 AND l."module_id" IS NULL`, [courseId, ids, positions]);
   }
 
   private async levelsOf(
@@ -317,6 +374,7 @@ export class LessonRepository {
 function toLesson(row: LessonEntity, levels: string[]): Lesson {
   return {
     id: row.id,
+    courseId: row.courseId,
     moduleId: row.moduleId,
     title: row.title,
     shortTitle: row.shortTitle,

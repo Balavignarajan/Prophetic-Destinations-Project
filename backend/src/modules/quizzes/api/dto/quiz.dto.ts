@@ -2,7 +2,9 @@ import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
+  ArrayUnique,
   IsBoolean,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -19,7 +21,7 @@ import type {
   QuizWithQuestions,
   SubmissionResult,
 } from '../../domain/quiz-rules.js';
-import { QUIZ_LIMITS } from '../../domain/quiz-rules.js';
+import { QUESTION_LEVELS, QUIZ_LIMITS } from '../../domain/quiz-rules.js';
 import type { QuizSummary } from '../../persistence/quiz.repository.js';
 
 /** Surrounding whitespace is not content; whether what remains is empty is decided by the quiz rules (422). */
@@ -39,6 +41,13 @@ export class OptionDto {
 }
 
 export class QuestionDto {
+  /** Levels the question is shown at. Absent or null = every level (existing questions have no setting); otherwise at least one. Sent in full on every save. */
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsIn(QUESTION_LEVELS as unknown as string[], { each: true })
+  levels?: string[] | null;
+
   @Trim()
   @IsString()
   @MaxLength(QUIZ_LIMITS.promptMax * 2)
@@ -133,6 +142,8 @@ export class AdminQuizResponseDto {
     type: string;
     prompt: string;
     explanation: string | null;
+    /** Levels the question is shown at, or null = every level. */
+    levels: string[] | null;
     options: { id: string; text: string; correct: boolean }[];
   }[];
 
@@ -152,6 +163,7 @@ export class AdminQuizResponseDto {
         type: question.type,
         prompt: question.prompt,
         explanation: question.explanation,
+        levels: question.levels,
         options: question.options.map((option) => ({
           id: option.id,
           text: option.text,

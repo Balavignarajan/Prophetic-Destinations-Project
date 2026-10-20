@@ -95,6 +95,7 @@ export function HomeScreen() {
                 .slice(0, HOME_COURSES)
                 .map((course) => (
                   <CourseCard
+                  level={level}
                     key={course.courseId}
                     course={course}
                     onPress={() => router.push({ pathname: '/course/[courseId]', params: { courseId: course.courseId, level } })}

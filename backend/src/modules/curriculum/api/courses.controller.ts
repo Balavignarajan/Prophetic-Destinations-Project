@@ -8,15 +8,18 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
 } from '@nestjs/common';
 import { Roles } from '../../identity/index.js';
 import { CourseService } from '../application/course.service.js';
 import {
   CourseListResponseDto,
+  CourseOrderResponseDto,
   CourseResponseDto,
   CreateCourseDto,
   ListCoursesQueryDto,
+  ReorderCoursesDto,
   UpdateCourseDto,
 } from './dto/course.dto.js';
 import { DELETE_COURSE_ROLES, READ_ROLES, WRITE_ROLES } from './roles.js';
@@ -48,6 +51,26 @@ export class CoursesController {
       limit,
       offset,
     };
+  }
+
+  /** Every course in the manual order, unpaginated. Declared before ':courseId' so it is never read as an id. */
+  @Get('order')
+  @Roles(...READ_ROLES)
+  async order(): Promise<CourseOrderResponseDto> {
+    const courses = await this.courses.listAll();
+    return { items: courses.map((course) => CourseResponseDto.from(course)) };
+  }
+
+  @Put('order')
+  @Roles(...WRITE_ROLES)
+  async reorder(
+    @Body() dto: ReorderCoursesDto,
+  ): Promise<CourseOrderResponseDto> {
+    const courses = await this.courses.reorder(
+      dto.courseIds,
+      dto.previousCourseIds,
+    );
+    return { items: courses.map((course) => CourseResponseDto.from(course)) };
   }
 
   @Get(':courseId')

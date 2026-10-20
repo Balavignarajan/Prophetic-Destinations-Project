@@ -11,6 +11,7 @@ const KEYS = {
   theme: 'pd.preferences.theme',
   level: 'pd.preferences.level',
   welcomeSeen: 'pd.preferences.welcomeSeen',
+  bibleLastRead: 'pd.bible.lastRead',
 } as const;
 
 async function read(key: string): Promise<string | null> {
@@ -69,4 +70,20 @@ export async function readWelcomeSeen(): Promise<boolean> {
 
 export function saveWelcomeSeen(): Promise<void> {
   return write(KEYS.welcomeSeen, '1');
+}
+
+/** Where the learner last read in the Bible reader (book and chapter only), so "Continue reading" can offer it. Device-local and non-sensitive. */
+export async function readBibleLastRead(): Promise<{ bookId: string; chapter: number } | null> {
+  const stored = await read(KEYS.bibleLastRead);
+  if (!stored) return null;
+  try {
+    const value = JSON.parse(stored) as { bookId?: unknown; chapter?: unknown };
+    return typeof value.bookId === 'string' && typeof value.chapter === 'number' && Number.isInteger(value.chapter) && value.chapter >= 1 ? { bookId: value.bookId, chapter: value.chapter } : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveBibleLastRead(position: { bookId: string; chapter: number }): Promise<void> {
+  return write(KEYS.bibleLastRead, JSON.stringify(position));
 }

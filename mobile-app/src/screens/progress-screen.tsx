@@ -4,7 +4,7 @@ import { View } from 'react-native';
 import { useResource } from '@/api/use-resource';
 import { AppText, Card, EmptyState, ScreenContainer, ScreenHeader, SectionHeader } from '@/components/ui';
 import { useLearningProgress } from '@/features/learning/learning-provider';
-import { completedLessons, summarise, unfinishedLessons } from '@/features/learning/progress-model';
+import { completedLessons, quizResultsList, summarise, unfinishedLessons } from '@/features/learning/progress-model';
 import { loadCourseList } from '@/features/offline/offline-api';
 import { LEVEL_LABELS } from '@/learning/levels';
 import { useLearningLevel } from '@/learning/use-learning-level';
@@ -14,8 +14,9 @@ import { useTheme } from '@/theme';
  * Progress: lessons completed and remaining, and the lessons in progress, all from this device. The remaining count comes from the
  * published catalog at the learner's level (live, or its saved copy); with neither it is simply not shown, never guessed.
  *
- * There is deliberately NO "overall progress" percentage and no quiz score here: the specification does not define the formula
- * (decision C-14), and published lessons do not have quizzes yet. Both appear once they are defined.
+ * There is deliberately NO "overall progress" percentage: the specification does not define the formula (decision C-14). Quiz scores are the
+ * latest completed result of each quiz block taken on this device (provisional rule, see QuizResult); a lesson counts as complete on its own,
+ * independent of any quiz.
  */
 export function ProgressScreen() {
   const router = useRouter();
@@ -27,6 +28,7 @@ export function ProgressScreen() {
   const summary = summarise(progress, level, total);
   const unfinished = unfinishedLessons(progress);
   const done = completedLessons(progress);
+  const quizzes = quizResultsList(progress.quizResults);
   const open = (lessonId: string, lessonLevel: string) => router.push({ pathname: '/lesson/[lessonId]', params: { lessonId, level: lessonLevel } });
 
   return (
@@ -99,11 +101,28 @@ export function ProgressScreen() {
           )}
         </View>
 
-        <View style={{ gap: spacing.sm }}>
+        <View style={{ gap: spacing.md }}>
           <SectionHeader title="Quiz scores" />
-          <AppText variant="bodySmall" color="textSecondary">
-            Quizzes for published lessons are not available yet, so there are no scores to show.
-          </AppText>
+          {quizzes.length === 0 ? (
+            <AppText variant="bodySmall" color="textSecondary">
+              Quizzes you finish are listed here with your latest score.
+            </AppText>
+          ) : (
+            quizzes.map((quiz) => (
+              <Card
+                key={`${quiz.lessonId}:${quiz.level}:${quiz.blockId}`}
+                variant="outlined"
+                onPress={() => open(quiz.lessonId, quiz.level)}
+                accessibilityLabel={`Quiz in ${quiz.lessonTitle || 'a lesson'}, ${LEVEL_LABELS[quiz.level]} level. Latest score ${quiz.score} of ${quiz.total}. Open the lesson.`}>
+                <View style={{ gap: spacing.xs }}>
+                  <AppText variant="body">{quiz.lessonTitle || 'Lesson quiz'}</AppText>
+                  <AppText variant="caption" color="textMuted">
+                    {quiz.score} of {quiz.total} correct · latest result · {LEVEL_LABELS[quiz.level]} level · {new Date(quiz.completedAt).toLocaleDateString()}
+                  </AppText>
+                </View>
+              </Card>
+            ))
+          )}
         </View>
       </View>
     </ScreenContainer>

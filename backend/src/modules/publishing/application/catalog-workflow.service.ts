@@ -10,6 +10,7 @@ import {
   type CourseWorkflowRef,
   CurriculumFacade,
   type ModuleWorkflowRef,
+  type WorkflowRef,
 } from '../../curriculum/index.js';
 import type { AuthenticatedAdmin, Role } from '../../identity/index.js';
 import type {
@@ -145,7 +146,7 @@ export class CatalogWorkflowService {
         const module = subject.moduleId
           ? await this.lockModule(subject.courseId, subject.moduleId, manager)
           : null;
-        const target: CourseWorkflowRef = module ?? course;
+        const target: WorkflowRef = module ?? course;
 
         if (
           input.expectedVersion !== undefined &&
@@ -321,7 +322,7 @@ export class CatalogWorkflowService {
     if (subject.moduleId && (!module || module.courseId !== course.id)) {
       throw new NotFoundError('Module not found');
     }
-    const target: CourseWorkflowRef = module ?? course;
+    const target: WorkflowRef = module ?? course;
     const active = await this.catalog.findActive(course.id);
     const published = module
       ? (active?.modules.some((m) => m.moduleId === module.id) ?? false)

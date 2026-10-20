@@ -639,8 +639,15 @@ that need it, as an explicit route, together with the reference check that stops
 **Everything in this section is a documented ASSUMPTION, not a confirmed requirement** (decisions D5.1-D5.4 about question types, where answers are checked,
 level eligibility and scoring are still open). It is the smallest contract that lets the backend demonstrate a quiz, and it is meant to be revised.
 
-- **Standalone, not in lessons.** The `QUIZ` lesson-block type is not enabled (it has no approved content contract), so no lesson and no published lesson
-  snapshot refers to a quiz. When that contract exists, a lesson snapshot will embed the quiz as published at that moment (the same way a catalog snapshot
+- **Used by lessons through a QUIZ block (an assumption, not an approved contract).** The block stores `{ quizId, quizVersion }`; at publication the lesson
+  snapshot embeds a frozen copy of the quiz including correct answers and explanations (so the learner app can check answers offline; the public lesson
+  response therefore contains them). The quiz row is share-locked during publication and when a block is saved, so the validated version is the
+  snapshotted version and a quiz cannot be deleted while a block is being saved against it. Every change to a quiz (content edit, publish, unpublish) moves its
+  `version`; a block whose recorded version is not the current one blocks publication until it is saved again. A quiz with a question that fails the
+  completeness rules or has an unsupported type blocks publication as a whole; questions are never skipped.
+  **Open product decisions:** (1) whether a quiz must itself be PUBLISHED before a lesson may include it (today a Draft quiz is allowed, because the lesson holds
+  its own copy); (2) pass marks, attempts and any effect on lesson completion (none today); (3) level-specific quizzes (none today).
+- **Standalone learner routes.** (Earlier text, kept:) no lesson snapshot referred to a quiz. When that contract exists, a lesson snapshot will embed the quiz as published at that moment (the same way a catalog snapshot
   is built), and the standalone learner routes below become optional. Delivery may not import quizzes (its boundary test enforces this), which is why the
   learner routes live in the quizzes module.
 - **Question format.** One type, `SINGLE_CHOICE`, plain text (no markup): a prompt (1-1000 characters), 2-6 options (1-300 characters, unique ignoring case),
@@ -694,6 +701,13 @@ results: [{ questionId, answeredOptionId, correct, correctOptionId, explanation 
   - So: do not revert in a shared or production database without exporting the affected tables first (audit history cannot be rebuilt), and treat revert as
     a development tool. A destructive-rollback guard was deliberately not added: it would be a new convention for table-creating migrations and should be
     decided for all of them together.
+- **Migrations written but NOT evidenced as run (check with `npm run migration:show` before assuming anything).** Nothing in this repository records that
+  these were applied to any database, so treat all of them as pending until `migration:show` says otherwise, and apply them in this order (each runs after the
+  previous): `1791720000000-AllowDirectCourseLessons`, `1791730000000-AddCourseOrdering`, `1791740000000-AddCoverImages`,
+  `1791750000000-AddHistoricalEvidenceBlockType`, `1791760000000-CreateLessonRelated`, `1791770000000-AddRelatedLinkLabelAndLevels`,
+  `1791780000000-AddMediaMetadata`, `1791790000000-AddMediaCaption`, `1791800000000-AddGuidedDiscoveryBlockType`,
+  `1791810000000-AddContinueExploringBlockType`, `1791820000000-AddMediaAnimationBlockType`, `1791830000000-AddQuizQuestionLevels`. Code that depends on them (direct course lessons, course order, cover images, Historical Evidence, related
+  lessons and their labels, media details and captions, Guided Discovery, Continue Exploring and Media/Animation blocks, quiz question levels) fails or misbehaves against a database that lacks them.
 - `npm run migration:drift` prints what TypeORM thinks differs between entities and the database. Expect two known false
   positives: it re-sets the `gen_random_uuid()` id defaults, re-creates foreign keys and the `idx_courses_created_at_id` index, and proposes dropping `lessons.module_id`'s foreign key and the composite foreign keys of `lesson_block_levels` (it targets another module's table, so it is intentionally not modelled in the entity). Triggers such as `trg_lesson_blocks_type_immutable` are not modelled in entities either. Anything else is real drift.
 

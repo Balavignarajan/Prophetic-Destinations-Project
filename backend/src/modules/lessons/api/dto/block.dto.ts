@@ -116,6 +116,15 @@ export class ReorderBlocksDto {
   @ArrayMaxSize(MAX_BLOCKS_PER_LESSON)
   @IsUUID('all', { each: true })
   blockIds: string[];
+
+  /**
+   * The full block order the editor last saw. REQUIRED (there is no way to skip the check): if anyone reordered, added or deleted a block since, the request
+   * is refused (409) and nothing changes. Same pattern as the course order (previousCourseIds).
+   */
+  @IsArray()
+  @ArrayMaxSize(MAX_BLOCKS_PER_LESSON)
+  @IsUUID('all', { each: true })
+  previousBlockIds: string[];
 }
 
 export class BlockLevelDto {

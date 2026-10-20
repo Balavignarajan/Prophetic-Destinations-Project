@@ -7,6 +7,8 @@ import type {
   CourseResponse,
   LessonResponse,
   NavigationResponse,
+  ExploreResponse,
+  RelatedResponse,
 } from './types';
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -20,7 +22,7 @@ export const isCourseListResponse = (body: unknown): body is CourseListResponse 
   isRecord(body) && Array.isArray(body.courses);
 
 export const isCourseResponse = (body: unknown): body is CourseResponse =>
-  isRecord(body) && Array.isArray(body.modules) && typeof body.title === 'string';
+  isRecord(body) && Array.isArray(body.modules) && (body.directLessons === undefined || Array.isArray(body.directLessons)) && typeof body.title === 'string';
 
 export const isLessonResponse = (body: unknown): body is LessonResponse => {
   const snapshot = isRecord(body) ? body.snapshot : null;
@@ -34,6 +36,31 @@ export const isLessonResponse = (body: unknown): body is LessonResponse => {
 
 export const isNavigationResponse = (body: unknown): body is NavigationResponse =>
   isRecord(body) && typeof body.courseId === 'string';
+
+// Requires the source publication identity: a saved list from before it existed fails this check, is discarded, and is never shown.
+export const isRelatedResponse = (body: unknown): body is RelatedResponse =>
+  isRecord(body) &&
+  typeof body.contentHash === 'string' &&
+  typeof body.publicationVersion === 'number' &&
+  Array.isArray(body.lessons) &&
+  body.lessons.every((item) => isRecord(item) && typeof item.lessonId === 'string' && typeof item.title === 'string');
+
+// Same shape as the related list plus the block it belongs to; a saved list without the source publication identity is discarded.
+export const isExploreResponse = (body: unknown): body is ExploreResponse => isRelatedResponse(body) && typeof (body as unknown as { blockId?: unknown }).blockId === 'string';
+
+/** GET /lessons/:lessonId/explore/:blockId?level= — the targets of one Continue Exploring block that can be opened now (possibly none). */
+export async function getExploring(lessonId: string, blockId: string, level: LearningLevel, signal?: AbortSignal): Promise<ExploreResponse> {
+  const body = await apiGet<unknown>(`/lessons/${encodeURIComponent(lessonId)}/explore/${encodeURIComponent(blockId)}`, { level }, signal);
+  if (!isExploreResponse(body)) throw new ResponseShapeError('the links');
+  return body;
+}
+
+/** GET /lessons/:lessonId/related?level= — related lessons that can be opened now (possibly none). */
+export async function getRelated(lessonId: string, level: LearningLevel, signal?: AbortSignal): Promise<RelatedResponse> {
+  const body = await apiGet<unknown>(`/lessons/${encodeURIComponent(lessonId)}/related`, { level }, signal);
+  if (!isRelatedResponse(body)) throw new ResponseShapeError('the related lessons');
+  return body;
+}
 
 /** GET /courses?level= — the published courses that have something to show at this level. */
 export async function listCourses(level: LearningLevel, signal?: AbortSignal): Promise<CourseListResponse> {

@@ -1,0 +1,168 @@
+import { createHash } from 'node:crypto';
+import { type BookId, BOOK_IDS } from './books.js';
+import type { ScriptureReference } from './reference.js';
+
+/**
+ * The Scripture data set contract (pure; no file access, no network).
+ *
+ * NO data set is approved or bundled (see docs/scripture-source-research.md: licensing is unresolved), so nothing in the repository
+ * contains Bible text or verse counts, and this module never invents any. It defines the ONE format an approved set must be converted
+ * to, and the checks that format must pass before the server will treat a passage as canonically valid:
+ *
+ *   {
+ *     "metadata": { "id": "kjv", "translation": "King James Version", "edition": "1769 (Blayney)", "version": "<revision or date>",
+ *                   "source": "<where the text came from>", "checksum": "<sha-256 of the verses, hex>",
+ *                   "expectedTotals": { "books": 66, "chapters": <n>, "verses": <n> }   // optional: when given, it is enforced
+ *     },
+ *     "books": { "Gen": [ ["verse 1 text", "verse 2 text", ...],  [...], ... ], "Exod": [...], ... }
+ *   }
+ *
+ * `books` is keyed by the OSIS book id used everywhere else (see books.ts). A chapter is the list of its verses in order (verse n is
+ * element n-1), so the verse COUNT of a chapter is its list length and a verse that exists is exactly an element of the list.
+ * Verse text is stored exactly as supplied and is never rewritten.
+ *
+ * IDENTITY: `id` and `version` are editable labels, so they do not prove which TEXT is installed. The server computes a content
+ * FINGERPRINT (SHA-256 over the verse text, see `computeFingerprint`) when it loads the file; that fingerprint is what published
+ * passages and block stamps record and what change detection compares. A `metadata.checksum` is optional, but if present it must equal
+ * the computed fingerprint, otherwise the file is rejected: a declared checksum is never trusted without being checked.
+ */
+export interface ScriptureDatasetMetadata {
+  id: string;
+  translation: string;
+  edition: string;
+  version: string;
+  source: string;
+  /** The checksum the file declared (already verified to equal `fingerprint`), or null if it declared none. */
+  checksum: string | null;
+  /** SHA-256 of the actual text content, computed by the server (never taken from the file). */
+  fingerprint: string;
+}
+
+export interface ScriptureDataset {
+  metadata: ScriptureDatasetMetadata;
+  /** books[bookId][chapter - 1][verse - 1] = verse text. */
+  books: Readonly<Record<BookId, readonly (readonly string[])[]>>;
+}
+
+export type DatasetParseResult =
+  | { ok: true; dataset: ScriptureDataset }
+  | { ok: false; problems: string[] };
+
+const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
+const text = (value: unknown) => (typeof value === 'string' && value.trim() !== '' ? value : null);
+
+/**
+ * SHA-256 (hex) of the Scripture text: the books in canonical order (OSIS ids), each as its chapters' verse lists in JSON form, with
+ * a version prefix and separators so different splits can never collide. Depends only on the text and its chapter/verse structure.
+ */
+export function computeFingerprint(books: Readonly<Record<string, readonly (readonly string[])[]>>): string {
+  const hash = createHash('sha256');
+  hash.update('SCRIPTURE-TEXT-v1\0');
+  for (const id of BOOK_IDS) {
+    hash.update(id);
+    hash.update('\0');
+    hash.update(JSON.stringify(books[id]));
+    hash.update('\0');
+  }
+  return hash.digest('hex');
+}
+
+/**
+ * Checks a parsed JSON document against the contract. Structure only: the content is the supplier's, and counts are checked only
+ * against totals the data set itself declares (we hold no verse counts of our own). Reports up to 20 problems.
+ */
+export function parseDataset(raw: unknown): DatasetParseResult {
+  const problems: string[] = [];
+  if (!isObject(raw) || !isObject(raw.metadata) || !isObject(raw.books)) {
+    return { ok: false, problems: ['The file must be an object with "metadata" and "books"'] };
+  }
+  const m = raw.metadata;
+  const id = text(m.id);
+  const translation = text(m.translation);
+  const edition = text(m.edition);
+  const version = text(m.version);
+  const source = text(m.source);
+  for (const [name, value] of [['id', id], ['translation', translation], ['edition', edition], ['version', version], ['source', source]] as const) {
+    if (value === null) problems.push(`metadata.${name} is required (provenance must be recorded)`);
+  }
+  const checksum = typeof m.checksum === 'string' && m.checksum.trim() !== '' ? m.checksum : null;
+
+  const books: Record<string, string[][]> = {};
+  let chapters = 0;
+  let verses = 0;
+  for (const bookId of BOOK_IDS) {
+    const book = raw.books[bookId];
+    if (!Array.isArray(book) || book.length === 0) {
+      problems.push(`Book ${bookId} is missing or has no chapters`);
+      continue;
+    }
+    const parsed: string[][] = [];
+    book.forEach((chapter, chapterIndex) => {
+      if (!Array.isArray(chapter) || chapter.length === 0) {
+        problems.push(`${bookId} chapter ${chapterIndex + 1} is missing or has no verses`);
+        return;
+      }
+      chapter.forEach((verse, verseIndex) => {
+        if (typeof verse !== 'string' || verse.trim() === '') problems.push(`${bookId} ${chapterIndex + 1}:${verseIndex + 1} has no text`);
+      });
+      parsed.push(chapter as string[]);
+      chapters += 1;
+      verses += chapter.length;
+    });
+    books[bookId] = parsed;
+  }
+  for (const key of Object.keys(raw.books)) {
+    if (!(BOOK_IDS as readonly string[]).includes(key)) problems.push(`Unknown book id "${key}" (this project supports the 66-book canon only)`);
+  }
+  const expected = isObject(m.expectedTotals) ? m.expectedTotals : null;
+  if (expected) {
+    if (typeof expected.books === 'number' && expected.books !== BOOK_IDS.length) problems.push(`expectedTotals.books is ${expected.books}, the data has ${BOOK_IDS.length} books`);
+    if (typeof expected.chapters === 'number' && expected.chapters !== chapters) problems.push(`expectedTotals.chapters is ${expected.chapters}, the data has ${chapters}`);
+    if (typeof expected.verses === 'number' && expected.verses !== verses) problems.push(`expectedTotals.verses is ${expected.verses}, the data has ${verses}`);
+  }
+  if (problems.length > 0) return { ok: false, problems: problems.slice(0, 20) };
+  const fingerprint = computeFingerprint(books);
+  if (checksum !== null && checksum.trim().toLowerCase() !== fingerprint) {
+    return { ok: false, problems: ['metadata.checksum does not match the SHA-256 fingerprint of the text (see computeFingerprint), so the file is not trusted'] };
+  }
+  return {
+    ok: true,
+    dataset: {
+      metadata: { id: id!, translation: translation!, edition: edition!, version: version!, source: source!, checksum, fingerprint },
+      books: books as unknown as ScriptureDataset['books'],
+    },
+  };
+}
+
+export type LookupFailure = 'NO_SUCH_CHAPTER' | 'NO_SUCH_VERSE';
+
+export type PassageResult =
+  | { ok: true; verses: { verse: number; text: string }[] }
+  | { ok: false; code: LookupFailure; message: string };
+
+export function chapterCount(dataset: ScriptureDataset, bookId: BookId): number {
+  return dataset.books[bookId].length;
+}
+
+/** How many verses a chapter has, or null if the chapter does not exist. */
+export function verseCount(dataset: ScriptureDataset, bookId: BookId, chapter: number): number | null {
+  return dataset.books[bookId][chapter - 1]?.length ?? null;
+}
+
+/**
+ * Canonical validation of a reference against the data set: the chapter exists, and both ends of the range exist in that chapter.
+ * (Range ORDER is already guaranteed by reference parsing; ranges stay within one chapter, the confirmed rule.)
+ */
+export function readPassage(dataset: ScriptureDataset, reference: ScriptureReference): PassageResult {
+  const count = verseCount(dataset, reference.bookId, reference.chapter);
+  if (count === null) {
+    return { ok: false, code: 'NO_SUCH_CHAPTER', message: `This book has no chapter ${reference.chapter}` };
+  }
+  if (reference.endVerse > count) {
+    return { ok: false, code: 'NO_SUCH_VERSE', message: `Chapter ${reference.chapter} has ${count} verses, so verse ${reference.endVerse} does not exist` };
+  }
+  const chapter = dataset.books[reference.bookId][reference.chapter - 1];
+  const verses: { verse: number; text: string }[] = [];
+  for (let verse = reference.startVerse; verse <= reference.endVerse; verse += 1) verses.push({ verse, text: chapter[verse - 1] });
+  return { ok: true, verses };
+}

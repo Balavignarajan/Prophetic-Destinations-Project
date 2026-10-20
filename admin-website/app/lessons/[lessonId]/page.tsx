@@ -11,7 +11,7 @@ import {
   LearningLevel,
   WorkflowState,
   WorkflowEvent,
-  ReadinessReport,
+  Course,
 } from '../../../lib/types';
 import { LoadingSpinner, StatusBadge, EmptyState, Modal, ConfirmDialog } from '../../../components/ui';
 import { editorTextToRichText, isEditable, richTextToEditorText } from '../../../lib/rich-text';
@@ -19,12 +19,60 @@ import { WORKFLOW_ENDPOINT, lessonTransitionBody, type WorkflowAction } from '..
 import RichTextEditor from '../../../components/RichTextEditor';
 import RichTextView, { hasRichTextContent } from '../../../components/RichTextView';
 import ImageBlockDialog from '../../../components/ImageBlockDialog';
+import SummaryBlockDialog from '../../../components/SummaryBlockDialog';
+import SummaryBlockView from '../../../components/SummaryBlockView';
+import LevelCoverage, { type ReadinessState } from '../../../components/LevelCoverage';
+import ReviewPublishPanel from '../../../components/ReviewPublishPanel';
+import RelatedLessonsPanel from '../../../components/RelatedLessonsPanel';
+import { ACTION_EXPLANATION, ACTION_LABEL } from '../../../lib/review-guidance';
+import { CalloutBlockDialog, SectionBlockDialog } from '../../../components/SectionCalloutDialogs';
+import { CalloutBlockView, SectionBlockView } from '../../../components/SectionCalloutViews';
+import { readCallout, readSection } from '../../../lib/section-callout';
+import ScriptureConnectionDialog from '../../../components/ScriptureConnectionDialog';
+import ScriptureConnectionView from '../../../components/ScriptureConnectionView';
+import { readConnectionContent } from '../../../lib/scripture-connection';
+import ExploreDeeperDialog from '../../../components/ExploreDeeperDialog';
+import ExploreDeeperView from '../../../components/ExploreDeeperView';
+import { readExplore } from '../../../lib/explore-deeper';
+import { SymbolStudyDialog, WordStudyDialog } from '../../../components/WordSymbolDialogs';
+import { SymbolStudyView, WordStudyView } from '../../../components/WordSymbolViews';
+import { readSymbol, readWord } from '../../../lib/word-symbol';
+import { CalculationDialog, ComparisonDialog, EquivalenceDialog } from '../../../components/ProphecyDialogs';
+import { CalculationView, ComparisonView, EquivalenceView } from '../../../components/ProphecyViews';
+import { readCalculation, readComparison, readEquivalence } from '../../../lib/prophecy';
+import { DiscoveryDialog, ReflectionDialog } from '../../../components/ReflectionDiscoveryDialogs';
+import { DiscoveryView, ReflectionView } from '../../../components/ReflectionDiscoveryViews';
+import { readDiscovery, readReflection } from '../../../lib/reflection-discovery';
+import ContinueExploringDialog from '../../../components/ContinueExploringDialog';
+import ExploringBlockView from '../../../components/ExploringBlockView';
+import { AnimationDialog, SceneDialog } from '../../../components/SceneMediaDialogs';
+import { AnimationView, SceneView } from '../../../components/SceneMediaViews';
+import { readAnimation, readScene } from '../../../lib/scene-media';
+import AddContentPicker from '../../../components/AddContentPicker';
+import EvidenceBlockDialog from '../../../components/EvidenceBlockDialog';
+import EvidenceBlockView from '../../../components/EvidenceBlockView';
+import { readEvidence } from '../../../lib/evidence-block';
+import ScriptureBlockDialog from '../../../components/ScriptureBlockDialog';
+import ScriptureBlockView from '../../../components/ScriptureBlockView';
+import { readScriptureBlock } from '../../../lib/scripture-block';
+import TimelineBlockDialog from '../../../components/TimelineBlockDialog';
+import TimelineBlockView from '../../../components/TimelineBlockView';
+import { readTimelineContent } from '../../../lib/timeline-block';
+import HotspotBlockDialog from '../../../components/HotspotBlockDialog';
+import HotspotBlockView from '../../../components/HotspotBlockView';
+import { readHotspotContent } from '../../../lib/hotspot-block';
+import QuizBlockDialog from '../../../components/QuizBlockDialog';
+import QuizBlockView from '../../../components/QuizBlockView';
+import { readQuizRef } from '../../../lib/quiz-block';
+import { readSummaryContent, summaryErrorMessage } from '../../../lib/summary-block';
 import MediaImage from '../../../components/MediaImage';
 import { friendlyMediaError, readImageContent } from '../../../lib/image-block';
 import { supportsLevelVariants } from '../../../lib/block-capabilities';
 import { hasLegacyMarkers, legacyMarkdownToRichText } from '../../../lib/legacy-markdown';
 import { validateScriptureReference, CANONICAL_BOOKS, ParseResult } from '../../../lib/scripture';
 import { friendlyError, readableLevel, readinessMessage } from '../../../lib/ui-messages';
+import DuplicateLessonDialog from '../../../components/DuplicateLessonDialog';
+import CoverImageField from '../../../components/CoverImageField';
 
 export default function LessonAuthoringPage() {
   const params = useParams();
@@ -32,14 +80,17 @@ export default function LessonAuthoringPage() {
   const { user } = useAuth();
 
   const [lesson, setLesson] = useState<LessonSummary | null>(null);
+  const [parentCourse, setParentCourse] = useState<Course | null>(null);
   const [blocks, setBlocks] = useState<LessonBlock[]>([]);
   const [workflowState, setWorkflowState] = useState<WorkflowState | null>(null);
   const [workflowEvents, setWorkflowEvents] = useState<WorkflowEvent[]>([]);
-  const [readiness, setReadiness] = useState<ReadinessReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const hasLoadedRef = useRef(false);
+  // "Add content": the picker, and the block ids that existed when a type was chosen (to find and show the block that was added).
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const addBaselineRef = useRef<Set<string> | null>(null);
 
   // Active level tab for authoring & preview
   const [selectedLevel, setSelectedLevel] = useState<LearningLevel>('BEGINNER');
@@ -61,11 +112,14 @@ export default function LessonAuthoringPage() {
 
   // Edit Lesson Metadata
   const [editLessonModalOpen, setEditLessonModalOpen] = useState(false);
+  const [duplicateOpen, setDuplicateOpen] = useState(false);
+  const [parentModuleTitle, setParentModuleTitle] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editShortTitle, setEditShortTitle] = useState('');
   const [editSubtitle, setEditSubtitle] = useState('');
   const [editIntroduction, setEditIntroduction] = useState('');
   const [editEstimatedMinutes, setEditEstimatedMinutes] = useState<string>('');
+  const [editCoverMediaId, setEditCoverMediaId] = useState<string | null>(null);
   const [updatingMetadata, setUpdatingMetadata] = useState(false);
   const [updateMetaError, setUpdateMetaError] = useState<string | null>(null);
 
@@ -99,6 +153,69 @@ export default function LessonAuthoringPage() {
 
   // Image blocks: add or edit without leaving the lesson
   const [imageDialog, setImageDialog] = useState<{ mode: 'create' } | { mode: 'edit'; block: LessonBlock } | null>(null);
+  const [summaryDialog, setSummaryDialog] = useState<{ mode: 'create' } | { mode: 'edit'; block: LessonBlock } | null>(null);
+  const [quizDialog, setQuizDialog] = useState<{ mode: 'create' } | { mode: 'edit'; block: LessonBlock } | null>(null);
+  const [hotspotDialog, setHotspotDialog] = useState<{ mode: 'create' } | { mode: 'edit'; block: LessonBlock } | null>(null);
+  const [timelineDialog, setTimelineDialog] = useState<{ mode: 'create' } | { mode: 'edit'; block: LessonBlock } | null>(null);
+  const [scriptureDialog, setScriptureDialog] = useState<{ mode: 'create' } | { mode: 'edit'; block: LessonBlock } | null>(null);
+  const [evidenceDialog, setEvidenceDialog] = useState<{ mode: 'create' } | { mode: 'edit'; block: LessonBlock } | null>(null);
+  const [sectionDialog, setSectionDialog] = useState<{ mode: 'create' } | { mode: 'edit'; block: LessonBlock } | null>(null);
+  const [connectionDialog, setConnectionDialog] = useState<{ mode: 'create' } | { mode: 'edit'; block: LessonBlock } | null>(null);
+  const [mapDialog, setMapDialog] = useState<{ mode: 'create' } | { mode: 'edit'; block: LessonBlock } | null>(null);
+  const [wordDialog, setWordDialog] = useState<{ mode: 'create' } | { mode: 'edit'; block: LessonBlock } | null>(null);
+  const [equivDialog, setEquivDialog] = useState<{ mode: 'create' } | { mode: 'edit'; block: LessonBlock } | null>(null);
+  const [savingEquiv, setSavingEquiv] = useState(false);
+  const [equivError, setEquivError] = useState<string | null>(null);
+  const [compareDialog, setCompareDialog] = useState<{ mode: 'create' } | { mode: 'edit'; block: LessonBlock } | null>(null);
+  const [savingCompare, setSavingCompare] = useState(false);
+  const [compareError, setCompareError] = useState<string | null>(null);
+  const [calcDialog, setCalcDialog] = useState<{ mode: 'create' } | { mode: 'edit'; block: LessonBlock } | null>(null);
+  const [savingCalc, setSavingCalc] = useState(false);
+  const [calcError, setCalcError] = useState<string | null>(null);
+  const [reflDialog, setReflDialog] = useState<{ mode: 'create' } | { mode: 'edit'; block: LessonBlock } | null>(null);
+  const [savingRefl, setSavingRefl] = useState(false);
+  const [reflError, setReflError] = useState<string | null>(null);
+  const [discDialog, setDiscDialog] = useState<{ mode: 'create' } | { mode: 'edit'; block: LessonBlock } | null>(null);
+  const [savingDisc, setSavingDisc] = useState(false);
+  const [discError, setDiscError] = useState<string | null>(null);
+  const [exploringDialog, setExploringDialog] = useState<{ mode: 'create' } | { mode: 'edit'; block: LessonBlock } | null>(null);
+  const [savingExploring, setSavingExploring] = useState(false);
+  const [exploringError, setExploringError] = useState<string | null>(null);
+  const [sceneDialog, setSceneDialog] = useState<{ mode: 'create' } | { mode: 'edit'; block: LessonBlock } | null>(null);
+  const [savingScene, setSavingScene] = useState(false);
+  const [sceneError, setSceneError] = useState<string | null>(null);
+  const [animDialog, setAnimDialog] = useState<{ mode: 'create' } | { mode: 'edit'; block: LessonBlock } | null>(null);
+  const [savingAnim, setSavingAnim] = useState(false);
+  const [animError, setAnimError] = useState<string | null>(null);
+  const [savingWord, setSavingWord] = useState(false);
+  const [wordError, setWordError] = useState<string | null>(null);
+  const [symbolDialog, setSymbolDialog] = useState<{ mode: 'create' } | { mode: 'edit'; block: LessonBlock } | null>(null);
+  const [savingSymbol, setSavingSymbol] = useState(false);
+  const [symbolError, setSymbolError] = useState<string | null>(null);
+  const [savingMap, setSavingMap] = useState(false);
+  const [mapError, setMapError] = useState<string | null>(null);
+  const [exploreDialog, setExploreDialog] = useState<{ mode: 'create' } | { mode: 'edit'; block: LessonBlock } | null>(null);
+  const [savingExplore, setSavingExplore] = useState(false);
+  const [exploreError, setExploreError] = useState<string | null>(null);
+  const [savingConnection, setSavingConnection] = useState(false);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [savingSection, setSavingSection] = useState(false);
+  const [sectionError, setSectionError] = useState<string | null>(null);
+  const [calloutDialog, setCalloutDialog] = useState<{ mode: 'create' } | { mode: 'edit'; block: LessonBlock } | null>(null);
+  const [savingCallout, setSavingCallout] = useState(false);
+  const [calloutError, setCalloutError] = useState<string | null>(null);
+  const [savingEvidence, setSavingEvidence] = useState(false);
+  const [evidenceError, setEvidenceError] = useState<string | null>(null);
+  const [savingScripture, setSavingScripture] = useState(false);
+  const [scriptureError, setScriptureError] = useState<string | null>(null);
+  const [savingTimeline, setSavingTimeline] = useState(false);
+  const [timelineError, setTimelineError] = useState<string | null>(null);
+  const [savingHotspot, setSavingHotspot] = useState(false);
+  const [hotspotError, setHotspotError] = useState<string | null>(null);
+  const [savingQuiz, setSavingQuiz] = useState(false);
+  const [quizError, setQuizError] = useState<string | null>(null);
+  const [savingSummary, setSavingSummary] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
   const [savingImage, setSavingImage] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
 
@@ -106,6 +223,12 @@ export default function LessonAuthoringPage() {
   const [deleteBlockId, setDeleteBlockId] = useState<string | null>(null);
   const [deletingBlock, setDeletingBlock] = useState(false);
   const [performingBlockAction, setPerformingBlockAction] = useState(false);
+  // Block ordering. The editor always lists EVERY block of the lesson (a level only dims the blocks hidden at it), so the list that is dragged and the
+  // list that is saved are the same complete list. Only one order save may be in flight.
+  const reorderBusy = useRef(false);
+  const [dragBlockId, setDragBlockId] = useState<string | null>(null);
+  const [dropIndex, setDropIndex] = useState<number | null>(null);
+  const [readiness, setReadiness] = useState<ReadinessState>({ report: null, failed: null, checking: false });
 
   // Scripture reference validator & helper
   const [scriptureModalOpen, setScriptureModalOpen] = useState(false);
@@ -125,7 +248,7 @@ export default function LessonAuthoringPage() {
     setError(null);
 
     try {
-      const [lessonRes, blocksRes, wfStateRes, wfEventsRes, readinessRes] =
+      const [lessonRes, blocksRes, wfStateRes, wfEventsRes] =
         await Promise.all([
           api.request<LessonSummary>(`/admin/lessons/${lessonId}`),
           api.request<{ items: LessonBlock[] }>(`/admin/lessons/${lessonId}/blocks`),
@@ -133,20 +256,38 @@ export default function LessonAuthoringPage() {
           api.request<{ items: WorkflowEvent[] }>(
             `/admin/lessons/${lessonId}/workflow/events?limit=10`
           ),
-          api.request<ReadinessReport>(`/admin/lessons/${lessonId}/readiness`),
         ]);
 
       setLesson(lessonRes);
+      api.request<Course>(`/admin/courses/${lessonRes.courseId}`).then(setParentCourse).catch(() => setParentCourse(null));
+      if (lessonRes.moduleId) {
+        api.request<{ title: string }>(`/admin/courses/${lessonRes.courseId}/modules/${lessonRes.moduleId}`).then((m) => setParentModuleTitle(m.title)).catch(() => setParentModuleTitle(null));
+      } else {
+        setParentModuleTitle(null);
+      }
       setBlocks(blocksRes.items);
+      // After a block was added from the picker, scroll to it and move focus there (once). Nothing happens if nothing new appeared.
+      const baseline = addBaselineRef.current;
+      if (baseline) {
+        addBaselineRef.current = null;
+        const added = blocksRes.items.find((b) => !baseline.has(b.id));
+        if (added) {
+          window.setTimeout(() => {
+            const el = document.getElementById(`block-${added.id}`);
+            el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            el?.focus({ preventScroll: true });
+          }, 150);
+        }
+      }
       setWorkflowState(wfStateRes);
       setWorkflowEvents(wfEventsRes.items);
-      setReadiness(readinessRes);
 
       setEditTitle(lessonRes.title);
       setEditShortTitle(lessonRes.shortTitle || '');
       setEditSubtitle(lessonRes.subtitle || '');
       setEditIntroduction(lessonRes.introduction || '');
       setEditEstimatedMinutes(lessonRes.estimatedMinutes ? String(lessonRes.estimatedMinutes) : '');
+      setEditCoverMediaId(lessonRes.coverMediaId ?? null);
       setEditLevels(lessonRes.levels);
       if (lessonRes.levels.length > 0 && !lessonRes.levels.includes(selectedLevel)) {
         setSelectedLevel(lessonRes.levels[0]);
@@ -163,6 +304,16 @@ export default function LessonAuthoringPage() {
     fetchLessonData();
   }, [fetchLessonData]);
 
+  // After "Duplicate lesson" the new draft opens with ?duplicated=1: confirm once, then clean the address.
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('duplicated') === '1') {
+      setSuccessMessage('Lesson duplicated. This is a new draft; the original lesson is unchanged.');
+      url.searchParams.delete('duplicated');
+      window.history.replaceState(null, '', url.pathname + url.search);
+    }
+  }, [lessonId]);
+
   // Unsaved changes warning for dirty modal forms
   useEffect(() => {
     const isDirty = Boolean(
@@ -173,7 +324,8 @@ export default function LessonAuthoringPage() {
         editTitle !== lesson.title ||
         editShortTitle !== (lesson.shortTitle || '') ||
         editSubtitle !== (lesson.subtitle || '') ||
-        editIntroduction !== (lesson.introduction || '')
+        editIntroduction !== (lesson.introduction || '') ||
+        editCoverMediaId !== (lesson.coverMediaId ?? null)
       ))
     );
 
@@ -200,6 +352,7 @@ export default function LessonAuthoringPage() {
     editShortTitle,
     editSubtitle,
     editIntroduction,
+    editCoverMediaId,
   ]);
 
   // Editor text <-> backend RICH_TEXT document. Lossless for bold, italic, links and lists (see lib/rich-text.ts).
@@ -261,6 +414,7 @@ export default function LessonAuthoringPage() {
           subtitle: editSubtitle.trim() || null,
           introduction: editIntroduction.trim() || null,
           estimatedMinutes: editEstimatedMinutes ? parseInt(editEstimatedMinutes, 10) : null,
+          coverMediaId: editCoverMediaId,
           version: lesson.version,
         }),
       });
@@ -372,6 +526,544 @@ export default function LessonAuthoringPage() {
     setImageDialog(next);
   };
 
+  const openSummaryDialog = (next: { mode: 'create' } | { mode: 'edit'; block: LessonBlock }) => {
+    setSummaryError(null);
+    setSummaryDialog(next);
+  };
+
+  /** Opens the existing editor of a content type. The picker is closed first, so only one dialog is ever open. */
+  const openEditorFor = (type: string) => {
+    switch (type) {
+      case 'RICH_TEXT':
+        setNewBlockLevels([selectedLevel]);
+        setCreateBlockModalOpen(true);
+        break;
+      case 'IMAGE':
+        openImageDialog({ mode: 'create' });
+        break;
+      case 'SUMMARY':
+        openSummaryDialog({ mode: 'create' });
+        break;
+      case 'QUIZ':
+        setQuizError(null);
+        setQuizDialog({ mode: 'create' });
+        break;
+      case 'INTERACTIVE_IMAGE':
+        setHotspotError(null);
+        setHotspotDialog({ mode: 'create' });
+        break;
+      case 'TIMELINE':
+        setTimelineError(null);
+        setTimelineDialog({ mode: 'create' });
+        break;
+      case 'SCRIPTURE_PASSAGE':
+        setScriptureError(null);
+        setScriptureDialog({ mode: 'create' });
+        break;
+      case 'HISTORICAL_EVIDENCE':
+        setEvidenceError(null);
+        setEvidenceDialog({ mode: 'create' });
+        break;
+      case 'SECTION_INTRO':
+        setSectionError(null);
+        setSectionDialog({ mode: 'create' });
+        break;
+      case 'CALLOUT':
+        setCalloutError(null);
+        setCalloutDialog({ mode: 'create' });
+        break;
+      case 'SCRIPTURE_CONNECTION':
+        setConnectionError(null);
+        setConnectionDialog({ mode: 'create' });
+        break;
+      case 'MAP':
+        setMapError(null);
+        setMapDialog({ mode: 'create' });
+        break;
+      case 'PROPHECY_EQUIVALENCE':
+        setEquivError(null);
+        setEquivDialog({ mode: 'create' });
+        break;
+      case 'PROPHECY_COMPARISON':
+        setCompareError(null);
+        setCompareDialog({ mode: 'create' });
+        break;
+      case 'PROPHECY_CALCULATION':
+        setCalcError(null);
+        setCalcDialog({ mode: 'create' });
+        break;
+      case 'REFLECTION_STUDY_ACTIVITY':
+        setReflError(null);
+        setReflDialog({ mode: 'create' });
+        break;
+      case 'GUIDED_DISCOVERY_QUESTION':
+        setDiscError(null);
+        setDiscDialog({ mode: 'create' });
+        break;
+      case 'CONTINUE_EXPLORING':
+        setExploringError(null);
+        setExploringDialog({ mode: 'create' });
+        break;
+      case 'NARRATIVE_SCENE':
+        setSceneError(null);
+        setSceneDialog({ mode: 'create' });
+        break;
+      case 'MEDIA_ANIMATION':
+        setAnimError(null);
+        setAnimDialog({ mode: 'create' });
+        break;
+      case 'WORD_STUDY':
+        setWordError(null);
+        setWordDialog({ mode: 'create' });
+        break;
+      case 'SYMBOL_STUDY':
+        setSymbolError(null);
+        setSymbolDialog({ mode: 'create' });
+        break;
+      case 'EXPLORE_DEEPER':
+        setExploreError(null);
+        setExploreDialog({ mode: 'create' });
+        break;
+    }
+  };
+
+  const chooseContentType = (type: string) => {
+    addBaselineRef.current = new Set(blocks.map((b) => b.id));
+    setPickerOpen(false);
+    // Next tick: the picker has closed and given focus back to "Add content", so the editor remembers that button as its return point.
+    window.setTimeout(() => openEditorFor(type), 0);
+  };
+
+  /** Saves a new or edited block of a simple type (create posts the block with its levels; edit patches the content with the version seen). */
+  const saveSimpleBlock = async (
+    type: string,
+    dialog: { mode: 'create' } | { mode: 'edit'; block: LessonBlock },
+    content: Record<string, unknown>,
+    levels: LearningLevel[],
+  ) => {
+    if (dialog.mode === 'create') {
+      await api.request(`/admin/lessons/${lessonId}/blocks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, sharedContent: content, levels: levels.length > 0 ? levels : lesson?.levels }),
+      });
+    } else {
+      await api.request(`/admin/lessons/${lessonId}/blocks/${dialog.block.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sharedContent: content, version: dialog.block.version }),
+      });
+    }
+  };
+
+  const handleSaveSection = async (content: Record<string, unknown>, levels: LearningLevel[]) => {
+    if (!sectionDialog || savingSection) return;
+    setSavingSection(true);
+    setSectionError(null);
+    try {
+      await saveSimpleBlock('SECTION_INTRO', sectionDialog, content, levels);
+      setSectionDialog(null);
+      setSuccessMessage('Section heading saved.');
+      fetchLessonData();
+    } catch (err: unknown) {
+      setSectionError(summaryErrorMessage(err, 'Could not save the section heading.'));
+    } finally {
+      setSavingSection(false);
+    }
+  };
+
+  const handleSaveEquiv = async (content: Record<string, unknown>, levels: LearningLevel[]) => {
+    if (!equivDialog || savingEquiv) return;
+    setSavingEquiv(true);
+    setEquivError(null);
+    try {
+      await saveSimpleBlock('PROPHECY_EQUIVALENCE', equivDialog, content, levels);
+      setEquivDialog(null);
+      setSuccessMessage('Prophecy equivalence saved.');
+      fetchLessonData();
+    } catch (err: unknown) {
+      setEquivError(summaryErrorMessage(err, 'Could not save the prophecy equivalence.'));
+    } finally {
+      setSavingEquiv(false);
+    }
+  };
+
+  const handleSaveCompare = async (content: Record<string, unknown>, levels: LearningLevel[]) => {
+    if (!compareDialog || savingCompare) return;
+    setSavingCompare(true);
+    setCompareError(null);
+    try {
+      await saveSimpleBlock('PROPHECY_COMPARISON', compareDialog, content, levels);
+      setCompareDialog(null);
+      setSuccessMessage('Prophecy comparison saved.');
+      fetchLessonData();
+    } catch (err: unknown) {
+      setCompareError(summaryErrorMessage(err, 'Could not save the prophecy comparison.'));
+    } finally {
+      setSavingCompare(false);
+    }
+  };
+
+  const handleSaveCalc = async (content: Record<string, unknown>, levels: LearningLevel[]) => {
+    if (!calcDialog || savingCalc) return;
+    setSavingCalc(true);
+    setCalcError(null);
+    try {
+      await saveSimpleBlock('PROPHECY_CALCULATION', calcDialog, content, levels);
+      setCalcDialog(null);
+      setSuccessMessage('Prophecy calculation saved.');
+      fetchLessonData();
+    } catch (err: unknown) {
+      setCalcError(summaryErrorMessage(err, 'Could not save the prophecy calculation.'));
+    } finally {
+      setSavingCalc(false);
+    }
+  };
+
+  const handleSaveRefl = async (content: Record<string, unknown>, levels: LearningLevel[]) => {
+    if (!reflDialog || savingRefl) return;
+    setSavingRefl(true);
+    setReflError(null);
+    try {
+      await saveSimpleBlock('REFLECTION_STUDY_ACTIVITY', reflDialog, content, levels);
+      setReflDialog(null);
+      setSuccessMessage('Study activity saved.');
+      fetchLessonData();
+    } catch (err: unknown) {
+      setReflError(summaryErrorMessage(err, 'Could not save the study activity.'));
+    } finally {
+      setSavingRefl(false);
+    }
+  };
+
+  const handleSaveDisc = async (content: Record<string, unknown>, levels: LearningLevel[]) => {
+    if (!discDialog || savingDisc) return;
+    setSavingDisc(true);
+    setDiscError(null);
+    try {
+      await saveSimpleBlock('GUIDED_DISCOVERY_QUESTION', discDialog, content, levels);
+      setDiscDialog(null);
+      setSuccessMessage('Guided question saved.');
+      fetchLessonData();
+    } catch (err: unknown) {
+      setDiscError(summaryErrorMessage(err, 'Could not save the guided question.'));
+    } finally {
+      setSavingDisc(false);
+    }
+  };
+
+  const handleSaveExploring = async (content: Record<string, unknown>, levels: LearningLevel[]) => {
+    if (!exploringDialog || savingExploring) return;
+    setSavingExploring(true);
+    setExploringError(null);
+    try {
+      await saveSimpleBlock('CONTINUE_EXPLORING', exploringDialog, content, levels);
+      setExploringDialog(null);
+      setSuccessMessage('Continue exploring saved.');
+      fetchLessonData();
+    } catch (err: unknown) {
+      setExploringError(summaryErrorMessage(err, 'Could not save Continue exploring.'));
+    } finally {
+      setSavingExploring(false);
+    }
+  };
+
+  const handleSaveScene = async (content: Record<string, unknown>, levels: LearningLevel[]) => {
+    if (!sceneDialog || savingScene) return;
+    setSavingScene(true);
+    setSceneError(null);
+    try {
+      await saveSimpleBlock('NARRATIVE_SCENE', sceneDialog, content, levels);
+      setSceneDialog(null);
+      setSuccessMessage('Narrative scene saved.');
+      fetchLessonData();
+    } catch (err: unknown) {
+      setSceneError(summaryErrorMessage(err, 'Could not save the narrative scene.'));
+    } finally {
+      setSavingScene(false);
+    }
+  };
+
+  const handleSaveAnim = async (content: Record<string, unknown>, levels: LearningLevel[]) => {
+    if (!animDialog || savingAnim) return;
+    setSavingAnim(true);
+    setAnimError(null);
+    try {
+      await saveSimpleBlock('MEDIA_ANIMATION', animDialog, content, levels);
+      setAnimDialog(null);
+      setSuccessMessage('Animated image saved.');
+      fetchLessonData();
+    } catch (err: unknown) {
+      setAnimError(summaryErrorMessage(err, 'Could not save the animated image.'));
+    } finally {
+      setSavingAnim(false);
+    }
+  };
+
+  const handleSaveWord = async (content: Record<string, unknown>, levels: LearningLevel[]) => {
+    if (!wordDialog || savingWord) return;
+    setSavingWord(true);
+    setWordError(null);
+    try {
+      await saveSimpleBlock('WORD_STUDY', wordDialog, content, levels);
+      setWordDialog(null);
+      setSuccessMessage('Word study saved.');
+      fetchLessonData();
+    } catch (err: unknown) {
+      setWordError(summaryErrorMessage(err, 'Could not save the word study.'));
+    } finally {
+      setSavingWord(false);
+    }
+  };
+
+  const handleSaveSymbol = async (content: Record<string, unknown>, levels: LearningLevel[]) => {
+    if (!symbolDialog || savingSymbol) return;
+    setSavingSymbol(true);
+    setSymbolError(null);
+    try {
+      await saveSimpleBlock('SYMBOL_STUDY', symbolDialog, content, levels);
+      setSymbolDialog(null);
+      setSuccessMessage('Symbol study saved.');
+      fetchLessonData();
+    } catch (err: unknown) {
+      setSymbolError(summaryErrorMessage(err, 'Could not save the symbol study.'));
+    } finally {
+      setSavingSymbol(false);
+    }
+  };
+
+  const handleSaveMap = async (content: Record<string, unknown>, levels: LearningLevel[]) => {
+    if (!mapDialog || savingMap) return;
+    setSavingMap(true);
+    setMapError(null);
+    try {
+      await saveSimpleBlock('MAP', mapDialog, content, levels);
+      setMapDialog(null);
+      setSuccessMessage('Map saved.');
+      fetchLessonData();
+    } catch (err: unknown) {
+      setMapError(summaryErrorMessage(err, 'Could not save the map.'));
+    } finally {
+      setSavingMap(false);
+    }
+  };
+
+  const handleSaveExplore = async (content: Record<string, unknown>, levels: LearningLevel[]) => {
+    if (!exploreDialog || savingExplore) return;
+    setSavingExplore(true);
+    setExploreError(null);
+    try {
+      await saveSimpleBlock('EXPLORE_DEEPER', exploreDialog, content, levels);
+      setExploreDialog(null);
+      setSuccessMessage('Explore Deeper section saved.');
+      fetchLessonData();
+    } catch (err: unknown) {
+      setExploreError(summaryErrorMessage(err, 'Could not save the Explore Deeper section.'));
+    } finally {
+      setSavingExplore(false);
+    }
+  };
+
+  const handleSaveConnection = async (content: Record<string, unknown>, levels: LearningLevel[]) => {
+    if (!connectionDialog || savingConnection) return;
+    setSavingConnection(true);
+    setConnectionError(null);
+    try {
+      await saveSimpleBlock('SCRIPTURE_CONNECTION', connectionDialog, content, levels);
+      setConnectionDialog(null);
+      setSuccessMessage('Scripture connection saved.');
+      fetchLessonData();
+    } catch (err: unknown) {
+      setConnectionError(summaryErrorMessage(err, 'Could not save the Scripture connection.'));
+    } finally {
+      setSavingConnection(false);
+    }
+  };
+
+  const handleSaveCallout = async (content: Record<string, unknown>, levels: LearningLevel[]) => {
+    if (!calloutDialog || savingCallout) return;
+    setSavingCallout(true);
+    setCalloutError(null);
+    try {
+      await saveSimpleBlock('CALLOUT', calloutDialog, content, levels);
+      setCalloutDialog(null);
+      setSuccessMessage('Callout saved.');
+      fetchLessonData();
+    } catch (err: unknown) {
+      setCalloutError(summaryErrorMessage(err, 'Could not save the callout.'));
+    } finally {
+      setSavingCallout(false);
+    }
+  };
+
+  const handleSaveEvidence = async (content: Record<string, unknown>, levels: LearningLevel[]) => {
+    if (!evidenceDialog || savingEvidence) return;
+    setSavingEvidence(true);
+    setEvidenceError(null);
+    try {
+      if (evidenceDialog.mode === 'create') {
+        await api.request(`/admin/lessons/${lessonId}/blocks`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'HISTORICAL_EVIDENCE', sharedContent: content, levels: levels.length > 0 ? levels : lesson?.levels }),
+        });
+      } else {
+        await api.request(`/admin/lessons/${lessonId}/blocks/${evidenceDialog.block.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sharedContent: content, version: evidenceDialog.block.version }),
+        });
+      }
+      setEvidenceDialog(null);
+      setSuccessMessage('Historical evidence saved.');
+      fetchLessonData();
+    } catch (err: unknown) {
+      setEvidenceError(summaryErrorMessage(err, 'Could not save the historical evidence.'));
+    } finally {
+      setSavingEvidence(false);
+    }
+  };
+
+  const handleSaveScripture = async (content: Record<string, unknown>, levels: LearningLevel[]) => {
+    if (!scriptureDialog || savingScripture) return;
+    setSavingScripture(true);
+    setScriptureError(null);
+    try {
+      if (scriptureDialog.mode === 'create') {
+        await api.request(`/admin/lessons/${lessonId}/blocks`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'SCRIPTURE_PASSAGE', sharedContent: content, levels: levels.length > 0 ? levels : lesson?.levels }),
+        });
+      } else {
+        await api.request(`/admin/lessons/${lessonId}/blocks/${scriptureDialog.block.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sharedContent: content, version: scriptureDialog.block.version }),
+        });
+      }
+      setScriptureDialog(null);
+      setSuccessMessage('Scripture passage saved.');
+      fetchLessonData();
+    } catch (err: unknown) {
+      setScriptureError(summaryErrorMessage(err, 'Could not save the Scripture passage.'));
+    } finally {
+      setSavingScripture(false);
+    }
+  };
+
+  const handleSaveTimeline = async (content: Record<string, unknown>, levels: LearningLevel[]) => {
+    if (!timelineDialog || savingTimeline) return;
+    setSavingTimeline(true);
+    setTimelineError(null);
+    try {
+      if (timelineDialog.mode === 'create') {
+        await api.request(`/admin/lessons/${lessonId}/blocks`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'TIMELINE', sharedContent: content, levels: levels.length > 0 ? levels : lesson?.levels }),
+        });
+      } else {
+        await api.request(`/admin/lessons/${lessonId}/blocks/${timelineDialog.block.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sharedContent: content, version: timelineDialog.block.version }),
+        });
+      }
+      setTimelineDialog(null);
+      setSuccessMessage('Timeline saved.');
+      fetchLessonData();
+    } catch (err: unknown) {
+      setTimelineError(summaryErrorMessage(err, 'Could not save the timeline.'));
+    } finally {
+      setSavingTimeline(false);
+    }
+  };
+
+  const handleSaveHotspot = async (content: Record<string, unknown>, levels: LearningLevel[]) => {
+    if (!hotspotDialog || savingHotspot) return;
+    setSavingHotspot(true);
+    setHotspotError(null);
+    try {
+      if (hotspotDialog.mode === 'create') {
+        await api.request(`/admin/lessons/${lessonId}/blocks`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'INTERACTIVE_IMAGE', sharedContent: content, levels: levels.length > 0 ? levels : lesson?.levels }),
+        });
+      } else {
+        await api.request(`/admin/lessons/${lessonId}/blocks/${hotspotDialog.block.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sharedContent: content, version: hotspotDialog.block.version }),
+        });
+      }
+      setHotspotDialog(null);
+      setSuccessMessage('Interactive image saved.');
+      fetchLessonData();
+    } catch (err: unknown) {
+      setHotspotError(summaryErrorMessage(err, 'Could not save the interactive image.'));
+    } finally {
+      setSavingHotspot(false);
+    }
+  };
+
+  const handleSaveQuiz = async (quizId: string, levels: LearningLevel[]) => {
+    if (!quizDialog || savingQuiz) return;
+    setSavingQuiz(true);
+    setQuizError(null);
+    try {
+      if (quizDialog.mode === 'create') {
+        await api.request(`/admin/lessons/${lessonId}/blocks`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'QUIZ', sharedContent: { quizId }, levels: levels.length > 0 ? levels : lesson?.levels }),
+        });
+      } else {
+        await api.request(`/admin/lessons/${lessonId}/blocks/${quizDialog.block.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sharedContent: { quizId }, version: quizDialog.block.version }),
+        });
+      }
+      setQuizDialog(null);
+      setSuccessMessage('Quiz saved in the lesson.');
+      fetchLessonData();
+    } catch (err: unknown) {
+      setQuizError(summaryErrorMessage(err, 'Could not save the quiz choice.'));
+    } finally {
+      setSavingQuiz(false);
+    }
+  };
+
+  const handleSaveSummary = async (content: Record<string, unknown>, levels: LearningLevel[]) => {
+    if (!summaryDialog || savingSummary) return;
+    setSavingSummary(true);
+    setSummaryError(null);
+    try {
+      if (summaryDialog.mode === 'create') {
+        await api.request(`/admin/lessons/${lessonId}/blocks`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'SUMMARY', sharedContent: content, levels: levels.length > 0 ? levels : lesson?.levels }),
+        });
+      } else {
+        await api.request(`/admin/lessons/${lessonId}/blocks/${summaryDialog.block.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sharedContent: content, version: summaryDialog.block.version }),
+        });
+      }
+      setSummaryDialog(null);
+      setSuccessMessage('Summary saved.');
+      fetchLessonData();
+    } catch (err: unknown) {
+      setSummaryError(summaryErrorMessage(err, 'Could not save the summary.'));
+    } finally {
+      setSavingSummary(false);
+    }
+  };
+
   const handleSaveImage = async (content: Record<string, string>, levels: LearningLevel[]) => {
     if (!imageDialog) return;
     setSavingImage(true);
@@ -438,17 +1130,18 @@ export default function LessonAuthoringPage() {
     }
   };
 
-  const handleReorderBlocks = async (index: number, direction: 'up' | 'down') => {
-    if (performingBlockAction) return;
-    const newBlocks = [...blocks];
-    const targetIndex = direction === 'up' ? index - 1 : index + 1;
-    if (targetIndex < 0 || targetIndex >= newBlocks.length) return;
-
-    const temp = newBlocks[index];
-    newBlocks[index] = newBlocks[targetIndex];
-    newBlocks[targetIndex] = temp;
-
+  /**
+   * Saves a new order of ALL blocks (the complete list the endpoint requires). The new order is shown at once and every block stays on screen while
+   * saving; a second save cannot start until this one ends. If the server refuses (for example the block list changed elsewhere), the previous order is
+   * put back, the authoritative order is reloaded and the author is told. The server decides the Draft status and nothing about it changes here.
+   */
+  const saveBlockOrder = async (next: LessonBlock[]) => {
+    if (reorderBusy.current || performingBlockAction) return;
+    if (next.length !== blocks.length || next.every((b, i) => b.id === blocks[i]?.id)) return;
+    reorderBusy.current = true;
+    const before = blocks;
     setPerformingBlockAction(true);
+    setBlocks(next);
     try {
       const res = await api.request<{ items: LessonBlock[] }>(
         `/admin/lessons/${lessonId}/blocks/order`,
@@ -456,7 +1149,9 @@ export default function LessonAuthoringPage() {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            blockIds: newBlocks.map((b) => b.id),
+            blockIds: next.map((b) => b.id),
+            // The order that was current BEFORE this move: the server refuses the save if the persisted order is anything else.
+            previousBlockIds: before.map((b) => b.id),
           }),
         }
       );
@@ -464,10 +1159,38 @@ export default function LessonAuthoringPage() {
       setSuccessMessage('Block order saved.');
       fetchLessonData();
     } catch (err: unknown) {
-      setError(friendlyError(err, 'Failed to update block order.'));
+      setBlocks(before);
+      // 409 = the persisted order is not the one this editor was showing. Nothing was written; it is NOT retried automatically, so the other person's work is kept.
+      setError(
+        (err as { status?: number } | null)?.status === 409
+          ? 'The block order was changed by someone else (or blocks were added or removed), so your move was not saved. The latest order is being loaded: look at it and move the block again if you still want to.'
+          : `${friendlyError(err, 'Failed to update block order.')} The blocks are shown in their previous order, and the latest order is being reloaded.`,
+      );
+      fetchLessonData();
     } finally {
+      reorderBusy.current = false;
       setPerformingBlockAction(false);
     }
+  };
+
+  const handleReorderBlocks = async (index: number, direction: 'up' | 'down') => {
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= blocks.length) return;
+    const next = [...blocks];
+    [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+    await saveBlockOrder(next);
+  };
+
+  /** Moves the dragged block so that it takes the place of the block it was dropped on. */
+  const dropBlockAt = (toIndex: number) => {
+    const fromIndex = blocks.findIndex((b) => b.id === dragBlockId);
+    setDragBlockId(null);
+    setDropIndex(null);
+    if (fromIndex < 0 || fromIndex === toIndex) return;
+    const next = [...blocks];
+    const [moved] = next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, moved);
+    void saveBlockOrder(next);
   };
 
   const openVariantEditor = (block: LessonBlock, level: LearningLevel) => {
@@ -560,6 +1283,130 @@ export default function LessonAuthoringPage() {
     }
   };
 
+  /** Opens the existing editor for a block (the same one its "Edit" button opens). */
+  const editBlock = (block: LessonBlock) => {
+          if (block.type === 'SECTION_INTRO') {
+            setSectionError(null);
+            setSectionDialog({ mode: 'edit', block });
+            return;
+          }
+          if (block.type === 'PROPHECY_EQUIVALENCE') {
+            setEquivError(null);
+            setEquivDialog({ mode: 'edit', block });
+            return;
+          }
+          if (block.type === 'PROPHECY_COMPARISON') {
+            setCompareError(null);
+            setCompareDialog({ mode: 'edit', block });
+            return;
+          }
+          if (block.type === 'PROPHECY_CALCULATION') {
+            setCalcError(null);
+            setCalcDialog({ mode: 'edit', block });
+            return;
+          }
+          if (block.type === 'REFLECTION_STUDY_ACTIVITY') {
+            setReflError(null);
+            setReflDialog({ mode: 'edit', block });
+            return;
+          }
+          if (block.type === 'GUIDED_DISCOVERY_QUESTION') {
+            setDiscError(null);
+            setDiscDialog({ mode: 'edit', block });
+            return;
+          }
+          if (block.type === 'CONTINUE_EXPLORING') {
+            setExploringError(null);
+            setExploringDialog({ mode: 'edit', block });
+            return;
+          }
+          if (block.type === 'NARRATIVE_SCENE') {
+            setSceneError(null);
+            setSceneDialog({ mode: 'edit', block });
+            return;
+          }
+          if (block.type === 'MEDIA_ANIMATION') {
+            setAnimError(null);
+            setAnimDialog({ mode: 'edit', block });
+            return;
+          }
+          if (block.type === 'WORD_STUDY') {
+            setWordError(null);
+            setWordDialog({ mode: 'edit', block });
+            return;
+          }
+          if (block.type === 'SYMBOL_STUDY') {
+            setSymbolError(null);
+            setSymbolDialog({ mode: 'edit', block });
+            return;
+          }
+          if (block.type === 'MAP') {
+            setMapError(null);
+            setMapDialog({ mode: 'edit', block });
+            return;
+          }
+          if (block.type === 'EXPLORE_DEEPER') {
+            setExploreError(null);
+            setExploreDialog({ mode: 'edit', block });
+            return;
+          }
+          if (block.type === 'SCRIPTURE_CONNECTION') {
+            setConnectionError(null);
+            setConnectionDialog({ mode: 'edit', block });
+            return;
+          }
+          if (block.type === 'CALLOUT') {
+            setCalloutError(null);
+            setCalloutDialog({ mode: 'edit', block });
+            return;
+          }
+          if (block.type === 'IMAGE') {
+            openImageDialog({ mode: 'edit', block });
+            return;
+          }
+          if (block.type === 'HISTORICAL_EVIDENCE') {
+            setEvidenceError(null);
+            setEvidenceDialog({ mode: 'edit', block });
+            return;
+          }
+          if (block.type === 'SCRIPTURE_PASSAGE') {
+            setScriptureError(null);
+            setScriptureDialog({ mode: 'edit', block });
+            return;
+          }
+          if (block.type === 'TIMELINE') {
+            setTimelineError(null);
+            setTimelineDialog({ mode: 'edit', block });
+            return;
+          }
+          if (block.type === 'INTERACTIVE_IMAGE') {
+            setHotspotError(null);
+            setHotspotDialog({ mode: 'edit', block });
+            return;
+          }
+          if (block.type === 'QUIZ') {
+            setQuizError(null);
+            setQuizDialog({ mode: 'edit', block });
+            return;
+          }
+          if (block.type === 'SUMMARY') {
+            openSummaryDialog({ mode: 'edit', block });
+            return;
+          }
+          setEditingBlock(block);
+          setEditingContentText(richTextDocToText(block.sharedContent));
+  };
+
+  /** Scrolls to a block and moves keyboard focus to it. Only used with a block id the server named. */
+  const goToBlock = (blockId: string, level?: LearningLevel) => {
+    if (level && lesson?.levels.includes(level)) setSelectedLevel(level);
+    window.setTimeout(() => {
+      const el = document.getElementById(`block-${blockId}`);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el?.focus({ preventScroll: true });
+    }, 50);
+  };
+
   const handleWorkflowTransition = async () => {
     if (!transitionAction || !lesson) return;
     setTransitioning(true);
@@ -581,8 +1428,15 @@ export default function LessonAuthoringPage() {
       setTransitionNote('');
       setSuccessMessage('Lesson status updated.');
       fetchLessonData();
+      window.setTimeout(() => document.getElementById('review-panel-heading')?.focus(), 100);
     } catch (err: unknown) {
-      setTransitionError(friendlyError(err, 'This status change could not be completed.'));
+      if ((err as { status?: number }).status === 409) {
+        // The content or status moved since this page was loaded (an edit, or someone else's action). Nothing was changed; refresh what is shown.
+        setTransitionError('The lesson changed after this page was loaded, so nothing was done. The page has been refreshed. Check the lesson and its checks again, then repeat the action if it still applies. Anything you typed in the note is kept.');
+        fetchLessonData();
+      } else {
+        setTransitionError(friendlyError(err, 'This status change could not be completed.'));
+      }
     } finally {
       setTransitioning(false);
     }
@@ -624,13 +1478,9 @@ export default function LessonAuthoringPage() {
           Courses
         </Link>
         <span>/</span>
-        <Link
-          href={`/courses/${lesson.courseId}/modules/${lesson.moduleId}`}
-          className="hover:text-slate-800"
-        >
-          Module
-        </Link>
+        <Link href={`/courses/${lesson.courseId}`} className="hover:text-slate-800">{parentCourse?.title || 'Course'}</Link>
         <span>/</span>
+        {lesson.moduleId && <><Link href={`/courses/${lesson.courseId}/modules/${lesson.moduleId}`} className="hover:text-slate-800">{parentModuleTitle || 'Module'}</Link><span>/</span></>}
         <span className="text-slate-800 truncate max-w-xs">{lesson.title}</span>
       </div>
 
@@ -694,6 +1544,15 @@ export default function LessonAuthoringPage() {
 
             {canWrite && (
               <button
+                onClick={() => setDuplicateOpen(true)}
+                className="px-3.5 py-2 text-xs font-medium bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-lg shadow-xs"
+              >
+                Duplicate lesson
+              </button>
+            )}
+
+            {canWrite && (
+              <button
                 onClick={() => setEditLessonModalOpen(true)}
                 className="px-3.5 py-2 text-xs font-medium bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-lg shadow-xs"
               >
@@ -703,86 +1562,35 @@ export default function LessonAuthoringPage() {
           </div>
         </div>
 
-        {/* Readiness Diagnostic Summary */}
-        {readiness && (
-          <div className="mt-5 pt-4 border-t border-slate-100">
-            <div className="flex items-center justify-between text-xs">
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-slate-700">Publishing checks:</span>
-                {readiness.ready ? (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold">
-                    <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                    </svg>
-                    Ready to publish
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 font-semibold">
-                    {readiness.issues.length} thing{readiness.issues.length > 1 ? 's' : ''} to fix before publishing
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {readiness.issues.length > 0 && (
-              <div className="mt-3 p-3 bg-amber-50/80 border border-amber-200 rounded-lg space-y-1.5">
-                {readiness.issues.map((issue, idx) => (
-                  <div key={idx} className="text-xs text-amber-900 flex items-start gap-2">
-                    <span className="text-amber-600 font-bold">•</span>
-                    <span>
-                      {readinessMessage(issue)}
-                      {issue.level && <span className="ml-1 text-amber-700">({readableLevel(issue.level)})</span>}
-                      <details className="inline ml-2 text-amber-700"><summary className="inline cursor-pointer underline">Technical details</summary><span className="ml-1">{issue.code}: {issue.message}</span></details>
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Workflow State & Actions */}
-        {workflowState && (
-          <div className="mt-4 pt-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                Actions:
-              </span>
-              {workflowState.allowedActions.length === 0 ? (
-                <span className="text-xs text-slate-400 italic">No transitions available</span>
-              ) : (
-                workflowState.allowedActions.map((action) => {
-                  const labelMap: Record<string, string> = {
-                    SUBMIT_FOR_REVIEW: 'Submit for Review',
-                    REQUEST_CHANGES: 'Request Changes',
-                    APPROVE: 'Approve Lesson',
-                    PUBLISH: 'Publish Lesson',
-                    UNPUBLISH: 'Unpublish Lesson',
-                  };
-                  const colorMap: Record<string, string> = {
-                    SUBMIT_FOR_REVIEW: 'bg-blue-600 hover:bg-blue-700 text-white',
-                    REQUEST_CHANGES: 'bg-amber-600 hover:bg-amber-700 text-white',
-                    APPROVE: 'bg-emerald-600 hover:bg-emerald-700 text-white',
-                    PUBLISH: 'bg-slate-900 hover:bg-slate-800 text-white',
-                    UNPUBLISH: 'bg-rose-600 hover:bg-rose-700 text-white',
-                  };
-                  return (
-                    <button
-                      key={action}
-                      onClick={() => setTransitionAction(action)}
-                      className={`px-3 py-1.5 text-xs font-medium rounded-lg shadow-xs transition-colors ${
-                        colorMap[action] || 'bg-slate-800 text-white'
-                      }`}
-                    >
-                      {labelMap[action] || action}
-                    </button>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        )}
+        <ReviewPublishPanel
+          lessonId={lessonId}
+          courseId={lesson.courseId}
+          workflowState={workflowState}
+          blocks={blocks}
+          refreshKey={`${lesson.version}:${workflowState?.status ?? ''}:${workflowState?.contentRevision ?? ''}`}
+          onAction={(action) => {
+            setTransitionError(null);
+            setTransitionAction(action);
+          }}
+          onGoToBlock={goToBlock}
+          onEditBlock={(blockId) => {
+            const block = blocks.find((b) => b.id === blockId);
+            if (block) editBlock(block);
+          }}
+          canWrite={canWrite}
+          onReadiness={setReadiness}
+        />
       </div>
+
+      <RelatedLessonsPanel
+        lessonId={lessonId}
+        lessonVersion={lesson.version}
+        canWrite={canWrite}
+        onSaved={(message) => {
+          setSuccessMessage(message);
+          fetchLessonData();
+        }}
+      />
 
       {/* Level Tabs and Blocks Workspace */}
       <div className="space-y-4">
@@ -807,47 +1615,37 @@ export default function LessonAuthoringPage() {
           </div>
           <p className="text-xs text-slate-500">This changes your editing view. It does not change who can see each block.</p>
 
-          <div className="flex flex-wrap gap-2">
           {canWrite && (
-            <button
-              onClick={() => {
-                setNewBlockLevels([selectedLevel]);
-                setCreateBlockModalOpen(true);
-              }}
-              className="px-3.5 py-2 text-xs font-semibold bg-amber-600 hover:bg-amber-500 text-white rounded-lg flex items-center gap-1.5 shadow-xs"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              Add Rich Text Block
-            </button>
+            <div>
+              <button
+                type="button"
+                onClick={() => setPickerOpen(true)}
+                className="px-4 py-2.5 text-sm font-semibold bg-amber-600 hover:bg-amber-500 text-white rounded-lg flex items-center gap-2 shadow-xs focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Add content
+              </button>
+            </div>
           )}
-          {canWrite && (
-            <button
-              onClick={() => openImageDialog({ mode: 'create' })}
-              className="px-3.5 py-2 text-xs font-semibold bg-white hover:bg-slate-50 text-slate-900 border border-slate-400 rounded-lg flex items-center gap-1.5 shadow-xs"
-            >
-              Add Image
-            </button>
-          )}
-          </div>
         </div>
+
+        <LevelCoverage blocks={blocks} offeredLevels={lesson.levels} readiness={readiness} onGoToBlock={goToBlock} />
 
         {/* Blocks Listing */}
         {blocks.length === 0 ? (
           <EmptyState
             title="No Blocks in this Lesson"
-            description="Add your first rich text editorial block to begin lesson composition."
+            description="Use Add content to put text, images, a timeline, a quiz and more into this lesson."
             action={
               canWrite ? (
                 <button
-                  onClick={() => {
-                    setNewBlockLevels([selectedLevel]);
-                    setCreateBlockModalOpen(true);
-                  }}
+                  type="button"
+                  onClick={() => setPickerOpen(true)}
                   className="px-4 py-2 text-sm font-medium bg-amber-600 hover:bg-amber-500 text-white rounded-lg"
                 >
-                  Add First Block
+                  Add content
                 </button>
               ) : undefined
             }
@@ -863,7 +1661,19 @@ export default function LessonAuthoringPage() {
               return (
                 <div
                   key={block.id}
-                  className={`bg-white border rounded-xl p-5 shadow-xs transition-colors ${
+                  id={`block-${block.id}`}
+                  tabIndex={-1}
+                  onDragOver={(e) => {
+                    if (!dragBlockId) return;
+                    e.preventDefault();
+                    if (dropIndex !== index) setDropIndex(index);
+                  }}
+                  onDrop={(e) => {
+                    if (!dragBlockId) return;
+                    e.preventDefault();
+                    dropBlockAt(index);
+                  }}
+                  className={`${dropIndex === index && dragBlockId && dragBlockId !== block.id ? 'ring-2 ring-amber-500 ' : ''}${dragBlockId === block.id ? 'opacity-60 ' : ''}bg-white border rounded-xl p-5 shadow-xs transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500 ${
                     isVisibleAtSelected
                       ? 'border-slate-200'
                       : 'border-slate-200/60 bg-slate-50/40 opacity-70'
@@ -871,6 +1681,41 @@ export default function LessonAuthoringPage() {
                 >
                   <div className="flex items-start justify-between gap-4 pb-3 border-b border-slate-100">
                     <div className="flex items-center gap-3">
+                      {canWrite && (
+                        <button
+                          type="button"
+                          draggable={!performingBlockAction}
+                          disabled={performingBlockAction}
+                          onDragStart={(e) => {
+                            e.dataTransfer.effectAllowed = 'move';
+                            e.dataTransfer.setData('text/plain', block.id);
+                            const card = document.getElementById(`block-${block.id}`);
+                            if (card) e.dataTransfer.setDragImage(card, 24, 24);
+                            setDragBlockId(block.id);
+                          }}
+                          onDragEnd={() => {
+                            setDragBlockId(null);
+                            setDropIndex(null);
+                          }}
+                          onKeyDown={(e) => {
+                            // Keyboard alternative on the handle itself: the same single-step move as the Up and Down buttons.
+                            if (e.key === 'ArrowUp') {
+                              e.preventDefault();
+                              void handleReorderBlocks(index, 'up');
+                            } else if (e.key === 'ArrowDown') {
+                              e.preventDefault();
+                              void handleReorderBlocks(index, 'down');
+                            }
+                          }}
+                          className="cursor-grab active:cursor-grabbing touch-none px-1 py-1 text-slate-500 hover:text-slate-800 disabled:opacity-30 rounded-xs focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500"
+                          aria-label={`Drag handle for block ${index + 1}. Drag to move it, or press the up or down arrow key. The Move up and Move down buttons do the same.`}
+                          title="Drag to reorder (use the arrow buttons on touch screens)"
+                        >
+                          <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                            <circle cx="7" cy="5" r="1.4" /><circle cx="13" cy="5" r="1.4" /><circle cx="7" cy="10" r="1.4" /><circle cx="13" cy="10" r="1.4" /><circle cx="7" cy="15" r="1.4" /><circle cx="13" cy="15" r="1.4" />
+                          </svg>
+                        </button>
+                      )}
                       <span className="w-6 h-6 rounded-md bg-slate-100 text-slate-700 font-bold text-xs flex items-center justify-center font-mono">
                         {index + 1}
                       </span>
@@ -922,6 +1767,48 @@ export default function LessonAuthoringPage() {
                   <div className="py-4 text-sm text-slate-800 leading-relaxed font-serif">
                     {block.type === 'IMAGE' ? (
                       <ImageBlockView content={block.sharedContent} />
+                    ) : block.type === 'SUMMARY' ? (
+                      <SummaryBlockView content={block.sharedContent} />
+                    ) : block.type === 'SECTION_INTRO' ? (
+                      <SectionBlockView content={block.sharedContent} />
+                    ) : block.type === 'PROPHECY_EQUIVALENCE' ? (
+                      <EquivalenceView content={block.sharedContent} />
+                    ) : block.type === 'PROPHECY_COMPARISON' ? (
+                      <ComparisonView content={block.sharedContent} />
+                    ) : block.type === 'PROPHECY_CALCULATION' ? (
+                      <CalculationView content={block.sharedContent} />
+                    ) : block.type === 'REFLECTION_STUDY_ACTIVITY' ? (
+                      <ReflectionView content={block.sharedContent} />
+                    ) : block.type === 'GUIDED_DISCOVERY_QUESTION' ? (
+                      <DiscoveryView content={block.sharedContent} />
+                    ) : block.type === 'CONTINUE_EXPLORING' ? (
+                      <ExploringBlockView content={block.sharedContent} lessonId={lessonId} blockId={block.id} mode="working" />
+                    ) : block.type === 'NARRATIVE_SCENE' ? (
+                      <SceneView content={block.sharedContent} />
+                    ) : block.type === 'MEDIA_ANIMATION' ? (
+                      <AnimationView content={block.sharedContent} />
+                    ) : block.type === 'WORD_STUDY' ? (
+                      <WordStudyView content={block.sharedContent} />
+                    ) : block.type === 'SYMBOL_STUDY' ? (
+                      <SymbolStudyView content={block.sharedContent} />
+                    ) : block.type === 'MAP' ? (
+                      <HotspotBlockView content={block.sharedContent} variant="map" />
+                    ) : block.type === 'EXPLORE_DEEPER' ? (
+                      <ExploreDeeperView content={block.sharedContent} />
+                    ) : block.type === 'SCRIPTURE_CONNECTION' ? (
+                      <ScriptureConnectionView content={block.sharedContent} />
+                    ) : block.type === 'CALLOUT' ? (
+                      <CalloutBlockView content={block.sharedContent} />
+                    ) : block.type === 'HISTORICAL_EVIDENCE' ? (
+                      <EvidenceBlockView content={block.sharedContent} />
+                    ) : block.type === 'SCRIPTURE_PASSAGE' ? (
+                      <ScriptureBlockView content={block.sharedContent} />
+                    ) : block.type === 'TIMELINE' ? (
+                      <TimelineBlockView content={block.sharedContent} />
+                    ) : block.type === 'INTERACTIVE_IMAGE' ? (
+                      <HotspotBlockView content={block.sharedContent} />
+                    ) : block.type === 'QUIZ' ? (
+                      <QuizBlockView content={block.sharedContent} />
                     ) : hasRichTextContent(displayContent) ? (
                       <RichTextView content={displayContent} />
                     ) : (
@@ -956,17 +1843,10 @@ export default function LessonAuthoringPage() {
                           Set visibility for {readableLevel(selectedLevel)}
                         </button>
                         <button
-                          onClick={() => {
-                            if (block.type === 'IMAGE') {
-                              openImageDialog({ mode: 'edit', block });
-                              return;
-                            }
-                            setEditingBlock(block);
-                            setEditingContentText(richTextDocToText(block.sharedContent));
-                          }}
+                          onClick={() => editBlock(block)}
                           className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
                         >
-                          {block.type === 'IMAGE' ? 'Edit Image' : 'Edit Shared'}
+                          {block.type === 'IMAGE' ? 'Edit Image' : block.type === 'SUMMARY' ? 'Edit Summary' : block.type === 'QUIZ' ? 'Change quiz' : block.type === 'INTERACTIVE_IMAGE' ? 'Edit Interactive Image' : block.type === 'TIMELINE' ? 'Edit Timeline' : block.type === 'SCRIPTURE_PASSAGE' ? 'Edit Passage' : block.type === 'HISTORICAL_EVIDENCE' ? 'Edit Evidence' : block.type === 'SECTION_INTRO' ? 'Edit Heading' : block.type === 'CALLOUT' ? 'Edit Callout' : block.type === 'SCRIPTURE_CONNECTION' ? 'Edit Connection' : block.type === 'MAP' ? 'Edit Map' : block.type === 'PROPHECY_EQUIVALENCE' ? 'Edit Equivalence' : block.type === 'PROPHECY_COMPARISON' ? 'Edit Comparison' : block.type === 'PROPHECY_CALCULATION' ? 'Edit Calculation' : block.type === 'REFLECTION_STUDY_ACTIVITY' ? 'Edit Activity' : block.type === 'GUIDED_DISCOVERY_QUESTION' ? 'Edit Question' : block.type === 'CONTINUE_EXPLORING' ? 'Edit Links' : block.type === 'NARRATIVE_SCENE' ? 'Edit Scene' : block.type === 'MEDIA_ANIMATION' ? 'Edit Animation' : block.type === 'WORD_STUDY' ? 'Edit Word Study' : block.type === 'SYMBOL_STUDY' ? 'Edit Symbol Study' : block.type === 'EXPLORE_DEEPER' ? 'Edit Section' : 'Edit Shared'}
                         </button>
                         <button
                           onClick={() => handleDuplicateBlock(block.id)}
@@ -997,9 +1877,15 @@ export default function LessonAuthoringPage() {
       </div>
 
       {/* Edit Lesson Metadata Modal */}
+      <DuplicateLessonDialog
+        lesson={duplicateOpen && lesson ? { id: lesson.id, title: lesson.title } : null}
+        destination={`${parentModuleTitle ? `${parentModuleTitle} in ` : ''}${parentCourse?.title ?? 'this course'}${lesson?.moduleId ? '' : ' (directly in the course)'}`}
+        onClose={() => setDuplicateOpen(false)}
+      />
+
       <Modal
         isOpen={editLessonModalOpen}
-        onClose={() => confirmDiscard(editTitle !== lesson.title || editShortTitle !== (lesson.shortTitle || '') || editSubtitle !== (lesson.subtitle || '') || editIntroduction !== (lesson.introduction || '') || editEstimatedMinutes !== (lesson.estimatedMinutes ? String(lesson.estimatedMinutes) : ''), () => setEditLessonModalOpen(false))}
+        onClose={() => confirmDiscard(editTitle !== lesson.title || editShortTitle !== (lesson.shortTitle || '') || editSubtitle !== (lesson.subtitle || '') || editIntroduction !== (lesson.introduction || '') || editEstimatedMinutes !== (lesson.estimatedMinutes ? String(lesson.estimatedMinutes) : '') || editCoverMediaId !== (lesson.coverMediaId ?? null), () => setEditLessonModalOpen(false))}
         title="Edit lesson details"
         description={lesson.status === 'DRAFT' ? 'Updates lesson title and descriptive properties.' : 'Saving changes will return this lesson to Draft for review before it can be published again.'}
       >
@@ -1075,10 +1961,12 @@ export default function LessonAuthoringPage() {
             />
           </div>
 
+          <CoverImageField subject="lesson" value={editCoverMediaId} onChange={setEditCoverMediaId} disabled={updatingMetadata} />
+
           <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
             <button
               type="button"
-              onClick={() => confirmDiscard(editTitle !== lesson.title || editShortTitle !== (lesson.shortTitle || '') || editSubtitle !== (lesson.subtitle || '') || editIntroduction !== (lesson.introduction || '') || editEstimatedMinutes !== (lesson.estimatedMinutes ? String(lesson.estimatedMinutes) : ''), () => setEditLessonModalOpen(false))}
+              onClick={() => confirmDiscard(editTitle !== lesson.title || editShortTitle !== (lesson.shortTitle || '') || editSubtitle !== (lesson.subtitle || '') || editIntroduction !== (lesson.introduction || '') || editEstimatedMinutes !== (lesson.estimatedMinutes ? String(lesson.estimatedMinutes) : '') || editCoverMediaId !== (lesson.coverMediaId ?? null), () => setEditLessonModalOpen(false))}
               className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50"
             >
               Cancel
@@ -1436,13 +2324,249 @@ export default function LessonAuthoringPage() {
         onSave={(content, levels) => void handleSaveImage(content, levels)}
       />
 
+      <SummaryBlockDialog
+        isOpen={summaryDialog !== null}
+        mode={summaryDialog?.mode ?? 'create'}
+        lessonLevels={lesson.levels}
+        initial={summaryDialog?.mode === 'edit' ? readSummaryContent(summaryDialog.block.sharedContent) : null}
+        saving={savingSummary}
+        error={summaryError}
+        onClose={() => setSummaryDialog(null)}
+        onSave={(content, levels) => void handleSaveSummary(content, levels)}
+      />
+
+      <AddContentPicker isOpen={pickerOpen} onClose={() => setPickerOpen(false)} onChoose={chooseContentType} />
+
+      <SectionBlockDialog
+        isOpen={sectionDialog !== null}
+        mode={sectionDialog?.mode ?? 'create'}
+        lessonLevels={lesson.levels}
+        initial={sectionDialog?.mode === 'edit' ? readSection(sectionDialog.block.sharedContent) : null}
+        saving={savingSection}
+        error={sectionError}
+        onClose={() => setSectionDialog(null)}
+        onSave={(content, levels) => void handleSaveSection(content, levels)}
+      />
+
+      <HotspotBlockDialog
+        isOpen={mapDialog !== null}
+        variant="map"
+        mode={mapDialog?.mode ?? 'create'}
+        lessonLevels={lesson.levels}
+        initial={mapDialog?.mode === 'edit' ? readHotspotContent(mapDialog.block.sharedContent) : null}
+        saving={savingMap}
+        error={mapError}
+        onClose={() => setMapDialog(null)}
+        onSave={(content, levels) => void handleSaveMap(content, levels)}
+      />
+
+      <EquivalenceDialog
+        isOpen={equivDialog !== null}
+        mode={equivDialog?.mode ?? 'create'}
+        lessonLevels={lesson.levels}
+        initial={equivDialog?.mode === 'edit' ? readEquivalence(equivDialog.block.sharedContent) : null}
+        saving={savingEquiv}
+        error={equivError}
+        onClose={() => setEquivDialog(null)}
+        onSave={(content, levels) => void handleSaveEquiv(content, levels)}
+      />
+
+      <ComparisonDialog
+        isOpen={compareDialog !== null}
+        mode={compareDialog?.mode ?? 'create'}
+        lessonLevels={lesson.levels}
+        initial={compareDialog?.mode === 'edit' ? readComparison(compareDialog.block.sharedContent) : null}
+        saving={savingCompare}
+        error={compareError}
+        onClose={() => setCompareDialog(null)}
+        onSave={(content, levels) => void handleSaveCompare(content, levels)}
+      />
+
+      <CalculationDialog
+        isOpen={calcDialog !== null}
+        mode={calcDialog?.mode ?? 'create'}
+        lessonLevels={lesson.levels}
+        initial={calcDialog?.mode === 'edit' ? readCalculation(calcDialog.block.sharedContent) : null}
+        saving={savingCalc}
+        error={calcError}
+        onClose={() => setCalcDialog(null)}
+        onSave={(content, levels) => void handleSaveCalc(content, levels)}
+      />
+
+      <ReflectionDialog
+        isOpen={reflDialog !== null}
+        mode={reflDialog?.mode ?? 'create'}
+        lessonLevels={lesson.levels}
+        initial={reflDialog?.mode === 'edit' ? readReflection(reflDialog.block.sharedContent) : null}
+        saving={savingRefl}
+        error={reflError}
+        onClose={() => setReflDialog(null)}
+        onSave={(content, levels) => void handleSaveRefl(content, levels)}
+      />
+
+      <DiscoveryDialog
+        isOpen={discDialog !== null}
+        mode={discDialog?.mode ?? 'create'}
+        lessonLevels={lesson.levels}
+        initial={discDialog?.mode === 'edit' ? readDiscovery(discDialog.block.sharedContent) : null}
+        saving={savingDisc}
+        error={discError}
+        onClose={() => setDiscDialog(null)}
+        onSave={(content, levels) => void handleSaveDisc(content, levels)}
+      />
+
+      <ContinueExploringDialog
+        isOpen={exploringDialog !== null}
+        mode={exploringDialog?.mode ?? 'create'}
+        lessonId={lessonId}
+        lessonVersion={lesson.version}
+        lessonLevels={lesson.levels}
+        initial={exploringDialog?.mode === 'edit' ? exploringDialog.block.sharedContent : null}
+        saving={savingExploring}
+        error={exploringError}
+        onClose={() => setExploringDialog(null)}
+        onSave={(content, levels) => void handleSaveExploring(content, levels)}
+      />
+
+      <SceneDialog
+        isOpen={sceneDialog !== null}
+        mode={sceneDialog?.mode ?? 'create'}
+        lessonLevels={lesson.levels}
+        initial={sceneDialog?.mode === 'edit' ? readScene(sceneDialog.block.sharedContent) : null}
+        saving={savingScene}
+        error={sceneError}
+        onClose={() => setSceneDialog(null)}
+        onSave={(content, levels) => void handleSaveScene(content, levels)}
+      />
+
+      <AnimationDialog
+        isOpen={animDialog !== null}
+        mode={animDialog?.mode ?? 'create'}
+        lessonLevels={lesson.levels}
+        initial={animDialog?.mode === 'edit' ? readAnimation(animDialog.block.sharedContent) : null}
+        saving={savingAnim}
+        error={animError}
+        onClose={() => setAnimDialog(null)}
+        onSave={(content, levels) => void handleSaveAnim(content, levels)}
+      />
+
+      <WordStudyDialog
+        isOpen={wordDialog !== null}
+        mode={wordDialog?.mode ?? 'create'}
+        lessonLevels={lesson.levels}
+        initial={wordDialog?.mode === 'edit' ? readWord(wordDialog.block.sharedContent) : null}
+        saving={savingWord}
+        error={wordError}
+        onClose={() => setWordDialog(null)}
+        onSave={(content, levels) => void handleSaveWord(content, levels)}
+      />
+
+      <SymbolStudyDialog
+        isOpen={symbolDialog !== null}
+        mode={symbolDialog?.mode ?? 'create'}
+        lessonLevels={lesson.levels}
+        initial={symbolDialog?.mode === 'edit' ? readSymbol(symbolDialog.block.sharedContent) : null}
+        saving={savingSymbol}
+        error={symbolError}
+        onClose={() => setSymbolDialog(null)}
+        onSave={(content, levels) => void handleSaveSymbol(content, levels)}
+      />
+
+      <ExploreDeeperDialog
+        isOpen={exploreDialog !== null}
+        mode={exploreDialog?.mode ?? 'create'}
+        lessonLevels={lesson.levels}
+        initial={exploreDialog?.mode === 'edit' ? readExplore(exploreDialog.block.sharedContent) : null}
+        saving={savingExplore}
+        error={exploreError}
+        onClose={() => setExploreDialog(null)}
+        onSave={(content, levels) => void handleSaveExplore(content, levels)}
+      />
+
+      <ScriptureConnectionDialog
+        isOpen={connectionDialog !== null}
+        mode={connectionDialog?.mode ?? 'create'}
+        lessonLevels={lesson.levels}
+        initial={connectionDialog?.mode === 'edit' ? readConnectionContent(connectionDialog.block.sharedContent) : null}
+        saving={savingConnection}
+        error={connectionError}
+        onClose={() => setConnectionDialog(null)}
+        onSave={(content, levels) => void handleSaveConnection(content, levels)}
+      />
+
+      <CalloutBlockDialog
+        isOpen={calloutDialog !== null}
+        mode={calloutDialog?.mode ?? 'create'}
+        lessonLevels={lesson.levels}
+        initial={calloutDialog?.mode === 'edit' ? readCallout(calloutDialog.block.sharedContent) : null}
+        saving={savingCallout}
+        error={calloutError}
+        onClose={() => setCalloutDialog(null)}
+        onSave={(content, levels) => void handleSaveCallout(content, levels)}
+      />
+
+      <EvidenceBlockDialog
+        isOpen={evidenceDialog !== null}
+        mode={evidenceDialog?.mode ?? 'create'}
+        lessonLevels={lesson.levels}
+        initial={evidenceDialog?.mode === 'edit' ? readEvidence(evidenceDialog.block.sharedContent) : null}
+        saving={savingEvidence}
+        error={evidenceError}
+        onClose={() => setEvidenceDialog(null)}
+        onSave={(content, levels) => void handleSaveEvidence(content, levels)}
+      />
+
+      <ScriptureBlockDialog
+        isOpen={scriptureDialog !== null}
+        mode={scriptureDialog?.mode ?? 'create'}
+        lessonLevels={lesson.levels}
+        initial={scriptureDialog?.mode === 'edit' ? readScriptureBlock(scriptureDialog.block.sharedContent) : null}
+        saving={savingScripture}
+        error={scriptureError}
+        onClose={() => setScriptureDialog(null)}
+        onSave={(content, levels) => void handleSaveScripture(content, levels)}
+      />
+
+      <TimelineBlockDialog
+        isOpen={timelineDialog !== null}
+        mode={timelineDialog?.mode ?? 'create'}
+        lessonLevels={lesson.levels}
+        initial={timelineDialog?.mode === 'edit' ? readTimelineContent(timelineDialog.block.sharedContent) : null}
+        saving={savingTimeline}
+        error={timelineError}
+        onClose={() => setTimelineDialog(null)}
+        onSave={(content, levels) => void handleSaveTimeline(content, levels)}
+      />
+
+      <HotspotBlockDialog
+        isOpen={hotspotDialog !== null}
+        mode={hotspotDialog?.mode ?? 'create'}
+        lessonLevels={lesson.levels}
+        initial={hotspotDialog?.mode === 'edit' ? readHotspotContent(hotspotDialog.block.sharedContent) : null}
+        saving={savingHotspot}
+        error={hotspotError}
+        onClose={() => setHotspotDialog(null)}
+        onSave={(content, levels) => void handleSaveHotspot(content, levels)}
+      />
+
+      <QuizBlockDialog
+        isOpen={quizDialog !== null}
+        mode={quizDialog?.mode ?? 'create'}
+        lessonLevels={lesson.levels}
+        initialQuizId={quizDialog?.mode === 'edit' ? (readQuizRef(quizDialog.block.sharedContent)?.quizId ?? null) : null}
+        saving={savingQuiz}
+        error={quizError}
+        onClose={() => setQuizDialog(null)}
+        onSave={(quizId, levels) => void handleSaveQuiz(quizId, levels)}
+      />
+
       {/* Delete Block Confirmation */}
       <ConfirmDialog
         isOpen={Boolean(deleteBlockId)}
         onClose={() => setDeleteBlockId(null)}
         onConfirm={handleDeleteBlock}
         title="Delete Content Block"
-        message="Are you sure you want to remove this block from the lesson? This will reset the lesson status to DRAFT."
+        message={`Are you sure you want to remove this block from the lesson? This will reset the lesson status to DRAFT.${blocks.find((b) => b.id === deleteBlockId)?.type === 'QUIZ' ? ' The quiz itself is not deleted and stays in the Quizzes section.' : ''}`}
         confirmLabel="Delete"
         isDestructive
         isLoading={deletingBlock}
@@ -1452,7 +2576,7 @@ export default function LessonAuthoringPage() {
       <Modal
         isOpen={previewModalOpen}
         onClose={() => setPreviewModalOpen(false)}
-        title={`Learner preview: ${readableLevel(selectedLevel)}`}
+        title={`Learner preview: ${readableLevel(selectedLevel)} (working copy)`}
         description="This preview shows the current working content, including unpublished changes."
         maxWidth="2xl"
       >
@@ -1487,6 +2611,48 @@ export default function LessonAuthoringPage() {
                   <div key={blk.blockId} className="p-4 bg-slate-50 rounded-lg border border-slate-200/80">
                     {blk.type === 'IMAGE' ? (
                       <ImageBlockView content={blk.content} />
+                    ) : blk.type === 'SUMMARY' ? (
+                      <SummaryBlockView content={blk.content} />
+                    ) : blk.type === 'SECTION_INTRO' ? (
+                      <SectionBlockView content={blk.content} />
+                    ) : blk.type === 'PROPHECY_EQUIVALENCE' ? (
+                      <EquivalenceView content={blk.content} />
+                    ) : blk.type === 'PROPHECY_COMPARISON' ? (
+                      <ComparisonView content={blk.content} />
+                    ) : blk.type === 'PROPHECY_CALCULATION' ? (
+                      <CalculationView content={blk.content} />
+                    ) : blk.type === 'REFLECTION_STUDY_ACTIVITY' ? (
+                      <ReflectionView content={blk.content} />
+                    ) : blk.type === 'GUIDED_DISCOVERY_QUESTION' ? (
+                      <DiscoveryView content={blk.content} />
+                    ) : blk.type === 'CONTINUE_EXPLORING' ? (
+                      <ExploringBlockView content={blk.content} lessonId={lessonId} blockId={blk.blockId ?? ''} mode="preview" level={selectedLevel} />
+                    ) : blk.type === 'NARRATIVE_SCENE' ? (
+                      <SceneView content={blk.content} />
+                    ) : blk.type === 'MEDIA_ANIMATION' ? (
+                      <AnimationView content={blk.content} />
+                    ) : blk.type === 'WORD_STUDY' ? (
+                      <WordStudyView content={blk.content} />
+                    ) : blk.type === 'SYMBOL_STUDY' ? (
+                      <SymbolStudyView content={blk.content} />
+                    ) : blk.type === 'MAP' ? (
+                      <HotspotBlockView content={blk.content} variant="map" />
+                    ) : blk.type === 'EXPLORE_DEEPER' ? (
+                      <ExploreDeeperView content={blk.content} defaultOpen={false} />
+                    ) : blk.type === 'SCRIPTURE_CONNECTION' ? (
+                      <ScriptureConnectionView content={blk.content} />
+                    ) : blk.type === 'CALLOUT' ? (
+                      <CalloutBlockView content={blk.content} />
+                    ) : blk.type === 'HISTORICAL_EVIDENCE' ? (
+                      <EvidenceBlockView content={blk.content} />
+                    ) : blk.type === 'SCRIPTURE_PASSAGE' ? (
+                      <ScriptureBlockView content={blk.content} />
+                    ) : blk.type === 'TIMELINE' ? (
+                      <TimelineBlockView content={blk.content} />
+                    ) : blk.type === 'INTERACTIVE_IMAGE' ? (
+                      <HotspotBlockView content={blk.content} />
+                    ) : blk.type === 'QUIZ' ? (
+                      <QuizBlockView content={blk.content} level={selectedLevel} />
                     ) : (
                       <RichTextView content={blk.content} className="font-serif text-sm leading-relaxed text-slate-800" />
                     )}
@@ -1504,8 +2670,10 @@ export default function LessonAuthoringPage() {
       {/* Workflow Action Modal */}
       <Modal
         isOpen={Boolean(transitionAction)}
-        onClose={() => setTransitionAction(null)}
-        title={`Confirm Action: ${transitionAction?.replace(/_/g, ' ')}`}
+        onClose={() => {
+          if (!transitioning) setTransitionAction(null);
+        }}
+        title={`Confirm: ${transitionAction ? (ACTION_LABEL[transitionAction] ?? transitionAction) : ''}`}
       >
         <div className="space-y-4">
           {transitionError && (
@@ -1530,22 +2698,14 @@ export default function LessonAuthoringPage() {
             </div>
           )}
 
-          <p className="text-sm text-slate-600">
-            {transitionAction === 'PUBLISH' &&
-              'Publishing this approved lesson will generate an immutable snapshot for learner delivery.'}
-            {transitionAction === 'UNPUBLISH' &&
-              'Unpublishing ends the active publication for learners while keeping publication history snapshots intact.'}
-            {transitionAction === 'SUBMIT_FOR_REVIEW' &&
-              'Submitting for review locks the lesson from further edits until reviewed.'}
-            {transitionAction === 'APPROVE' &&
-              'Approving confirms editorial review has been satisfied.'}
-          </p>
+          <p className="text-sm text-slate-700">{transitionAction ? ACTION_EXPLANATION[transitionAction] : null}</p>
 
           <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
             <button
               type="button"
               onClick={() => setTransitionAction(null)}
-              className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50"
+              disabled={transitioning}
+              className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50"
             >
               Cancel
             </button>
@@ -1559,7 +2719,7 @@ export default function LessonAuthoringPage() {
               className="px-4 py-2 text-sm font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-lg flex items-center gap-2 disabled:opacity-50"
             >
               {transitioning && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
-              Confirm Transition
+              {transitionAction ? (ACTION_LABEL[transitionAction] ?? 'Confirm') : 'Confirm'}
             </button>
           </div>
         </div>

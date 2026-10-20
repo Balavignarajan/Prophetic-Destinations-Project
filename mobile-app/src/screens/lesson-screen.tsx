@@ -24,19 +24,56 @@ import { type LessonRef, shouldRestore } from '@/features/learning/progress-mode
 import { describeLoadError } from '@/features/offline/describe-offline';
 import { loadLesson, loadNavigation } from '@/features/offline/offline-api';
 import { OfflineBanner } from '@/features/offline/offline-banner';
+import { type OwnerStatus, mediaOwnerKey, useOfflineMedia } from '@/features/offline/offline-media';
 import { isRecoverable, useRetryOnReconnect } from '@/features/offline/use-retry-on-reconnect';
 import { LEVEL_LABELS, firstParam } from '@/learning/levels';
 import { useRouteLevel } from '@/learning/use-route-level';
 import { LessonImage } from '@/learning/lesson-image';
 import { RichTextContent } from '@/learning/rich-text';
+import { HotspotImage } from '@/learning/hotspot-image';
+import { RelatedLessons } from '@/learning/related-lessons';
+import { CalloutBlock } from '@/learning/callout-block';
+import { ContinueExploringBlock } from '@/learning/continue-exploring-block';
+import { ExploreDeeperBlock } from '@/learning/explore-deeper-block';
+import { AnimatedImageBlock, NarrativeSceneBlock } from '@/learning/scene-media-blocks';
+import { GuidedQuestionBlock, StudyActivityBlock } from '@/learning/study-prompt-blocks';
+import { CalculationBlock, ComparisonBlock, EquivalenceBlock } from '@/learning/prophecy-blocks';
+import { SymbolStudyBlock, WordStudyBlock } from '@/learning/word-symbol-blocks';
+import { ScriptureConnectionBlock } from '@/learning/scripture-connection-block';
+import { SectionIntroBlock } from '@/learning/section-intro-block';
+import { EvidenceBlock } from '@/learning/evidence-block';
+import { ScripturePassage } from '@/learning/scripture-passage';
+import { TimelineContent } from '@/learning/timeline-block';
+import { QuizContent } from '@/learning/quiz-block';
+import { SummaryContent } from '@/learning/summary-block';
 import { useTheme } from '@/theme';
 
-/** The block types this version of the app can show. The backend enables RICH_TEXT and IMAGE today. */
-const SUPPORTED_BLOCKS = new Set(['RICH_TEXT', 'IMAGE']);
+/** The block types this version of the app can show. The backend enables RICH_TEXT, IMAGE, SUMMARY, QUIZ, INTERACTIVE_IMAGE and TIMELINE today. */
+const SUPPORTED_BLOCKS = new Set(['RICH_TEXT', 'IMAGE', 'SUMMARY', 'QUIZ', 'INTERACTIVE_IMAGE', 'TIMELINE', 'SCRIPTURE_PASSAGE', 'HISTORICAL_EVIDENCE', 'SECTION_INTRO', 'CALLOUT', 'SCRIPTURE_CONNECTION', 'MAP', 'EXPLORE_DEEPER', 'WORD_STUDY', 'SYMBOL_STUDY', 'PROPHECY_EQUIVALENCE', 'PROPHECY_COMPARISON', 'PROPHECY_CALCULATION', 'REFLECTION_STUDY_ACTIVITY', 'GUIDED_DISCOVERY_QUESTION', 'CONTINUE_EXPLORING', 'NARRATIVE_SCENE', 'MEDIA_ANIMATION']);
+
+/** What to tell the learner about offline saving of this lesson, or null when nothing needs saying. */
+function offlineNote(status: OwnerStatus, showingSavedCopy: boolean): string | null {
+  switch (status) {
+    case 'saving':
+      return 'Saving images for offline reading…';
+    case 'updating':
+      return showingSavedCopy
+        ? 'You are reading an older saved version. The newest version is still being saved for offline reading.'
+        : 'Saving the newest version for offline reading… Until it is finished, the older saved version is kept for offline use.';
+    case 'update-failed':
+      return 'Some images of the newest version are not saved yet, so the older saved version is still the one kept for offline reading. Open the lesson again with an internet connection to retry.';
+    case 'incomplete':
+      return 'Some images are not saved for offline reading. They are saved when you open the lesson with an internet connection.';
+    case 'unknown':
+      return showingSavedCopy ? 'The text is saved for offline reading. Its images are saved when you open the lesson with an internet connection.' : null;
+    default:
+      return null;
+  }
+}
 
 /**
  * The lesson reader: the published snapshot of a lesson at one level, shown in its published order.
- * Nothing is added to the content: no invented text, no Bible text. Block types other than RICH_TEXT and IMAGE are not shown,
+ * Nothing is added to the content: no invented text, no Bible text. Block types other than RICH_TEXT, IMAGE, SUMMARY, QUIZ, INTERACTIVE_IMAGE and TIMELINE are not shown,
  * and the reader says so rather than hiding it.
  */
 export function LessonScreen() {
@@ -45,6 +82,7 @@ export function LessonScreen() {
   const params = useLocalSearchParams<{ lessonId: string; level?: string }>();
   const lessonId = firstParam(params.lessonId);
   const { level, ready } = useRouteLevel(params.level);
+  const offlineMedia = useOfflineMedia();
   const [lesson, reload] = useResource(ready ? `lesson:${lessonId}:${level}` : null, (signal) => loadLesson(lessonId, level, signal));
   // Previous / next are a convenience: if the navigation request fails (and nothing is saved) the lesson is still readable.
   const [navigation] = useResource(ready ? `lesson-nav:${lessonId}:${level}` : null, (signal) => loadNavigation(lessonId, level, signal));
@@ -169,7 +207,15 @@ export function LessonScreen() {
 
         {lesson.status === 'success' && lesson.data.source === 'cache' ? <OfflineBanner loaded={lesson.data} onRetry={reload} /> : null}
 
-        {lesson.status === 'success' ? <LessonBody lessonId={lessonId} lessonBlocks={lesson.data.value.snapshot.blocks} snapshotLesson={lesson.data.value.snapshot.lesson} level={level} /> : null}
+        {lesson.status === 'success' && offlineNote(offlineMedia.status(mediaOwnerKey('lesson', lessonId, level)), lesson.data.source === 'cache') ? (
+          <AppText variant="bodySmall" color="textMuted" accessibilityLiveRegion="polite">
+            {offlineNote(offlineMedia.status(mediaOwnerKey('lesson', lessonId, level)), lesson.data.source === 'cache')}
+          </AppText>
+        ) : null}
+
+        {lesson.status === 'success' ? <LessonBody lessonId={lessonId} contentHash={lesson.data.value.contentHash} lessonBlocks={lesson.data.value.snapshot.blocks} snapshotLesson={lesson.data.value.snapshot.lesson} level={level} /> : null}
+
+        {lesson.status === 'success' ? <RelatedLessons lessonId={lessonId} level={level} contentHash={lesson.data.value.contentHash} /> : null}
 
         {lesson.status === 'success' ? (
           <View style={{ gap: spacing.md }}>
@@ -208,11 +254,14 @@ export function LessonScreen() {
 
 function LessonBody({
   lessonId,
+  contentHash,
   lessonBlocks,
   snapshotLesson,
   level,
 }: {
   lessonId: string;
+  /** Identifies the published version shown, so quiz answers never carry over to another publication. */
+  contentHash: string;
   lessonBlocks: LessonSnapshotBlock[];
   snapshotLesson: { title: string; subtitle: string | null; introduction: string | null; estimatedMinutes: number | null };
   level: keyof typeof LEVEL_LABELS;
@@ -252,6 +301,48 @@ function LessonBody({
       {shown.map((block) =>
         block.type === 'IMAGE' ? (
           <LessonImage key={block.blockId} lessonId={lessonId} level={level} content={block.content} />
+        ) : block.type === 'SECTION_INTRO' ? (
+          <SectionIntroBlock key={block.blockId} lessonId={lessonId} level={level} content={block.content} />
+        ) : block.type === 'PROPHECY_EQUIVALENCE' ? (
+          <EquivalenceBlock key={block.blockId} content={block.content} />
+        ) : block.type === 'PROPHECY_COMPARISON' ? (
+          <ComparisonBlock key={block.blockId} content={block.content} />
+        ) : block.type === 'PROPHECY_CALCULATION' ? (
+          <CalculationBlock key={block.blockId} content={block.content} />
+        ) : block.type === 'REFLECTION_STUDY_ACTIVITY' ? (
+          <StudyActivityBlock key={block.blockId} content={block.content} />
+        ) : block.type === 'GUIDED_DISCOVERY_QUESTION' ? (
+          <GuidedQuestionBlock key={block.blockId} content={block.content} />
+        ) : block.type === 'CONTINUE_EXPLORING' ? (
+          <ContinueExploringBlock key={block.blockId} lessonId={lessonId} blockId={block.blockId} level={level} contentHash={contentHash} content={block.content} />
+        ) : block.type === 'NARRATIVE_SCENE' ? (
+          <NarrativeSceneBlock key={block.blockId} lessonId={lessonId} level={level} content={block.content} />
+        ) : block.type === 'MEDIA_ANIMATION' ? (
+          <AnimatedImageBlock key={block.blockId} lessonId={lessonId} level={level} content={block.content} />
+        ) : block.type === 'WORD_STUDY' ? (
+          <WordStudyBlock key={block.blockId} content={block.content} />
+        ) : block.type === 'SYMBOL_STUDY' ? (
+          <SymbolStudyBlock key={block.blockId} lessonId={lessonId} level={level} content={block.content} />
+        ) : block.type === 'MAP' ? (
+          <HotspotImage key={block.blockId} lessonId={lessonId} level={level} content={block.content} variant="map" />
+        ) : block.type === 'EXPLORE_DEEPER' ? (
+          <ExploreDeeperBlock key={block.blockId} content={block.content} />
+        ) : block.type === 'SCRIPTURE_CONNECTION' ? (
+          <ScriptureConnectionBlock key={block.blockId} content={block.content} />
+        ) : block.type === 'CALLOUT' ? (
+          <CalloutBlock key={block.blockId} content={block.content} />
+        ) : block.type === 'HISTORICAL_EVIDENCE' ? (
+          <EvidenceBlock key={block.blockId} lessonId={lessonId} level={level} content={block.content} />
+        ) : block.type === 'SCRIPTURE_PASSAGE' ? (
+          <ScripturePassage key={block.blockId} content={block.content} />
+        ) : block.type === 'TIMELINE' ? (
+          <TimelineContent key={block.blockId} lessonId={lessonId} level={level} content={block.content} />
+        ) : block.type === 'INTERACTIVE_IMAGE' ? (
+          <HotspotImage key={block.blockId} lessonId={lessonId} level={level} content={block.content} />
+        ) : block.type === 'QUIZ' ? (
+          <QuizContent key={`${block.blockId}:${contentHash}`} content={block.content} lessonId={lessonId} lessonTitle={snapshotLesson.title} level={level} blockId={block.blockId} contentHash={contentHash} />
+        ) : block.type === 'SUMMARY' ? (
+          <SummaryContent key={block.blockId} content={block.content} />
         ) : (
           <RichTextContent key={block.blockId} content={block.content} />
         ),

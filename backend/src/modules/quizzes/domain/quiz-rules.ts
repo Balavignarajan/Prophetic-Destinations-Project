@@ -19,8 +19,30 @@ export const QUIZ_LIMITS = {
   optionTextMax: 300,
 } as const;
 
+/** The three learning levels, in canonical order (the same identifiers as everywhere else). */
+export const QUESTION_LEVELS = ['BEGINNER', 'INTERMEDIATE', 'ADVANCED'] as const;
+
+/**
+ * Question-level visibility. `levels` null or absent = the question is shown at EVERY level (the backward-compatible default for questions that were
+ * created before levels existed); otherwise a non-empty subset. All three levels is the same as null. This is about QUESTIONS; whether the quiz BLOCK is
+ * shown at a level is the block's own level setting, a separate thing.
+ */
+export function normalizeQuestionLevels(levels: readonly string[] | null | undefined): string[] | null {
+  if (levels === null || levels === undefined) return null;
+  const set = new Set(levels);
+  const known = QUESTION_LEVELS.filter((level) => set.has(level)) as string[];
+  const unknown = [...set].filter((level) => !(QUESTION_LEVELS as readonly string[]).includes(level));
+  if (unknown.length === 0 && known.length === QUESTION_LEVELS.length) return null;
+  return [...known, ...unknown];
+}
+
+/** Whether a question is enabled at a level (null = every level). */
+export const questionVisibleAt = (levels: readonly string[] | null, level: string) => levels === null || levels.includes(level);
+
 /** What an author supplies for a question. Option order is the order shown to learners. */
 export interface QuestionInput {
+  /** Levels the question is shown at; null or absent = every level. */
+  levels?: string[] | null;
   prompt: string;
   explanation?: string | null;
   options: { text: string; correct: boolean }[];
@@ -40,6 +62,8 @@ export interface StoredQuestion {
   prompt: string;
   explanation: string | null;
   correctOptionId: string;
+  /** Levels the question is shown at; null = every level. */
+  levels: string[] | null;
   options: { id: string; position: number; text: string }[];
 }
 
@@ -73,6 +97,7 @@ export function normalizeQuiz(input: QuizInput): QuizInput {
     title: clean(input.title),
     description: optional(input.description),
     questions: input.questions.map((question) => ({
+      levels: normalizeQuestionLevels(question.levels),
       prompt: question.prompt.trim(),
       explanation: optional(question.explanation),
       options: question.options.map((option) => ({
@@ -112,6 +137,10 @@ export function checkQuizContent(quiz: QuizInput): string[] {
       problems.push(
         `${at}: the explanation must be at most ${L.explanationMax} characters`,
       );
+    }
+    if (question.levels !== null && question.levels !== undefined) {
+      if (question.levels.length === 0) problems.push(`${at}: choose at least one level for the question`);
+      else if (question.levels.some((level) => !(QUESTION_LEVELS as readonly string[]).includes(level))) problems.push(`${at}: unknown level`);
     }
     const options = question.options;
     if (options.length < L.optionsMin || options.length > L.optionsMax) {
@@ -163,12 +192,18 @@ export interface PublicQuiz {
   }[];
 }
 
-export function toPublicQuiz(quiz: QuizWithQuestions): PublicQuiz {
+/** The questions of a quiz that are enabled at `level` (all of them when no level is asked for), in the quiz's own order. */
+export function questionsForLevel<T extends { levels: string[] | null }>(questions: readonly T[], level?: string): T[] {
+  return level === undefined ? [...questions] : questions.filter((question) => questionVisibleAt(question.levels, level));
+}
+
+/** The learner-facing quiz; with a `level` only the questions enabled at that level are included (the others are not sent at all). */
+export function toPublicQuiz(quiz: QuizWithQuestions, level?: string): PublicQuiz {
   return {
     id: quiz.id,
     title: quiz.title,
     description: quiz.description,
-    questions: quiz.questions.map((question) => ({
+    questions: questionsForLevel(quiz.questions, level).map((question) => ({
       id: question.id,
       type: question.type,
       prompt: question.prompt,

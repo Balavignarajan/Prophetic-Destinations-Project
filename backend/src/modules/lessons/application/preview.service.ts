@@ -12,6 +12,8 @@ import {
 } from '../persistence/lesson-block-level.repository.js';
 import { LessonBlockRepository } from '../persistence/lesson-block.repository.js';
 import { LessonRepository } from '../persistence/lesson.repository.js';
+import { QuizEmbedService } from './quiz-embed.service.js';
+import { ScriptureEmbedService } from './scripture-embed.service.js';
 import { toResolvable } from './resolvable.js';
 
 export interface Preview {
@@ -36,6 +38,8 @@ export class PreviewService {
     private readonly blocks: LessonBlockRepository,
     private readonly levels: LessonBlockLevelRepository,
     private readonly registry: BlockTypeRegistry,
+    private readonly quizEmbed: QuizEmbedService,
+    private readonly scriptureEmbed: ScriptureEmbedService,
   ) {}
 
   async preview(lessonId: string, level: LearningLevel): Promise<Preview> {
@@ -47,6 +51,11 @@ export class PreviewService {
 
     const resolvable = toResolvable(lesson, blocks, rows, this.registry);
 
-    return { lesson, resolution: resolveLesson(resolvable, level) };
+    const resolution = resolveLesson(resolvable, level);
+    // Quiz blocks show the quiz as it is now (a quiz that cannot be shown keeps its plain reference).
+    const embedded = await this.quizEmbed.embed(resolution.blocks, undefined, level);
+    // Scripture passages show the passage as it would be published now (a passage that cannot be verified keeps its stored reference).
+    const scripture = await this.scriptureEmbed.embed(embedded.blocks);
+    return { lesson, resolution: { ...resolution, blocks: scripture.blocks } };
   }
 }

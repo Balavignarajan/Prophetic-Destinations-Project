@@ -4,10 +4,13 @@ import React, { useEffect, useRef, useState } from 'react';
 import { deleteMedia, listMedia } from '../lib/media-api';
 import { fileKindLabel, formatBytes, friendlyMediaError } from '../lib/image-block';
 import type { MediaAsset } from '../lib/types';
+import MediaDetailsPanel from './MediaDetailsPanel';
 import MediaImage from './MediaImage';
 import { ConfirmDialog, EmptyState, LoadingSpinner, Modal } from './ui';
 
 const PAGE = 24;
+/** The server's largest page (backend ListMediaQueryDto). */
+const MAX_PAGE = 100;
 
 interface Props {
   /** `manage`: the Media Library page (preview, delete). `select`: choosing an image for a lesson (click to choose, nothing is deleted). */
@@ -18,6 +21,8 @@ interface Props {
   /** select mode */
   selectedId?: string | null;
   onSelect?: (asset: MediaAsset) => void;
+  /** Only list files of this exact type (pickers for fields that accept one kind of file). */
+  contentType?: 'image/webp';
 }
 
 const dateOf = (iso: string) => new Date(iso).toLocaleDateString(undefined, { dateStyle: 'medium' });
@@ -26,7 +31,7 @@ const dateOf = (iso: string) => new Date(iso).toLocaleDateString(undefined, { da
  * The list of stored images: thumbnails, file name, format, size and upload date, with search by file name. The Media Library
  * page and the image picker in the lesson editor both use it, so they always show the same records.
  */
-export default function MediaBrowser({ mode, canWrite, reloadToken = 0, selectedId = null, onSelect }: Props) {
+export default function MediaBrowser({ mode, canWrite, reloadToken = 0, selectedId = null, onSelect, contentType }: Props) {
   const [typed, setTyped] = useState('');
   const [query, setQuery] = useState('');
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -36,8 +41,23 @@ export default function MediaBrowser({ mode, canWrite, reloadToken = 0, selected
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
+  // Every new first-page request (a changed search, a reload, a retry) gets a number; a response for an older number is ignored, also for "Show more".
+  const requestId = useRef(0);
+  // After the details of an image were SAVED, the current search is run again so titles/tags changes can change membership. This is separate from
+  // a load error: the save itself succeeded.
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshFailed, setRefreshFailed] = useState(false);
 
   const [previewAsset, setPreviewAsset] = useState<MediaAsset | null>(null);
+  // The details dialog asks before closing with unsaved changes, and never closes mid-save.
+  const detailsDirty = useRef(false);
+  const detailsBusy = useRef(false);
+  const closeDetails = () => {
+    if (detailsBusy.current) return;
+    if (detailsDirty.current && !window.confirm('Discard your unsaved changes?')) return;
+    detailsDirty.current = false;
+    setPreviewAsset(null);
+  };
   const [deleteAsset, setDeleteAsset] = useState<MediaAsset | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -45,24 +65,27 @@ export default function MediaBrowser({ mode, canWrite, reloadToken = 0, selected
   // First page, again whenever the search, a reload request or a retry changes.
   useEffect(() => {
     let cancelled = false;
+    const mine = ++requestId.current;
     (async () => {
       setLoading(true);
       setError(null);
+      setRefreshing(false);
+      setRefreshFailed(false);
       try {
-        const page = await listMedia(0, PAGE, query);
-        if (cancelled) return;
+        const page = await listMedia(0, PAGE, query, contentType);
+        if (cancelled || mine !== requestId.current) return;
         setItems(page.items);
         setTotal(page.total);
       } catch (e) {
-        if (!cancelled) setError(friendlyMediaError(e, 'Could not load the images.'));
+        if (!cancelled && mine === requestId.current) setError(friendlyMediaError(e, 'Could not load the images.'));
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && mine === requestId.current) setLoading(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [query, reloadToken, retry]);
+  }, [query, reloadToken, retry, contentType]);
 
   const onSearch = (value: string) => {
     setTyped(value);
@@ -71,16 +94,46 @@ export default function MediaBrowser({ mode, canWrite, reloadToken = 0, selected
   };
 
   const loadMore = async () => {
+    const mine = requestId.current;
     setLoadingMore(true);
     setError(null);
     try {
-      const page = await listMedia(items.length, PAGE, query);
+      const page = await listMedia(items.length, PAGE, query, contentType);
+      if (mine !== requestId.current) return; // the search changed meanwhile: these rows belong to the old search
       setItems((current) => [...current, ...page.items.filter((p) => !current.some((c) => c.id === p.id))]);
       setTotal(page.total);
     } catch (e) {
-      setError(friendlyMediaError(e, 'Could not load more images.'));
+      if (mine === requestId.current) setError(friendlyMediaError(e, 'Could not load more images.'));
     } finally {
       setLoadingMore(false);
+    }
+  };
+
+  /**
+   * Runs the CURRENT server-side search again from the first row, for as many rows as are already loaded (up to the server's page limit), in ONE request,
+   * so the refreshed rows replace the old ones as a whole: a refreshed first page is never appended to stale later pages. The search term is kept. The
+   * request takes a new number, so an older response can no longer replace this one and this one is dropped if a newer search starts meanwhile. If it fails,
+   * the list stays as it is (with the saved item updated in place) and the author is told the list could not refresh; the save is not reported as failed.
+   */
+  const refreshAfterSave = async (saved: MediaAsset) => {
+    const mine = ++requestId.current;
+    setRefreshing(true);
+    setRefreshFailed(false);
+    try {
+      const page = await listMedia(0, Math.min(MAX_PAGE, Math.max(PAGE, items.length)), query, contentType);
+      if (mine !== requestId.current) return;
+      setItems(page.items);
+      setTotal(page.total);
+      // The open details window follows the refreshed row; if the saved image no longer matches the search it stays open on what was saved.
+      const fresh = page.items.find((i) => i.id === saved.id);
+      setPreviewAsset((current) => (current && current.id === saved.id ? (fresh ?? saved) : current));
+    } catch {
+      if (mine === requestId.current) setRefreshFailed(true);
+    } finally {
+      if (mine === requestId.current) {
+        setRefreshing(false);
+        setLoading(false);
+      }
     }
   };
 
@@ -115,21 +168,33 @@ export default function MediaBrowser({ mode, canWrite, reloadToken = 0, selected
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="w-full sm:max-w-sm">
           <label htmlFor={`media-search-${mode}`} className="sr-only">
-            Search images by file name
+            Search images by file name, title or tag
           </label>
           <input
             id={`media-search-${mode}`}
             type="search"
             value={typed}
             onChange={(e) => onSearch(e.target.value)}
-            placeholder="Search by file name"
+            placeholder="Search by file name, title or tag" aria-describedby={`media-search-help-${mode}`}
             className="w-full px-3.5 py-2 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 placeholder-slate-500 focus:outline-hidden focus:ring-2 focus:ring-amber-500/50 focus:border-amber-600"
           />
         </div>
+        <p id={`media-search-help-${mode}`} className="w-full text-xs text-slate-700 order-last sm:order-none">
+          Searches the file name, the title and the tags. It does not search descriptions, captions, credits or internal notes.
+        </p>
         <p className="text-sm text-slate-700" aria-live="polite">
-          {loading ? 'Loading…' : `${total} ${total === 1 ? 'image' : 'images'}${query ? ` matching “${query}”` : ''}`}
+          {loading ? (query ? `Searching for “${query}”…` : 'Loading…') : refreshing ? 'Updating the list…' : error && items.length === 0 ? 'The search could not be completed.' : `${total} ${total === 1 ? 'image' : 'images'}${query ? ` matching “${query}”` : ''}`}
         </p>
       </div>
+
+      {refreshFailed && (
+        <div role="alert" className="p-3 rounded-lg bg-amber-50 border border-amber-300 text-sm text-amber-950 flex items-center justify-between gap-3">
+          <span>The details were saved, but the list could not be refreshed, so it may not match your search yet.</span>
+          <button type="button" onClick={() => setRetry((n) => n + 1)} className="shrink-0 px-3 py-1 text-sm font-medium bg-white border border-amber-300 rounded-lg hover:bg-amber-100">
+            Refresh the list
+          </button>
+        </div>
+      )}
 
       {error && (
         <div role="alert" className="p-3 rounded-lg bg-rose-50 border border-rose-300 text-sm text-rose-900 flex items-center justify-between gap-3">
@@ -145,7 +210,7 @@ export default function MediaBrowser({ mode, canWrite, reloadToken = 0, selected
       ) : items.length === 0 && !error ? (
         <EmptyState
           title={query ? 'No images match' : 'No images yet'}
-          description={query ? 'No file name contains that text. Clear the search to see every image.' : 'Upload a PNG, JPEG or WEBP image to start the library.'}
+          description={query ? 'No file name, title or tag contains that text. Clear the search to see every image.' : 'Upload a PNG, JPEG or WEBP image to start the library.'}
         />
       ) : (
         <ul className={`grid gap-4 ${mode === 'select' ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'}`}>
@@ -156,7 +221,7 @@ export default function MediaBrowser({ mode, canWrite, reloadToken = 0, selected
                 <button
                   type="button"
                   onClick={() => (mode === 'select' ? onSelect?.(asset) : setPreviewAsset(asset))}
-                  aria-label={mode === 'select' ? `Choose ${asset.originalFilename}` : `Preview ${asset.originalFilename}`}
+                  aria-label={mode === 'select' ? `Choose ${asset.originalFilename}` : `Details of ${asset.originalFilename}`}
                   aria-pressed={mode === 'select' ? isSelected : undefined}
                   className="block h-36 w-full bg-slate-100 overflow-hidden focus:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-amber-500"
                 >
@@ -164,15 +229,16 @@ export default function MediaBrowser({ mode, canWrite, reloadToken = 0, selected
                 </button>
                 <div className="p-3 flex-1 flex flex-col justify-between gap-2">
                   <div>
-                    <p className="text-sm font-semibold text-slate-900 break-all">{asset.originalFilename}</p>
+                    <p className="text-sm font-semibold text-slate-900 break-all">{asset.title?.trim() || asset.originalFilename}</p>
+                    {asset.title?.trim() && <p className="text-xs text-slate-600 break-all">{asset.originalFilename}</p>}
                     <p className="text-xs text-slate-700 mt-0.5">
                       {fileKindLabel(asset.contentType)} · {formatBytes(asset.sizeBytes)} · {dateOf(asset.createdAt)}
                     </p>
                   </div>
                   {mode === 'manage' && (
                     <div className="flex items-center justify-between pt-2 border-t border-slate-100">
-                      <button type="button" onClick={() => setPreviewAsset(asset)} className="text-sm font-medium text-amber-900 underline min-h-6">
-                        Preview
+                      <button type="button" onClick={() => setPreviewAsset(asset)} className="text-sm font-medium text-amber-900 underline min-h-6" aria-label={`Details and where ${asset.originalFilename} is used`}>
+                        Details and usage
                       </button>
                       {canWrite && (
                         <button
@@ -214,22 +280,23 @@ export default function MediaBrowser({ mode, canWrite, reloadToken = 0, selected
         </div>
       )}
 
-      <Modal isOpen={Boolean(previewAsset)} onClose={() => setPreviewAsset(null)} title={previewAsset?.originalFilename ?? 'Image'} maxWidth="lg">
+      <Modal isOpen={Boolean(previewAsset)} onClose={closeDetails} title={previewAsset?.title?.trim() || previewAsset?.originalFilename || 'Image'} maxWidth="2xl">
         {previewAsset && (
           <div className="space-y-4">
-            <div className="flex max-h-96 items-center justify-center overflow-hidden rounded-xl border border-slate-300 bg-slate-100 p-2">
-              <MediaImage mediaId={previewAsset.id} alt={previewAsset.originalFilename} className="max-h-80 max-w-full" fit="contain" />
-            </div>
-            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm bg-slate-50 border border-slate-200 rounded-xl p-4">
-              <dt className="font-semibold text-slate-800">Format</dt>
-              <dd>{fileKindLabel(previewAsset.contentType)}</dd>
-              <dt className="font-semibold text-slate-800">Size</dt>
-              <dd>{formatBytes(previewAsset.sizeBytes)}</dd>
-              <dt className="font-semibold text-slate-800">Uploaded</dt>
-              <dd>{new Date(previewAsset.createdAt).toLocaleString()}</dd>
-            </dl>
+            <MediaDetailsPanel
+              key={previewAsset.id}
+              asset={previewAsset}
+              canWrite={canWrite}
+              dirtyRef={detailsDirty}
+              busyRef={detailsBusy}
+              onSaved={(next) => {
+                setItems((current) => current.map((i) => (i.id === next.id ? next : i)));
+                setPreviewAsset(next);
+                void refreshAfterSave(next);
+              }}
+            />
             <div className="flex justify-end">
-              <button type="button" onClick={() => setPreviewAsset(null)} className="px-4 py-2 text-sm font-medium bg-white border border-slate-300 rounded-lg hover:bg-slate-50">
+              <button type="button" onClick={closeDetails} className="px-4 py-2 text-sm font-medium bg-white border border-slate-300 rounded-lg hover:bg-slate-50">
                 Close
               </button>
             </div>
@@ -245,7 +312,7 @@ export default function MediaBrowser({ mode, canWrite, reloadToken = 0, selected
         message={
           deleteError
             ? deleteError
-            : `“${deleteAsset?.originalFilename ?? ''}” will be permanently deleted from storage. An image that a lesson uses cannot be deleted: remove it from the lesson first.`
+            : `“${deleteAsset?.originalFilename ?? ''}” will be permanently deleted from storage. An image that a lesson or course still uses cannot be deleted: open "Details and usage" to see where, and change it there first.`
         }
         confirmLabel="Delete image"
         isDestructive

@@ -25,6 +25,7 @@ export function CourseScreen() {
   const [course, reload] = useResource(ready ? `course:${courseId}:${level}` : null, (signal) => loadCourse(courseId, level, signal));
   useRetryOnReconnect(isRecoverable(course), reload);
   const data = course.status === 'success' ? course.data.value : null;
+  const directLessons = data?.directLessons ?? [];
   const notFound = course.status === 'error' && course.error instanceof ApiError && course.error.isUnavailable;
 
   return (
@@ -60,9 +61,14 @@ export function CourseScreen() {
               ) : null}
             </View>
 
-            {data.modules.length === 0 ? (
+            {data.modules.length === 0 && directLessons.length === 0 ? (
               <EmptyState title="No lessons yet" message="This course has no lessons available at this level." />
             ) : null}
+
+            {directLessons.length > 0 ? <View style={{ gap: spacing.md }}>
+              <AppText variant="heading" accessibilityRole="header">Lessons</AppText>
+              {directLessons.map((lesson, index) => <LessonRow key={lesson.lessonId} lesson={lesson} index={index} level={level} completed={isCompleted(lesson.lessonId, level)} onPress={() => router.push({ pathname: '/lesson/[lessonId]', params: { lessonId: lesson.lessonId, level } })} />)}
+            </View> : null}
 
             {data.modules.map((module) => (
               <View key={module.moduleId} style={{ gap: spacing.md }}>
@@ -80,6 +86,7 @@ export function CourseScreen() {
                   <LessonRow
                     key={lesson.lessonId}
                     lesson={lesson}
+                    level={level}
                     index={index}
                     completed={isCompleted(lesson.lessonId, level)}
                     onPress={() =>

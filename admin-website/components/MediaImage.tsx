@@ -10,7 +10,7 @@ type State = { id: string; url: string | null; failed: boolean } | null;
  * credentials and shown from a temporary local URL (an <img src> pointing at the API would be refused). A deleted or
  * unavailable asset shows a short message instead of a broken picture.
  */
-export default function MediaImage({ mediaId, alt, className = '', fit = 'cover' }: { mediaId: string; alt: string; className?: string; fit?: 'cover' | 'contain' }) {
+export default function MediaImage({ mediaId, alt, className = '', fit = 'cover', onStatus }: { mediaId: string; alt: string; className?: string; fit?: 'cover' | 'contain'; onStatus?: (status: 'loading' | 'ready' | 'failed') => void }) {
   const [state, setState] = useState<State>(null);
 
   useEffect(() => {
@@ -35,6 +35,10 @@ export default function MediaImage({ mediaId, alt, className = '', fit = 'cover'
   }, [mediaId]);
 
   const current = state && state.id === mediaId ? state : null;
+  const status = !current ? 'loading' : current.failed || !current.url ? 'failed' : 'ready';
+  useEffect(() => {
+    onStatus?.(status);
+  }, [status]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!current) {
     return (
       <div role="status" className={`flex items-center justify-center bg-slate-100 text-xs text-slate-600 ${className}`}>

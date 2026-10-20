@@ -2,10 +2,12 @@ import { Pressable, StyleSheet, View } from 'react-native';
 
 import type { CatalogLesson } from '@/api/types';
 import { AppText, ChevronIcon } from '@/components/ui';
+import { CoverImage, lessonCoverUrl } from '@/learning/cover-image';
+import type { LearningLevel } from '@/learning/levels';
 import { useTheme } from '@/theme';
 
 /** One lesson in a module list. */
-export function LessonRow({ lesson, index, completed = false, onPress }: { lesson: CatalogLesson; index: number; completed?: boolean; onPress: () => void }) {
+export function LessonRow({ lesson, index, level, completed = false, onPress }: { lesson: CatalogLesson; index: number; level?: LearningLevel; completed?: boolean; onPress: () => void }) {
   const { colors, layout, radius, spacing } = useTheme();
   const minutes = lesson.estimatedMinutes ? `${lesson.estimatedMinutes} min` : null;
   return (
@@ -30,6 +32,7 @@ export function LessonRow({ lesson, index, completed = false, onPress }: { lesso
           {index + 1}
         </AppText>
       </View>
+      {level && lesson.coverMediaId ? <CoverImage mediaId={lesson.coverMediaId} uri={lessonCoverUrl(lesson.lessonId, lesson.coverMediaId, level)} width={56} height={40} /> : null}
       <View style={styles.text}>
         <AppText variant="body">{lesson.title}</AppText>
         {lesson.subtitle ? (

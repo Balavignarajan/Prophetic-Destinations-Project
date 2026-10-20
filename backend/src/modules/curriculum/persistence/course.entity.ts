@@ -11,6 +11,8 @@ import {
 
 @Entity({ name: 'courses' })
 @Index('idx_courses_created_at_id', ['createdAt', 'id'])
+@Index('idx_courses_position_id', ['position', 'id'])
+@Check('chk_courses_position', `"position" >= 1`)
 @Check(
   'chk_courses_title',
   `btrim("title") <> '' AND char_length("title") <= 200`,
@@ -31,6 +33,14 @@ export class CourseEntity {
 
   @Column({ type: 'varchar', length: 20, default: 'DRAFT' })
   status: string;
+
+  /** Working cover image (a media_assets id); the published cover is stored with each catalog version. */
+  @Column({ name: 'cover_media_id', type: 'uuid', nullable: true })
+  coverMediaId: string | null;
+
+  /** 1-based place in the manual course order (the learner catalog follows it too). */
+  @Column({ type: 'int' })
+  position: number;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;

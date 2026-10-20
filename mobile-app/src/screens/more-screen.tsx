@@ -51,6 +51,7 @@ export function MoreScreen() {
               {shareNote}
             </AppText>
           ) : null}
+          <LinkRow title="Bible" description="Read the Bible by book and chapter." onPress={() => router.push('/bible')} />
           <LinkRow title="Saved items" description={saved.length === 1 ? '1 saved item' : `${saved.length} saved items`} onPress={() => router.push('/saved')} />
           <LinkRow title="About" onPress={() => router.push('/about')} />
           <LinkRow title="Settings" description="Appearance and saved data." onPress={() => router.push('/settings')} />

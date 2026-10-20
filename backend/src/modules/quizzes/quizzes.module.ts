@@ -10,13 +10,14 @@ import { PublicQuizzesController } from './api/public-quizzes.controller.js';
 import { QuizzesController } from './api/quizzes.controller.js';
 import { QuizDeliveryService } from './application/quiz-delivery.service.js';
 import { QuizService } from './application/quiz.service.js';
+import { QuizzesFacade } from './application/quizzes.facade.js';
 import { QuizRepository } from './persistence/quiz.repository.js';
 
 /**
  * Basic quizzes. Staff author them (`/admin/quizzes`); learners read published ones and check answers
- * (`/quizzes`). Quizzes are not part of lesson snapshots: the QUIZ lesson-block type is not enabled, so nothing in a
- * lesson refers to a quiz yet. When that block contract exists, a lesson snapshot will embed the quiz as published
- * at that moment and these standalone public routes become optional.
+ * (`/quizzes`). A lesson can include a quiz through a QUIZ block (a reference); at publication the lesson snapshot
+ * embeds a frozen copy of the quiz (see lessons/application/quiz-embed.service.ts). These standalone routes keep working and are
+ * independent of that copy.
  */
 @Module({
   imports: [
@@ -34,7 +35,8 @@ import { QuizRepository } from './persistence/quiz.repository.js';
     }),
   ],
   controllers: [QuizzesController, PublicQuizzesController],
-  providers: [QuizRepository, QuizService, QuizDeliveryService],
+  providers: [QuizRepository, QuizService, QuizDeliveryService, QuizzesFacade],
+  exports: [QuizzesFacade],
 })
 export class QuizzesModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
