@@ -314,10 +314,15 @@ export class AssessmentRepository {
 
   /** Ends the active publication (of any assessment), once. Returns what was ended. */
   async endActive(reason: 'SUPERSEDED' | 'UNPUBLISHED', actorId: string, manager: EntityManager, onlyAssessmentId?: string): Promise<Publication[]> {
+    // The UPDATE is wrapped in a CTE and read back with a SELECT: a bare `UPDATE ... RETURNING` through TypeORM's `query` answers `[rows, affectedCount]`, not the rows
+    // (the same reason LessonRepository.compareAndSetStatus does this), which made every row look empty here. INSERT ... RETURNING does return plain rows.
     const rows: Record<string, unknown>[] = await manager.query(
-      `UPDATE "assessment_publications" SET "ended_at" = now(), "ended_reason" = $1, "ended_by" = $2
-        WHERE "ended_at" IS NULL AND ($3::uuid IS NULL OR "assessment_id" = $3::uuid)
-        RETURNING ${PUBLICATION_COLUMNS}`,
+      `WITH ended AS (
+         UPDATE "assessment_publications" SET "ended_at" = now(), "ended_reason" = $1, "ended_by" = $2
+          WHERE "ended_at" IS NULL AND ($3::uuid IS NULL OR "assessment_id" = $3::uuid)
+          RETURNING ${PUBLICATION_COLUMNS}
+       )
+       SELECT ${PUBLICATION_COLUMNS} FROM ended`,
       [reason, actorId, onlyAssessmentId ?? null],
     );
     return rows.map(toPublication);

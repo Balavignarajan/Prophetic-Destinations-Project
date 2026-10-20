@@ -174,7 +174,7 @@ export class CreateAssessments1791860000000 implements MigrationInterface {
       )
     `);
     await queryRunner.query(`
-      CREATE FUNCTION "assessments_published_has_active_publication"() RETURNS trigger AS $
+      CREATE FUNCTION "assessments_published_has_active_publication"() RETURNS trigger AS $$
       DECLARE target uuid;
       BEGIN
         IF TG_TABLE_NAME = 'assessments' THEN target := NEW."id"; ELSE target := NEW."assessment_id"; END IF;
@@ -183,7 +183,7 @@ export class CreateAssessments1791860000000 implements MigrationInterface {
           RAISE EXCEPTION 'a PUBLISHED assessment must have an active publication' USING ERRCODE = 'check_violation';
         END IF;
         RETURN NULL;
-      END; $ LANGUAGE plpgsql
+      END; $$ LANGUAGE plpgsql
     `);
     await queryRunner.query(`
       CREATE CONSTRAINT TRIGGER "trg_assessments_published_has_active" AFTER INSERT OR UPDATE OF "status" ON "assessments"
