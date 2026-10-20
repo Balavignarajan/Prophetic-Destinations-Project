@@ -98,7 +98,7 @@ export class PublishedCatalogRepository {
            ON cl."publication_id" = cp."id" AND cl."level" = $2
         WHERE lp."lesson_id" = $1 AND lp."ended_at" IS NULL
           AND ((lp."module_id" IS NULL AND cl."content" @> jsonb_build_object('directLessons', jsonb_build_array(jsonb_build_object('id', lp."lesson_id"::text))))
-            OR (lp."module_id" IS NOT NULL AND EXISTS (SELECT 1 FROM "course_publication_modules" m WHERE m."publication_id" = cp."id" AND m."module_id" = lp."module_id") AND cl."content" @> jsonb_build_object('modules', jsonb_build_array(jsonb_build_object('id', lp."module_id"::text, 'lessons', jsonb_build_array(jsonb_build_object('id', lp."lesson_id"::text))))))`,
+            OR (lp."module_id" IS NOT NULL AND EXISTS (SELECT 1 FROM "course_publication_modules" m WHERE m."publication_id" = cp."id" AND m."module_id" = lp."module_id") AND cl."content" @> jsonb_build_object('modules', jsonb_build_array(jsonb_build_object('id', lp."module_id"::text, 'lessons', jsonb_build_array(jsonb_build_object('id', lp."lesson_id"::text)))))))`,
       [lessonId, level],
     );
     return rows[0]

@@ -66,6 +66,7 @@ const LISTED_IN_ACTIVE_CATALOG = `EXISTS (
          OR (p."module_id" IS NOT NULL AND EXISTS (
            SELECT 1 FROM "course_publication_modules" cm WHERE cm."publication_id" = cp."id" AND cm."module_id" = p."module_id"
          ) AND cl."content" @> jsonb_build_object('modules', jsonb_build_array(jsonb_build_object('id', p."module_id"::text, 'lessons', jsonb_build_array(jsonb_build_object('id', p."lesson_id"::text))))) )
+    )
   )`;
 
 const PUBLICATION_COLUMNS = `p."id", p."lesson_id", p."version", p."course_id", p."module_id", p."source_content_revision",
