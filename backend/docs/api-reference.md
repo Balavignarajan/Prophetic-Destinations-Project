@@ -158,6 +158,10 @@ stored file is missing. No response contains a storage key or a path. Details an
 | GET    | `/quizzes/:quizId`                 | public        | a published quiz without correct answers or explanations                                                       |
 | POST   | `/quizzes/:quizId/submissions`     | public        | `{ answers: [{ questionId, optionId }] }` → `{ quizId, score, total, results[] }`; stateless                   |
 
+## Placement assessment (optional; recommends a learning level)
+
+Staff: `/admin/assessments` (create, edit, reorder, validate, submit, approve, publish, unpublish, history). Learners (anonymous): `GET /assessments/active` and `POST /assessments/:assessmentId/submissions` (stateless, nothing stored). Full contract, scoring and decisions: [assessments.md](assessments.md).
+
 ## Not implemented (isolated, awaiting decisions)
 
 Scripture/KJV data and the two Scripture block contracts (source licensing unresolved, see [scripture-source-research.md](./scripture-source-research.md)),
