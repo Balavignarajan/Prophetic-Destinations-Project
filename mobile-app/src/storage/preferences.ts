@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import type { StoredAssessmentResult } from '@/features/assessment/assessment-types';
 import { type LearningLevel, isLearningLevel } from '@/learning/levels';
 
 /**
@@ -12,6 +13,7 @@ const KEYS = {
   level: 'pd.preferences.level',
   welcomeSeen: 'pd.preferences.welcomeSeen',
   bibleLastRead: 'pd.bible.lastRead',
+  assessmentResult: 'pd.assessment.lastResult',
 } as const;
 
 async function read(key: string): Promise<string | null> {
@@ -82,6 +84,27 @@ export async function readBibleLastRead(): Promise<{ bookId: string; chapter: nu
   } catch {
     return null;
   }
+}
+
+/**
+ * The last completed assessment (which one, which version, what the backend recommended, when). Device-local and non-sensitive: the answers are never stored,
+ * and this record never changes the learning level (that is only ever set by the learner's own choice).
+ */
+export async function readAssessmentResult(): Promise<StoredAssessmentResult | null> {
+  const stored = await read(KEYS.assessmentResult);
+  if (!stored) return null;
+  try {
+    const value = JSON.parse(stored) as Partial<StoredAssessmentResult>;
+    return typeof value.assessmentId === 'string' && typeof value.version === 'number' && isLearningLevel(value.recommendedLevel) && typeof value.completedAt === 'string'
+      ? { assessmentId: value.assessmentId, version: value.version, recommendedLevel: value.recommendedLevel, completedAt: value.completedAt }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveAssessmentResult(result: StoredAssessmentResult): Promise<void> {
+  return write(KEYS.assessmentResult, JSON.stringify(result));
 }
 
 export function saveBibleLastRead(position: { bookId: string; chapter: number }): Promise<void> {

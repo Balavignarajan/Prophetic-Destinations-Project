@@ -7,15 +7,15 @@ const REQUEST_TIMEOUT_MS = 15_000;
 type Query = Record<string, string>;
 
 /**
- * GET a JSON resource from the backend's public API.
+ * Sends one request to the backend's public API and returns its parsed JSON.
  *
  * - The base URL is `EXPO_PUBLIC_API_URL` (see src/config/api.ts).
  * - A request that outlives `REQUEST_TIMEOUT_MS`, or that cannot reach the server, becomes a `NetworkError`.
- * - A non-2xx answer becomes an `ApiError` carrying the backend's own `code` and `message` (its error body is
- *   `{ statusCode, code, message, requestId }`).
+ * - A non-2xx answer becomes an `ApiError` carrying the backend's own `code`, `message` and `details` (its error body is
+ *   `{ statusCode, code, message, details?, requestId }`).
  * - Passing an `AbortSignal` cancels the request (used when a screen goes away or the level changes).
  */
-export async function apiGet<T>(path: string, query?: Query, signal?: AbortSignal): Promise<T> {
+async function send<T>(method: 'GET' | 'POST', path: string, query: Query | undefined, body: unknown, signal?: AbortSignal): Promise<T> {
   if (API_BASE_URL === null) throw new ConfigurationError();
   const search = query ? `?${new URLSearchParams(query).toString()}` : '';
   const controller = new AbortController();
@@ -30,8 +30,9 @@ export async function apiGet<T>(path: string, query?: Query, signal?: AbortSigna
   let response: Response;
   try {
     response = await fetch(`${API_BASE_URL}${path}${search}`, {
-      method: 'GET',
-      headers: { accept: 'application/json' },
+      method,
+      headers: body === undefined ? { accept: 'application/json' } : { accept: 'application/json', 'content-type': 'application/json' },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       signal: controller.signal,
     });
   } catch (error) {
@@ -43,21 +44,35 @@ export async function apiGet<T>(path: string, query?: Query, signal?: AbortSigna
   }
 
   const text = await response.text();
-  let body: unknown = null;
+  let parsed: unknown = null;
   try {
-    body = text ? JSON.parse(text) : null;
+    parsed = text ? JSON.parse(text) : null;
   } catch {
-    body = null;
+    parsed = null;
   }
 
   if (!response.ok) {
-    const error = (body ?? {}) as { code?: unknown; message?: unknown; requestId?: unknown };
+    const error = (parsed ?? {}) as { code?: unknown; message?: unknown; requestId?: unknown; details?: unknown };
     throw new ApiError(
       response.status,
       typeof error.code === 'string' ? error.code : 'ERROR',
       typeof error.message === 'string' ? error.message : `Request failed (${response.status})`,
       typeof error.requestId === 'string' ? error.requestId : undefined,
+      typeof error.details === 'object' && error.details !== null ? (error.details as Record<string, unknown>) : undefined,
     );
   }
-  return body as T;
+  return parsed as T;
+}
+
+/** GET a JSON resource from the backend's public API (see `send`). */
+export function apiGet<T>(path: string, query?: Query, signal?: AbortSignal): Promise<T> {
+  return send<T>('GET', path, query, undefined, signal);
+}
+
+/**
+ * POST a JSON body to the backend's public API (see `send`). Used only for stateless requests that store nothing (an assessment
+ * submission). It is never retried automatically: a retry is always an explicit action by the learner.
+ */
+export function apiPost<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
+  return send<T>('POST', path, undefined, body, signal);
 }

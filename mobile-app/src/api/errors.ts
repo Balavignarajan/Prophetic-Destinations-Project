@@ -5,6 +5,8 @@ export class ApiError extends Error {
     readonly code: string,
     message: string,
     readonly requestId?: string,
+    /** The backend's `details` (for example `{ reason: 'ASSESSMENT_UNAVAILABLE' }` or `{ code: 'INVALID_ANSWER' }`), when it sent any. */
+    readonly details?: Record<string, unknown>,
   ) {
     super(message);
     this.name = 'ApiError';

@@ -7,6 +7,7 @@ import {
   EmptyState,
   ErrorState,
   IconButton,
+  LinkRow,
   LoadingState,
   ScreenContainer,
   ScreenHeader,
@@ -98,6 +99,7 @@ export function LearnScreen() {
         </View>
 
         <LevelSelector value={level} onChange={setLevel} />
+        <LinkRow title="Not sure which level?" description="Take the short, optional assessment for a suggestion. You always choose." onPress={() => router.push('/assessment')} />
 
         {courses.status === 'loading' ? <LoadingState message="Loading courses…" /> : null}
 
