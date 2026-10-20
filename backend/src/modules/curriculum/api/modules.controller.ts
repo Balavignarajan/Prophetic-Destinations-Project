@@ -51,7 +51,7 @@ export class ModulesController {
     @Body() dto: ReorderModulesDto,
   ): Promise<ModuleListResponseDto> {
     return ModuleListResponseDto.from(
-      await this.modules.reorder(courseId, dto.moduleIds),
+      await this.modules.reorder(courseId, dto.moduleIds, dto.previousModuleIds),
     );
   }
 

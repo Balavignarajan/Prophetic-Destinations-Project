@@ -7,6 +7,7 @@ import { api } from '@/lib/api';
 import { WORKFLOW_ENDPOINT, catalogTransitionBody, type WorkflowAction } from '@/lib/workflow';
 import { useAuth } from '@/lib/auth';
 import AddLessonFlow from '@/components/AddLessonFlow';
+import StatusSectionedList from '@/components/StatusSectionedList';
 import { STALE_CATALOG_MESSAGE, actionLabelFor, catalogPublishExplanation, visibleActions } from '@/lib/review-guidance';
 import {
   Course,
@@ -238,34 +239,6 @@ export default function ModuleDetailPage() {
     }
   };
 
-  const handleReorderLessons = async (index: number, direction: 'up' | 'down') => {
-    const newLessons = [...lessons];
-    const targetIndex = direction === 'up' ? index - 1 : index + 1;
-    if (targetIndex < 0 || targetIndex >= newLessons.length) return;
-
-    const temp = newLessons[index];
-    newLessons[index] = newLessons[targetIndex];
-    newLessons[targetIndex] = temp;
-
-    try {
-      const res = await api.request<{ items: LessonSummary[] }>(
-        `/admin/courses/${courseId}/modules/${moduleId}/lessons/order`,
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            lessonIds: newLessons.map((l) => l.id),
-          }),
-        }
-      );
-      setLessons(res.items);
-      setSuccessMessage('Lesson order saved.');
-      fetchModuleData();
-    } catch (err: unknown) {
-      setError(friendlyError(err, 'Failed to update lesson order.'));
-    }
-  };
-
   const handleWorkflowTransition = async () => {
     if (!transitionAction || !moduleData) return;
     setTransitioning(true);
@@ -477,112 +450,71 @@ export default function ModuleDetailPage() {
             }
           />
         ) : (
-          <div className="bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden">
-            <div className="divide-y divide-slate-100">
-              {lessons.map((lesson, index) => (
-                <div
-                  key={lesson.id}
-                  className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50/60 transition-colors"
-                >
-                  <div className="flex items-start gap-4">
-                    {/* Position and reorder */}
-                    <div className="flex flex-col items-center">
-                      <span className="w-7 h-7 rounded-md bg-slate-100 text-slate-700 font-bold text-xs flex items-center justify-center border border-slate-200 font-mono">
-                        {index + 1}
-                      </span>
-                      {canWrite && (
-                        <div className="flex gap-1 mt-1.5">
-                          <button
-                            disabled={index === 0}
-                            onClick={() => handleReorderLessons(index, 'up')}
-                            className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-20"
-                            title="Move up"
-                          >
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-                            </svg>
-                          </button>
-                          <button
-                            disabled={index === lessons.length - 1}
-                            onClick={() => handleReorderLessons(index, 'down')}
-                            className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-20"
-                            title="Move down"
-                          >
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                            </svg>
-                          </button>
-                        </div>
-                      )}
+          <StatusSectionedList
+            noun="lesson"
+            items={lessons}
+            canWrite={canWrite}
+            listLabel="Module lessons, in order"
+            itemLabel={(lesson) => `lesson ${lesson.title}`}
+            save={async (ids, previousIds) =>
+              (await api.request<{ items: LessonSummary[] }>(`/admin/courses/${courseId}/modules/${moduleId}/lessons/order`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ lessonIds: ids, previousLessonIds: previousIds }),
+              })).items
+            }
+            onSaved={(items) => {
+              setLessons(items);
+              fetchModuleData();
+            }}
+            onReload={() => fetchModuleData()}
+            savedNote="Order saved. The lesson order is part of the module, so a published module returns to Draft. Learners keep seeing the previously published order until the module is published again. No lesson was changed."
+            onPublish={workflowState?.allowedActions.includes('PUBLISH') ? () => setTransitionAction('PUBLISH') : undefined}
+            renderItem={(lesson) => (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-start gap-4">
+                  <CoverThumb mediaId={lesson.coverMediaId} />
+                  <div>
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                      <Link href={`/lessons/${lesson.id}`} className="font-semibold text-base text-slate-900 hover:text-amber-700 transition-colors">
+                        {lesson.title}
+                      </Link>
+                      <StatusBadge status={lesson.status} />
+                      <span className="text-xs font-mono text-slate-400">v{lesson.version}</span>
                     </div>
-
-                    <CoverThumb mediaId={lesson.coverMediaId} />
-                    <div>
-                      <div className="flex items-center gap-2.5 flex-wrap">
-                        <Link
-                          href={`/lessons/${lesson.id}`}
-                          className="font-semibold text-base text-slate-900 hover:text-amber-700 transition-colors"
-                        >
-                          {lesson.title}
-                        </Link>
-                        <StatusBadge status={lesson.status} />
-                        <span className="text-xs font-mono text-slate-400">v{lesson.version}</span>
-                      </div>
-                      {lesson.subtitle && (
-                        <p className="text-xs text-slate-500 mt-0.5">
-                          {lesson.subtitle}
-                        </p>
-                      )}
-                      <div className="flex items-center gap-2 mt-2">
-                        {lesson.levels.map((lvl) => (
-                          <span
-                            key={lvl}
-                            className="px-2 py-0.5 text-[10px] font-semibold tracking-wider rounded-md bg-amber-50 text-amber-800 border border-amber-200 uppercase"
-                          >
-                            {lvl}
-                          </span>
-                        ))}
-                      </div>
+                    {lesson.subtitle && <p className="text-xs text-slate-500 mt-0.5">{lesson.subtitle}</p>}
+                    <div className="flex items-center gap-2 mt-2 flex-wrap">
+                      {lesson.levels.map((lvl) => (
+                        <span key={lvl} className="px-2 py-0.5 text-[10px] font-semibold tracking-wider rounded-md bg-amber-50 text-amber-800 border border-amber-200 uppercase">
+                          {lvl}
+                        </span>
+                      ))}
                     </div>
-                  </div>
-
-                  <div className="flex items-center gap-3 self-end sm:self-auto">
-                    <Link
-                      href={`/lessons/${lesson.id}`}
-                      className="px-3.5 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1.5"
-                    >
-                      <span>Author Content</span>
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                      </svg>
-                    </Link>
-
-                    {canWrite && (
-                      <button
-                        onClick={() => setDuplicateTarget({ id: lesson.id, title: lesson.title })}
-                        aria-label={`Duplicate lesson ${lesson.title}`}
-                        className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg"
-                      >
-                        Duplicate lesson
-                      </button>
-                    )}
-
-                    {canWrite && (
-                      <button
-                        onClick={() => setDeleteLessonId(lesson.id)}
-                        className="text-xs font-medium text-rose-600 hover:text-rose-800 p-1.5"
-                        title="Delete lesson"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                      </button>
-                    )}
                   </div>
                 </div>
-              ))}
-            </div>
-          </div>
+                <div className="flex items-center gap-3 self-end sm:self-auto flex-wrap">
+                  <Link href={`/lessons/${lesson.id}`} className="px-3.5 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1.5">
+                    <span>Author Content</span>
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                  </Link>
+                  {canWrite && (
+                    <button onClick={() => setDuplicateTarget({ id: lesson.id, title: lesson.title })} aria-label={`Duplicate lesson ${lesson.title}`} className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg">
+                      Duplicate lesson
+                    </button>
+                  )}
+                  {canWrite && (
+                    <button onClick={() => setDeleteLessonId(lesson.id)} className="text-xs font-medium text-rose-600 hover:text-rose-800 p-1.5" title="Delete lesson" aria-label={`Delete lesson ${lesson.title}`}>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          />
         )}
       </div>
 

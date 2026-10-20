@@ -494,13 +494,28 @@ export class LessonService {
     courseId: string,
     moduleId: string,
     lessonIds: readonly string[],
+    previousLessonIds?: readonly string[],
   ): Promise<Lesson[]> {
     return this.transactions.run(async (manager) => {
       await this.lockModuleOf(courseId, moduleId, manager);
 
       const current = await this.lessons.listByModule(moduleId, manager);
       const currentIds = current.map((lesson) => lesson.id);
+      // With the order the editor last saw: any difference is a 409 and nothing is written.
+      if (previousLessonIds && (currentIds.length !== previousLessonIds.length || currentIds.some((id, index) => id !== previousLessonIds[index]))) {
+        throw new ConflictError('The lesson order was changed by someone else. Reload the module and try again.');
+      }
       checkReorder(currentIds, lessonIds);
+      // Published ordering only: when the editor sent the order it saw, lessons that are not PUBLISHED must keep their place.
+      if (previousLessonIds) {
+        const moved = current.filter((lesson, index) => lesson.status !== 'PUBLISHED' && lessonIds[index] !== lesson.id);
+        if (moved.length > 0) {
+          throw new BusinessRuleError('Only published lessons can be reordered here. Lessons that are not published must keep their place.', {
+            code: 'ONLY_PUBLISHED_REORDERABLE',
+            lessonIds: moved.map((lesson) => lesson.id),
+          });
+        }
+      }
 
       await this.lessons.applyPositions(
         moduleId,

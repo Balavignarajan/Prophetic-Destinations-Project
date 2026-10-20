@@ -54,7 +54,7 @@ export class ModuleLessonsController {
     @Body() dto: ReorderLessonsDto,
   ): Promise<LessonListResponseDto> {
     return LessonListResponseDto.from(
-      await this.lessons.reorder(courseId, moduleId, dto.lessonIds),
+      await this.lessons.reorder(courseId, moduleId, dto.lessonIds, dto.previousLessonIds),
     );
   }
 }

@@ -61,6 +61,13 @@ export class ReorderModulesDto {
   @ArrayMaxSize(500)
   @IsUUID('all', { each: true })
   moduleIds: string[];
+
+  /** The order the editor last saw. Optional for older clients; when sent it must equal the stored order, else 409 and nothing changes. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(500)
+  @IsUUID('all', { each: true })
+  previousModuleIds?: string[];
 }
 
 export class ModuleResponseDto {

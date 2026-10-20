@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import type { EntityManager } from 'typeorm';
 import { TransactionRunner } from '../../../database/transaction-runner.js';
 import {
+  BusinessRuleError,
+  ConflictError,
   NotFoundError,
   checkReorder,
   positionsFor,
@@ -114,13 +116,28 @@ export class ModuleService {
   async reorder(
     courseId: string,
     moduleIds: readonly string[],
+    previousModuleIds?: readonly string[],
   ): Promise<CourseModule[]> {
     return this.transactions.run(async (manager) => {
       const course = await this.lockCourse(courseId, manager);
 
       const current = await this.modules.listByCourse(courseId, manager);
       const currentIds = current.map((module) => module.id);
+      // With the order the editor last saw: any difference (a reorder, an added or deleted module by someone else) is a 409 and nothing is written.
+      if (previousModuleIds && (currentIds.length !== previousModuleIds.length || currentIds.some((id, index) => id !== previousModuleIds[index]))) {
+        throw new ConflictError('The module order was changed by someone else. Reload the course and try again.');
+      }
       checkReorder(currentIds, moduleIds);
+      // Published ordering only: when the editor sent the order it saw, modules that are not PUBLISHED must keep their place.
+      if (previousModuleIds) {
+        const moved = current.filter((module, index) => module.status !== 'PUBLISHED' && moduleIds[index] !== module.id);
+        if (moved.length > 0) {
+          throw new BusinessRuleError('Only published modules can be reordered here. Modules that are not published must keep their place.', {
+            code: 'ONLY_PUBLISHED_REORDERABLE',
+            moduleIds: moved.map((module) => module.id),
+          });
+        }
+      }
 
       await this.modules.applyPositions(
         courseId,

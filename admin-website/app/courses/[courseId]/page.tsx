@@ -8,6 +8,7 @@ import { WORKFLOW_ENDPOINT, catalogTransitionBody, type WorkflowAction } from '.
 import { useAuth } from '../../../lib/auth';
 import AddLessonFlow from '../../../components/AddLessonFlow';
 import DirectLessonLists from '../../../components/DirectLessonLists';
+import StatusSectionedList from '../../../components/StatusSectionedList';
 import { STALE_CATALOG_MESSAGE, actionLabelFor, catalogPublishExplanation, visibleActions } from '../../../lib/review-guidance';
 import { Course, ModuleItem, LessonSummary, LearningLevel, WorkflowState, WorkflowEvent } from '../../../lib/types';
 import { LoadingSpinner, StatusBadge, EmptyState, Modal, ConfirmDialog } from '../../../components/ui';
@@ -215,34 +216,6 @@ export default function CourseDetailPage() {
       setDeleteModuleError(friendlyError(err, 'Failed to delete module. Modules with lessons or publication history cannot be deleted.'));
     } finally {
       setDeletingModule(false);
-    }
-  };
-
-  const handleReorderModules = async (index: number, direction: 'up' | 'down') => {
-    const newModules = [...modules];
-    const targetIndex = direction === 'up' ? index - 1 : index + 1;
-    if (targetIndex < 0 || targetIndex >= newModules.length) return;
-
-    const temp = newModules[index];
-    newModules[index] = newModules[targetIndex];
-    newModules[targetIndex] = temp;
-
-    try {
-      const res = await api.request<{ items: ModuleItem[] }>(
-        `/admin/courses/${courseId}/modules/order`,
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            moduleIds: newModules.map((m) => m.id),
-          }),
-        }
-      );
-      setModules(res.items);
-      setSuccessMessage('Module order saved.');
-      fetchCourseData();
-    } catch (err: unknown) {
-      setError(friendlyError(err, 'Failed to update module order.'));
     }
   };
 
@@ -461,91 +434,56 @@ export default function CourseDetailPage() {
             }
           />
         ) : (
-          <div className="bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden">
-            <div className="divide-y divide-slate-100">
-              {modules.map((mod, index) => (
-                <div
-                  key={mod.id}
-                  className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50/60 transition-colors"
-                >
-                  <div className="flex items-start gap-4">
-                    {/* Position badge / reorder buttons */}
-                    <div className="flex flex-col items-center">
-                      <span className="w-7 h-7 rounded-md bg-slate-100 text-slate-700 font-bold text-xs flex items-center justify-center border border-slate-200 font-mono">
-                        {index + 1}
-                      </span>
-                      {canWrite && (
-                        <div className="flex gap-1 mt-1.5">
-                          <button
-                            disabled={index === 0}
-                            onClick={() => handleReorderModules(index, 'up')}
-                            className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-20"
-                            title="Move up"
-                          >
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-                            </svg>
-                          </button>
-                          <button
-                            disabled={index === modules.length - 1}
-                            onClick={() => handleReorderModules(index, 'down')}
-                            className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-20"
-                            title="Move down"
-                          >
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                            </svg>
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    <div>
-                      <div className="flex items-center gap-2.5">
-                        <Link
-                          href={`/courses/${courseId}/modules/${mod.id}`}
-                          className="font-semibold text-base text-slate-900 hover:text-amber-700 transition-colors"
-                        >
-                          {mod.title}
-                        </Link>
-                        <StatusBadge status={mod.status} />
-                        <span className="text-xs font-mono text-slate-400">v{mod.version}</span>
-                      </div>
-                      {mod.description && (
-                        <p className="text-xs text-slate-500 mt-1 line-clamp-2 max-w-xl">
-                          {mod.description}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-3 self-end sm:self-auto">
-                    <Link
-                      href={`/courses/${courseId}/modules/${mod.id}`}
-                      className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1"
-                    >
-                      <span>Lessons</span>
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                      </svg>
+          <StatusSectionedList
+            noun="module"
+            items={modules}
+            canWrite={canWrite}
+            listLabel="Curriculum modules, in order"
+            itemLabel={(mod) => `module ${mod.title}`}
+            save={async (ids, previousIds) =>
+              (await api.request<{ items: ModuleItem[] }>(`/admin/courses/${courseId}/modules/order`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ moduleIds: ids, previousModuleIds: previousIds }),
+              })).items
+            }
+            onSaved={(items) => {
+              setModules(items);
+              fetchCourseData();
+            }}
+            onReload={() => fetchCourseData()}
+            savedNote="Order saved. The module order is part of the course, so a published course returns to Draft. Learners keep seeing the previously published order until the course is published again."
+            onPublish={workflowState?.allowedActions.includes('PUBLISH') ? () => setTransitionAction('PUBLISH') : undefined}
+            renderItem={(mod) => (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <Link href={`/courses/${courseId}/modules/${mod.id}`} className="font-semibold text-base text-slate-900 hover:text-amber-700 transition-colors">
+                      {mod.title}
                     </Link>
-
-                    {canWrite && (
-                      <button
-                        onClick={() => setDeleteModuleId(mod.id)}
-                        className="text-xs font-medium text-rose-600 hover:text-rose-800 p-1.5"
-                        title="Delete module"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                      </button>
-                    )}
+                    <StatusBadge status={mod.status} />
+                    <span className="text-xs font-mono text-slate-400">v{mod.version}</span>
                   </div>
+                  {mod.description && <p className="text-xs text-slate-500 mt-1 line-clamp-2 max-w-xl">{mod.description}</p>}
                 </div>
-              ))}
-            </div>
-          </div>
+                <div className="flex items-center gap-3 self-end sm:self-auto">
+                  <Link href={`/courses/${courseId}/modules/${mod.id}`} className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1">
+                    <span>Lessons</span>
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </Link>
+                  {canWrite && (
+                    <button onClick={() => setDeleteModuleId(mod.id)} className="text-xs font-medium text-rose-600 hover:text-rose-800 p-1.5" title="Delete module" aria-label={`Delete module ${mod.title}`}>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          />
         )}
       </div>
 
