@@ -96,8 +96,8 @@ export function WelcomeScreen() {
                 </Reveal>
 
                 <View style={{ gap: spacing.md }}>
-                  {/* the glow reaches 20 pt around this button, so it gets a little room above and below */}
-                  <View style={{ marginVertical: spacing.sm }}>
+                  {/* the glow and the small stars reach about 20-30 pt around this button, so it gets room above and below */}
+                  <View style={{ marginVertical: spacing.lg }}>
                     <GlowingButton
                       label="Get Started"
                       onPress={() => {
