@@ -39,7 +39,7 @@ export function WelcomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
-  const { colors, layout, spacing, isDark } = useTheme();
+  const { colors, layout, spacing } = useTheme();
   const { level, ready } = useLearningLevel();
   const [step, setStep] = useState<'start' | 'level'>('start');
   const [chosen, setChosen] = useState<LearningLevel | null>(null);
@@ -55,13 +55,13 @@ export function WelcomeScreen() {
   return (
     <View style={[styles.fill, { backgroundColor: colors.background }]}>
       {/* the cover picture, decorative; its own gradients keep the status bar and the very bottom legible */}
-      <HeroBackdrop source={appImages.welcome.source} reach={1} dim={isDark ? 0 : 0.15} />
+      <HeroBackdrop source={appImages.welcome.source} reach={1} />
       {/* the top of the picture is always dark, so the status bar icons stay light in both themes */}
       <HeroStatusBar />
 
       <ScrollView style={styles.fill} contentContainerStyle={styles.grow} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         <View style={[styles.grow, { paddingTop: insets.top, paddingBottom: insets.bottom, paddingLeft: insets.left, paddingRight: insets.right }]}>
-          <LinearGradient colors={scrim} locations={[0, 0.26, 0.55, 0.92]} style={StyleSheet.absoluteFill} pointerEvents="none" />
+          <LinearGradient colors={scrim} locations={[0, 0.32, 0.6, 0.92]} style={StyleSheet.absoluteFill} pointerEvents="none" />
 
           <View style={[styles.column, { maxWidth: layout.maxContentWidth, paddingHorizontal: layout.screenPadding }]}>
             <View style={styles.topBar}>
