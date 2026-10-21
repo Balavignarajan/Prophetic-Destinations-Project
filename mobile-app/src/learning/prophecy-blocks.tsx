@@ -1,8 +1,9 @@
 import { View } from 'react-native';
 
-import { AppText, BlockFrame, BlockNotice } from '@/components/ui';
+import { AppText, BlockFrame, BlockNotice, Reveal } from '@/components/ui';
 import { ScriptureLinks } from '@/learning/scripture-links';
 import { useTheme } from '@/theme';
+import { motion, staggerDelay } from '@/theme/motion';
 
 /**
  * Renders published PROPHECY_EQUIVALENCE, PROPHECY_COMPARISON and PROPHECY_CALCULATION blocks
@@ -77,24 +78,29 @@ export function EquivalenceBlock({ content }: { content: Record<string, unknown>
 
   return (
     <View style={{ gap: spacing.lg }}>
-      <View style={{ gap: spacing.xs }}>
+      <Reveal offset={motion.offset.subtle} style={{ gap: spacing.xs }}>
         <AppText variant="bodySmall" color="primaryHighlight" style={{ fontWeight: '700' }}>
           Prophecy equivalence
         </AppText>
         <AppText variant="sectionHeading" accessibilityRole="header">
           {concept}
         </AppText>
-      </View>
+      </Reveal>
       <View style={{ gap: spacing.md }}>
         {items.map((item, index) => (
           <View key={index} style={{ flexDirection: 'row', gap: spacing.md, alignItems: 'stretch' }}>
             {/* the "equals" mark joins each expression to the concept above; it is decorative, the screen-reader label says "equivalent to" */}
-            <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ width: 28, alignItems: 'center', paddingTop: spacing.lg }}>
+            <Reveal
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+              offset={0}
+              delay={staggerDelay(index + 1)}
+              style={{ width: 28, alignItems: 'center', paddingTop: spacing.lg }}>
               <AppText variant="heading" color="primaryHighlight">
                 =
               </AppText>
-            </View>
-            <View style={{ flex: 1 }}>
+            </Reveal>
+            <Reveal offset={motion.offset.subtle} delay={staggerDelay(index + 1) + motion.stagger.step} style={{ flex: 1 }}>
               <Panel>
                 <AppText variant="body" style={{ fontSize: 17, lineHeight: 26, fontWeight: '600' }} accessibilityLabel={`Expression ${index + 1} of ${items.length}, equivalent to ${concept}: ${item.expression as string}`}>
                   {item.expression as string}
@@ -102,7 +108,7 @@ export function EquivalenceBlock({ content }: { content: Record<string, unknown>
                 {isText(item.label) ? <AppText variant="bodySmall" color="textSecondary">{item.label}</AppText> : null}
                 <OptionalScripture entries={item.scripture} />
               </Panel>
-            </View>
+            </Reveal>
           </View>
         ))}
       </View>
@@ -130,7 +136,8 @@ export function ComparisonBlock({ content }: { content: Record<string, unknown> 
       </AppText>
       {/* stacked, one panel per compared item, so nothing needs sideways scrolling on a phone */}
       {entities.map((entity, index) => (
-        <Panel key={index} strong>
+        <Reveal key={index} offset={motion.offset.subtle} delay={staggerDelay(index)}>
+        <Panel strong>
           <AppText variant="heading" color="primaryHighlight" accessibilityRole="header">
             {entity.name as string}
           </AppText>
@@ -148,6 +155,7 @@ export function ComparisonBlock({ content }: { content: Record<string, unknown> 
             </Labelled>
           ) : null}
         </Panel>
+        </Reveal>
       ))}
     </View>
   );
@@ -168,7 +176,8 @@ export function CalculationBlock({ content }: { content: Record<string, unknown>
         {isText(content.title) ? content.title : 'Prophecy calculation'}
       </AppText>
       {steps.map((step, index) => (
-        <Panel key={index}>
+        <Reveal key={index} offset={motion.offset.subtle} delay={staggerDelay(index)}>
+        <Panel>
           <AppText variant="bodySmall" color="primaryHighlight" style={{ fontWeight: '700' }}>
             Step {index + 1}
           </AppText>
@@ -185,15 +194,16 @@ export function CalculationBlock({ content }: { content: Record<string, unknown>
             </Labelled>
           ) : null}
           {/* the author's result, set apart so it is easy to find; shown exactly as written */}
-          <View style={{ gap: 2, paddingLeft: spacing.md, borderLeftWidth: 3, borderLeftColor: colors.primary }}>
+          <Reveal offset={0} delay={staggerDelay(index) + motion.stagger.step * 2} style={{ gap: 2, paddingLeft: spacing.md, borderLeftWidth: 3, borderLeftColor: colors.primary }}>
             <AppText variant="bodySmall" color="textMuted" style={{ fontWeight: '600' }}>
               Result
             </AppText>
             <AppText variant="body" style={{ fontSize: 18, lineHeight: 27, fontWeight: '700' }}>
               {step.result as string}
             </AppText>
-          </View>
+          </Reveal>
         </Panel>
+        </Reveal>
       ))}
       <AppText variant="bodySmall" color="textMuted">
         Steps and results are shown as written by the author.

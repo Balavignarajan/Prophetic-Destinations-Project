@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Image, type ImageLoadEventData, type NativeSyntheticEvent, Pressable, View } from 'react-native';
+import { ActivityIndicator, Animated, Image, type ImageLoadEventData, type NativeSyntheticEvent, Pressable, View } from 'react-native';
 
-import { AppText, BlockNotice } from '@/components/ui';
+import { useReduceMotion } from '@/accessibility/use-reduce-motion';
+import { AppText, BlockNotice, Reveal } from '@/components/ui';
 import { reportBrokenAsset, useAssetUri } from '@/features/offline/offline-media';
 import { lessonImageUrl } from '@/learning/lesson-image';
 import { ScriptureLinks } from '@/learning/scripture-links';
 import type { LearningLevel } from '@/learning/levels';
 import { useTheme } from '@/theme';
+import { NATIVE_DRIVER, motion } from '@/theme/motion';
 
 /**
  * Renders a published INTERACTIVE_IMAGE block (backend/src/modules/lessons/domain/blocks/interactive-image.ts; PROPOSED schema):
@@ -44,6 +46,103 @@ function readHotspots(content: Record<string, unknown>): Hotspot[] {
 
 const HIT = 44;
 const DOT = 30;
+
+/**
+ * One numbered marker on the picture. It keeps the dark halo, so it is visible on any image. When it becomes the selected one its dot settles
+ * from a slightly smaller size and a bright gold ring fades in around it; when it is deselected the ring fades out. The selected state is
+ * also carried by the larger, brighter dot and by the accessibility state, so nothing depends on the motion. Opacity and scale only; the
+ * position, size of the touch area and coordinates are exactly as before.
+ */
+function HotspotMarker({
+  x,
+  y,
+  number,
+  label,
+  selected,
+  onPress,
+}: {
+  x: number;
+  y: number;
+  number: number;
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  const { colors } = useTheme();
+  const reduce = useReduceMotion();
+  const [ring] = useState(() => new Animated.Value(selected ? 1 : 0));
+  const [settle] = useState(() => new Animated.Value(1));
+  const mounted = useRef(false);
+
+  useEffect(() => {
+    const first = !mounted.current;
+    mounted.current = true;
+    if (reduce) {
+      ring.setValue(selected ? 1 : 0);
+      settle.setValue(1);
+      return;
+    }
+    settle.setValue(selected && !first ? 0.94 : 1);
+    const animation = Animated.parallel([
+      Animated.timing(ring, { toValue: selected ? 1 : 0, duration: motion.duration.selection, easing: motion.easing.standard, useNativeDriver: NATIVE_DRIVER }),
+      Animated.timing(settle, { toValue: 1, duration: motion.duration.selection, easing: motion.easing.standard, useNativeDriver: NATIVE_DRIVER }),
+    ]);
+    animation.start();
+    return () => animation.stop();
+  }, [selected, reduce, ring, settle]);
+
+  const dot = selected ? DOT + 4 : DOT;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ selected }}
+      onPress={onPress}
+      style={{
+        position: 'absolute',
+        left: `${x * 100}%`,
+        top: `${y * 100}%`,
+        width: HIT,
+        height: HIT,
+        marginLeft: -HIT / 2,
+        marginTop: -HIT / 2,
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}>
+      {/* a dark halo keeps the marker visible on any picture; the selected marker is larger, brighter and ringed */}
+      <View style={{ width: DOT + 10, height: DOT + 10, borderRadius: (DOT + 10) / 2, backgroundColor: colors.scrim, alignItems: 'center', justifyContent: 'center' }}>
+        <Animated.View
+          style={{
+            position: 'absolute',
+            width: DOT + 10,
+            height: DOT + 10,
+            borderRadius: (DOT + 10) / 2,
+            borderWidth: 2,
+            borderColor: colors.primaryHighlight,
+            opacity: ring,
+            transform: [{ scale: ring.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1] }) }],
+          }}
+        />
+        <Animated.View
+          style={{
+            width: dot,
+            height: dot,
+            borderRadius: dot / 2,
+            borderWidth: selected ? 3 : 2,
+            borderColor: selected ? colors.textOnImage : colors.borderGold,
+            backgroundColor: selected ? colors.primaryHighlight : colors.primary,
+            alignItems: 'center',
+            justifyContent: 'center',
+            transform: [{ scale: settle }],
+          }}>
+          <AppText variant="caption" color="onPrimary" style={{ fontWeight: '700' }} allowFontScaling={false}>
+            {number}
+          </AppText>
+        </Animated.View>
+      </View>
+    </Pressable>
+  );
+}
 
 export function HotspotImage({
   lessonId,
@@ -141,49 +240,19 @@ export function HotspotImage({
             }}
           />
           {status === 'ready'
-            ? hotspots.map((h, index) => {
-                if (h.x === null || h.y === null) return null;
-                const isSelected = selected === h.id;
-                const dot = isSelected ? DOT + 4 : DOT;
-                return (
-                  <Pressable
+            ? hotspots.map((h, index) =>
+                h.x === null || h.y === null ? null : (
+                  <HotspotMarker
                     key={h.id}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${noun} ${index + 1}: ${h.label || 'no label'}`}
-                    accessibilityState={{ selected: isSelected }}
+                    x={h.x}
+                    y={h.y}
+                    number={index + 1}
+                    label={`${noun} ${index + 1}: ${h.label || 'no label'}`}
+                    selected={selected === h.id}
                     onPress={() => toggle(h.id)}
-                    style={{
-                      position: 'absolute',
-                      left: `${h.x * 100}%`,
-                      top: `${h.y * 100}%`,
-                      width: HIT,
-                      height: HIT,
-                      marginLeft: -HIT / 2,
-                      marginTop: -HIT / 2,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}>
-                    {/* a dark halo keeps the marker visible on any picture; the selected marker is larger, brighter and ringed */}
-                    <View style={{ width: DOT + 10, height: DOT + 10, borderRadius: (DOT + 10) / 2, backgroundColor: colors.scrim, alignItems: 'center', justifyContent: 'center' }}>
-                      <View
-                        style={{
-                          width: dot,
-                          height: dot,
-                          borderRadius: dot / 2,
-                          borderWidth: isSelected ? 3 : 2,
-                          borderColor: isSelected ? colors.textOnImage : colors.borderGold,
-                          backgroundColor: isSelected ? colors.primaryHighlight : colors.primary,
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}>
-                        <AppText variant="caption" color="onPrimary" style={{ fontWeight: '700' }} allowFontScaling={false}>
-                          {index + 1}
-                        </AppText>
-                      </View>
-                    </View>
-                  </Pressable>
-                );
-              })
+                  />
+                ),
+              )
             : null}
           {status === 'loading' ? (
             <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' }} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
@@ -200,7 +269,8 @@ export function HotspotImage({
       ) : null}
 
       {active ? (
-        <View
+        <Reveal
+          key={active.id}
           accessibilityLiveRegion="polite"
           onLayout={(event) => {
             const { y, height } = event.nativeEvent.layout;
@@ -234,7 +304,7 @@ export function HotspotImage({
             </AppText>
           ) : null}
           <ScriptureLinks entries={active.scripture} />
-        </View>
+        </Reveal>
       ) : null}
 
       {hotspots.length > 0 ? (

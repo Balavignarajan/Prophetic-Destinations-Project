@@ -3,8 +3,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useReduceMotion } from '@/accessibility/use-reduce-motion';
 import type { LessonSnapshotBlock } from '@/api/types';
-import { AppText, IconButton } from '@/components/ui';
+import { AppText, IconButton, Reveal } from '@/components/ui';
 import { useTheme } from '@/theme';
+import { motion } from '@/theme/motion';
 
 export type LessonSection = { blockId: string; title: string };
 
@@ -38,8 +39,10 @@ export function LessonContents({
     <Modal visible={visible} transparent animationType={reduceMotion ? 'none' : 'fade'} onRequestClose={onClose} statusBarTranslucent>
       <View style={[styles.fill, { backgroundColor: colors.overlay }]}>
         <Pressable accessible={false} onPress={onClose} style={styles.fill} />
-        <View
+        <Reveal
           accessibilityViewIsModal
+          offset={motion.offset.sheet}
+          duration={motion.duration.modal}
           style={{
             alignSelf: 'center',
             width: '100%',
@@ -88,7 +91,7 @@ export function LessonContents({
               </Pressable>
             ))}
           </ScrollView>
-        </View>
+        </Reveal>
       </View>
     </Modal>
   );

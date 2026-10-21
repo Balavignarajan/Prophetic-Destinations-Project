@@ -3,6 +3,7 @@ import { StyleSheet, View } from 'react-native';
 import { useTheme } from '@/theme';
 
 import { AppText } from './app-text';
+import { Reveal } from './reveal';
 import { SecondaryButton } from './secondary-button';
 
 export type ErrorStateProps = {
@@ -18,9 +19,18 @@ export function ErrorState({
   message = 'Please check your connection and try again.',
   onRetry,
 }: ErrorStateProps) {
-  const { spacing } = useTheme();
+  const { colors, spacing } = useTheme();
   return (
-    <View accessibilityRole="alert" style={[styles.center, { gap: spacing.md, padding: spacing.xl }]}>
+    <Reveal accessibilityRole="alert" style={[styles.center, { gap: spacing.md, padding: spacing.xl }]}>
+      {/* a small outlined mark, decorative: the title says what happened */}
+      <View
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        style={{ width: 40, height: 40, borderRadius: 20, borderWidth: 2, borderColor: colors.error, alignItems: 'center', justifyContent: 'center' }}>
+        <AppText variant="heading" color="error" allowFontScaling={false}>
+          !
+        </AppText>
+      </View>
       <AppText variant="heading" color="error" align="center">
         {title}
       </AppText>
@@ -30,7 +40,7 @@ export function ErrorState({
       {onRetry ? (
         <SecondaryButton label="Try again" onPress={onRetry} style={{ marginTop: spacing.md, alignSelf: 'stretch' }} />
       ) : null}
-    </View>
+    </Reveal>
   );
 }
 

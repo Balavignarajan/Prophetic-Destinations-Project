@@ -1,10 +1,11 @@
 import { View } from 'react-native';
 
-import { AppText, BlockNotice } from '@/components/ui';
+import { AppText, BlockNotice, Reveal } from '@/components/ui';
 import { LessonImage } from '@/learning/lesson-image';
 import { ScriptureLinks } from '@/learning/scripture-links';
 import type { LearningLevel } from '@/learning/levels';
 import { useTheme } from '@/theme';
+import { motion, staggerDelay } from '@/theme/motion';
 
 /**
  * Renders a published TIMELINE block (backend/src/modules/lessons/domain/blocks/timeline.ts; PROPOSED schema):
@@ -64,7 +65,7 @@ export function TimelineContent({ lessonId, level, content }: { lessonId: string
       </AppText>
       <View>
         {events.map((event, index) => (
-          <View key={event.id} style={{ flexDirection: 'row', gap: spacing.lg }}>
+          <Reveal key={event.id} offset={motion.offset.subtle} delay={staggerDelay(index)} style={{ flexDirection: 'row', gap: spacing.lg }}>
             <View style={{ alignItems: 'center' }} importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
               <View style={{ width: 32, height: 32, borderRadius: 16, borderWidth: 2, borderColor: colors.primary, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' }}>
                 <AppText variant="caption" color="primaryHighlight" style={{ fontWeight: '700' }} allowFontScaling={false}>
@@ -89,7 +90,7 @@ export function TimelineContent({ lessonId, level, content }: { lessonId: string
               {event.image ? <LessonImage lessonId={lessonId} level={level} content={event.image} /> : null}
               <ScriptureLinks entries={event.scripture} />
             </View>
-          </View>
+          </Reveal>
         ))}
       </View>
     </View>

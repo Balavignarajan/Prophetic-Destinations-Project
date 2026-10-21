@@ -1,7 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
 import { View } from 'react-native';
 
-import { ActionRow, AppText, BlockFrame, BlockNotice, OptionRow, PrimaryButton, SecondaryButton } from '@/components/ui';
+import {
+  ActionRow,
+  AppText,
+  BlockFrame,
+  BlockNotice,
+  FeedbackMark,
+  FeedbackReveal,
+  OptionRow,
+  PrimaryButton,
+  ScoreReveal,
+  SecondaryButton,
+} from '@/components/ui';
 import { useLearningProgress } from '@/features/learning/learning-provider';
 import type { ProgressLevel } from '@/features/learning/progress-model';
 import { useTheme } from '@/theme';
@@ -91,12 +102,30 @@ function QuestionProgress({ label, current, total }: { label: string; current: n
   );
 }
 
-/** The result of one checked question: a labelled card (never colour alone), the correct answer when missed, and the CMS explanation if there is one. */
-function QuestionFeedback({ correct, answered, correctText, explanation }: { correct: boolean; answered: boolean; correctText: string | undefined; explanation: string | null }) {
+/**
+ * The result of one checked question: a labelled card (never colour alone), the correct answer when missed, and the CMS explanation if there is one.
+ * `animate` is true only for the moment the learner checks the answer; a question they come back to, and the review, show the same card at rest.
+ * A correct answer gets a gold check; a missed one gets a quiet cross and a 3 point settle, in the existing amber accent.
+ */
+function QuestionFeedback({
+  correct,
+  answered,
+  correctText,
+  explanation,
+  animate,
+}: {
+  correct: boolean;
+  answered: boolean;
+  correctText: string | undefined;
+  explanation: string | null;
+  animate: boolean;
+}) {
   const { colors, radius, spacing } = useTheme();
   const accent = correct ? colors.success : colors.warning;
   return (
-    <View
+    <FeedbackReveal
+      animate={animate}
+      nudge={correct ? 0 : 3}
       accessibilityLiveRegion="polite"
       style={{
         gap: spacing.sm,
@@ -106,9 +135,12 @@ function QuestionFeedback({ correct, answered, correctText, explanation }: { cor
         borderLeftColor: accent,
         backgroundColor: colors.surfaceElevated,
       }}>
-      <AppText variant="body" color={correct ? 'success' : 'warning'} style={{ fontWeight: '700' }}>
-        {correct ? '✓ Correct' : answered ? '✗ Not quite' : 'Not answered'}
-      </AppText>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+        {answered ? <FeedbackMark kind={correct ? 'correct' : 'incorrect'} animate={animate} /> : null}
+        <AppText variant="body" color={correct ? 'success' : 'warning'} style={{ fontWeight: '700', flexShrink: 1 }}>
+          {correct ? 'Correct' : answered ? 'Not quite' : 'Not answered'}
+        </AppText>
+      </View>
       {!correct && correctText ? (
         <AppText variant="body">
           <AppText variant="body" color="textSecondary">
@@ -122,7 +154,7 @@ function QuestionFeedback({ correct, answered, correctText, explanation }: { cor
           {explanation}
         </AppText>
       ) : null}
-    </View>
+    </FeedbackReveal>
   );
 }
 
@@ -157,6 +189,10 @@ export function QuizContent({
   const [index, setIndex] = useState(0);
   const [checkedQuestions, setCheckedQuestions] = useState<Record<string, boolean>>({});
   const [reviewIndex, setReviewIndex] = useState(0);
+  // The question whose answer was JUST checked (its feedback plays once), and whether the quiz was JUST finished (its result plays once).
+  // Both are cleared as soon as the learner moves on, so coming back to a question, the review or a saved result never replays them.
+  const [fresh, setFresh] = useState<string | null>(null);
+  const [justFinished, setJustFinished] = useState(false);
   const attemptToken = useRef(0);
   const lastView = useRef({ step, index, reviewIndex });
   useEffect(() => {
@@ -202,6 +238,8 @@ export function QuizContent({
     setIndex(0);
     setCheckedQuestions({});
     setReviewIndex(0);
+    setFresh(null);
+    setJustFinished(false);
   };
 
   // Stores the result exactly as before (one record for the whole quiz). It is only called from "View results".
@@ -211,6 +249,8 @@ export function QuizContent({
     setChecked(true);
     setSaveState('saving');
     setStep('results');
+    setFresh(null);
+    setJustFinished(true);
     const finished = {
       lessonId,
       level,
@@ -252,19 +292,17 @@ export function QuizContent({
     return (
       <BlockFrame variant="interactive">
         {header}
-        <View accessibilityLiveRegion="polite" style={{ gap: spacing.sm, alignItems: 'center', paddingVertical: spacing.md }}>
-          <AppText variant="label" color="primaryHighlight" align="center">
-            {showingSaved ? 'Previous completed result' : 'Quiz complete'}
-          </AppText>
-          <AppText variant="title" color="primaryHighlight" align="center">
-            {shown.score} of {shown.total} correct
-          </AppText>
-          <AppText variant="body" color="textSecondary" align="center">
-            {showingSaved
+        <ScoreReveal
+          eyebrow={showingSaved ? 'Previous completed result' : 'Quiz complete'}
+          score={shown.score}
+          total={shown.total}
+          note={
+            showingSaved
               ? `${dateOf(shown.completedAt) ? `Completed ${dateOf(shown.completedAt)}. ` : ''}Saved on this device.`
-              : "You've completed this knowledge check."}
-          </AppText>
-        </View>
+              : "You've completed this knowledge check."
+          }
+          animate={justFinished && !showingSaved}
+        />
         {!showingSaved ? (
           saveState === 'failed' ? (
             <AppText variant="bodySmall" color="warning" accessibilityLiveRegion="polite">
@@ -285,6 +323,7 @@ export function QuizContent({
             <PrimaryButton
               label="Review answers"
               onPress={() => {
+                setJustFinished(false);
                 setReviewIndex(0);
                 setStep('review');
               }}
@@ -322,7 +361,7 @@ export function QuizContent({
             />
           ))}
         </View>
-        <QuestionFeedback correct={correct} answered={chosen !== undefined} correctText={correctText} explanation={question.explanation} />
+        <QuestionFeedback key={question.id} correct={correct} answered={chosen !== undefined} correctText={correctText} explanation={question.explanation} animate={false} />
         <ActionRow equal>
           <SecondaryButton size="medium" label="Previous" disabled={reviewIndex === 0} onPress={() => setReviewIndex(reviewIndex - 1)} />
           <SecondaryButton size="medium" label="Next" disabled={reviewIndex === total - 1} onPress={() => setReviewIndex(reviewIndex + 1)} />
@@ -368,20 +407,48 @@ export function QuizContent({
           />
         ))}
       </View>
-      {isChecked ? <QuestionFeedback correct={correct} answered={chosen !== undefined} correctText={correctText} explanation={question.explanation} /> : null}
+      {isChecked ? (
+        <QuestionFeedback
+          key={question.id}
+          correct={correct}
+          answered={chosen !== undefined}
+          correctText={correctText}
+          explanation={question.explanation}
+          animate={fresh === question.id}
+        />
+      ) : null}
       <ActionRow>
-        {index > 0 ? <SecondaryButton size="medium" label="Previous" onPress={() => setIndex(index - 1)} /> : null}
+        {index > 0 ? (
+          <SecondaryButton
+            size="medium"
+            label="Previous"
+            onPress={() => {
+              setFresh(null);
+              setIndex(index - 1);
+            }}
+          />
+        ) : null}
         {!isChecked ? (
           <PrimaryButton
             size="medium"
             label="Check answer"
             disabled={chosen === undefined}
-            onPress={() => setCheckedQuestions((current) => ({ ...current, [question.id]: true }))}
+            onPress={() => {
+              setFresh(question.id);
+              setCheckedQuestions((current) => ({ ...current, [question.id]: true }));
+            }}
           />
         ) : isLast ? (
           <PrimaryButton size="medium" label="View results" onPress={check} />
         ) : (
-          <PrimaryButton size="medium" label="Next question" onPress={() => setIndex(index + 1)} />
+          <PrimaryButton
+            size="medium"
+            label="Next question"
+            onPress={() => {
+              setFresh(null);
+              setIndex(index + 1);
+            }}
+          />
         )}
       </ActionRow>
     </BlockFrame>

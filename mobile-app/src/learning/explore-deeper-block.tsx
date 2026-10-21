@@ -1,9 +1,11 @@
-import { useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Animated, Pressable, View } from 'react-native';
 
-import { AppText, BlockNotice, ChevronIcon } from '@/components/ui';
+import { useReduceMotion } from '@/accessibility/use-reduce-motion';
+import { AppText, BlockNotice, Reveal, TurnChevron } from '@/components/ui';
 import { ScriptureLinks } from '@/learning/scripture-links';
 import { useTheme } from '@/theme';
+import { motion } from '@/theme/motion';
 
 /**
  * Renders a published EXPLORE_DEEPER block (backend/src/modules/lessons/domain/blocks/map-explore.ts; PROPOSED schema):
@@ -19,6 +21,18 @@ const asText = (value: unknown) => (typeof value === 'string' ? value.trim() : '
 export function ExploreDeeperBlock({ content }: { content: Record<string, unknown> }) {
   const { spacing, colors, radius } = useTheme();
   const [open, setOpen] = useState(false);
+  const reduce = useReduceMotion();
+  // 0 closed, 1 open: the card's border and surface ease between the two (colours, so this one runs on the JavaScript thread; it is tiny).
+  const [tint] = useState(() => new Animated.Value(0));
+  useEffect(() => {
+    if (reduce) {
+      tint.setValue(open ? 1 : 0);
+      return;
+    }
+    const animation = Animated.timing(tint, { toValue: open ? 1 : 0, duration: motion.duration.selection, easing: motion.easing.standard, useNativeDriver: false });
+    animation.start();
+    return () => animation.stop();
+  }, [open, reduce, tint]);
   const title = asText(content.title);
   const paragraphs = asText(content.intro).split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
 
@@ -29,12 +43,12 @@ export function ExploreDeeperBlock({ content }: { content: Record<string, unknow
   }
 
   return (
-    <View
+    <Animated.View
       style={{
         borderRadius: radius.lg,
         borderWidth: 1,
-        borderColor: open ? colors.borderGold : colors.borderSubtle,
-        backgroundColor: open ? colors.surfaceElevated : colors.surface,
+        borderColor: tint.interpolate({ inputRange: [0, 1], outputRange: [colors.borderSubtle, colors.borderGold] }),
+        backgroundColor: tint.interpolate({ inputRange: [0, 1], outputRange: [colors.surface, colors.surfaceElevated] }),
       }}>
       <Pressable
         accessibilityRole="button"
@@ -52,22 +66,18 @@ export function ExploreDeeperBlock({ content }: { content: Record<string, unknow
           </AppText>
         </View>
         {/* The chevron points down when closed and up when open; the state is also in the accessibility state above. */}
-        <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ width: 24, height: 24, alignItems: 'center', justifyContent: 'center' }}>
-          <View style={{ transform: [{ rotate: open ? '-90deg' : '90deg' }] }}>
-            <ChevronIcon direction="right" color="primaryHighlight" />
-          </View>
-        </View>
+        <TurnChevron open={open} />
       </Pressable>
       {open ? (
-        <View style={{ gap: spacing.md, paddingHorizontal: spacing.lg, paddingBottom: spacing.lg }}>
+        <Reveal style={{ gap: spacing.md, paddingHorizontal: spacing.lg, paddingBottom: spacing.lg }}>
           {paragraphs.map((p, index) => (
             <AppText key={index} variant="body" style={{ fontSize: 17, lineHeight: 28 }}>
               {p}
             </AppText>
           ))}
           <ScriptureLinks entries={content.scripture} />
-        </View>
+        </Reveal>
       ) : null}
-    </View>
+    </Animated.View>
   );
 }

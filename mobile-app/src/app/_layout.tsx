@@ -12,7 +12,9 @@ import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import * as SystemUI from 'expo-system-ui';
 import { useEffect, useMemo } from 'react';
+import { Platform } from 'react-native';
 
+import { useReduceMotion } from '@/accessibility/use-reduce-motion';
 import { ErrorState, ScreenContainer } from '@/components/ui';
 import { BookmarksProvider } from '@/features/bookmarks/bookmarks-provider';
 import { LearningProgressProvider } from '@/features/learning/learning-provider';
@@ -48,6 +50,7 @@ export default function RootLayout() {
 function AppShell() {
   const theme = useTheme();
   const { ready } = useThemePreference();
+  const reduceMotion = useReduceMotion();
   const [fontsLoaded, fontError] = useFonts({
     Cinzel_500Medium,
     Cinzel_600SemiBold,
@@ -85,6 +88,8 @@ function AppShell() {
             screenOptions={{
               headerShown: false,
               contentStyle: { backgroundColor: theme.colors.background },
+              // Screens push in from the right on both phones (iOS already does; Android's default rises from the bottom). None with Reduce Motion.
+              animation: reduceMotion ? 'none' : Platform.OS === 'android' ? 'slide_from_right' : 'default',
             }}
           />
         </LearningProgressProvider>

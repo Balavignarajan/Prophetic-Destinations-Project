@@ -1,7 +1,10 @@
 import type { ReactNode } from 'react';
-import { Pressable, View, type StyleProp, type ViewStyle } from 'react-native';
+import { View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { useTheme } from '@/theme';
+import { motion } from '@/theme/motion';
+
+import { AnimatedPressable, usePressMotion } from './animated-pressable';
 
 export type CardProps = {
   children: ReactNode;
@@ -21,7 +24,7 @@ export type CardProps = {
   style?: StyleProp<ViewStyle>;
 };
 
-/** A padded, rounded surface for grouped content. */
+/** A padded, rounded surface for grouped content. Only a card with `onPress` moves (a slight press-in); a plain card is static. */
 export function Card({ children, variant = 'default', onPress, accessibilityLabel, selected, style }: CardProps) {
   const { colors, layout, radius, spacing, shadows } = useTheme();
   const isSelected = Boolean(selected);
@@ -36,21 +39,50 @@ export function Card({ children, variant = 'default', onPress, accessibilityLabe
 
   if (onPress) {
     return (
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={accessibilityLabel}
-        accessibilityState={selected === undefined ? undefined : { selected: isSelected }}
-        onPress={onPress}
-        style={({ pressed }) => [
-          base,
-          lift,
-          { minHeight: layout.touchTarget },
-          pressed ? { backgroundColor: colors.surfaceElevated, borderColor: colors.borderGold } : null,
-          style,
-        ]}>
+      <PressableCard base={base} lift={lift} onPress={onPress} accessibilityLabel={accessibilityLabel} selected={selected} style={style}>
         {children}
-      </Pressable>
+      </PressableCard>
     );
   }
   return <View style={[base, lift, style]}>{children}</View>;
+}
+
+function PressableCard({
+  children,
+  base,
+  lift,
+  onPress,
+  accessibilityLabel,
+  selected,
+  style,
+}: {
+  children: ReactNode;
+  base: ViewStyle;
+  lift: ViewStyle | undefined;
+  onPress: () => void;
+  accessibilityLabel?: string;
+  selected?: boolean;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const { colors, layout } = useTheme();
+  const press = usePressMotion({ scaleTo: motion.scale.card, pressMs: motion.duration.cardPress, releaseMs: motion.duration.cardPress + 20 });
+  return (
+    <AnimatedPressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={selected === undefined ? undefined : { selected }}
+      onPress={onPress}
+      onPressIn={press.onPressIn}
+      onPressOut={press.onPressOut}
+      style={[
+        base,
+        lift,
+        { minHeight: layout.touchTarget },
+        press.pressed ? { backgroundColor: colors.surfaceElevated, borderColor: colors.borderGold } : null,
+        style,
+        press.scaleStyle,
+      ]}>
+      {children}
+    </AnimatedPressable>
+  );
 }

@@ -1,5 +1,4 @@
 import {
-  Pressable,
   StyleSheet,
   type PressableProps,
   type StyleProp,
@@ -7,7 +6,9 @@ import {
 } from 'react-native';
 
 import { useTheme } from '@/theme';
+import { motion } from '@/theme/motion';
 
+import { AnimatedPressable, usePressMotion } from './animated-pressable';
 import { AppText } from './app-text';
 
 export type SecondaryButtonProps = Omit<PressableProps, 'style' | 'children'> & {
@@ -19,33 +20,42 @@ export type SecondaryButtonProps = Omit<PressableProps, 'style' | 'children'> & 
   style?: StyleProp<ViewStyle>;
 };
 
-/** An outlined, quieter action next to (or instead of) the primary one. */
-export function SecondaryButton({ label, size = 'large', tone = 'default', disabled, style, ...rest }: SecondaryButtonProps) {
+/** An outlined, quieter action next to (or instead of) the primary one. Same press feedback as the primary button; destructive ones shrink less. */
+export function SecondaryButton({ label, size = 'large', tone = 'default', disabled, style, onPressIn, onPressOut, ...rest }: SecondaryButtonProps) {
   const { colors, layout, radius, spacing } = useTheme();
+  const press = usePressMotion({
+    scaleTo: tone === 'danger' ? motion.scale.buttonQuiet : motion.scale.button,
+    disabled: Boolean(disabled),
+    onPressIn,
+    onPressOut,
+  });
   return (
-    <Pressable
+    <AnimatedPressable
       accessibilityRole="button"
       accessibilityLabel={label}
       aria-disabled={Boolean(disabled)}
       disabled={disabled}
       hitSlop={4}
-      style={({ pressed }) => [
+      onPressIn={press.onPressIn}
+      onPressOut={press.onPressOut}
+      style={[
         styles.base,
         {
           minHeight: size === 'small' ? layout.minTouchTarget : size === 'medium' ? layout.touchTarget : layout.buttonHeight,
           paddingHorizontal: size === 'small' ? spacing.lg : spacing.xl,
           borderRadius: radius.md,
           borderWidth: layout.hairline,
-          borderColor: disabled ? colors.borderSubtle : tone === 'danger' ? colors.error : pressed ? colors.primary : colors.borderGold,
-          backgroundColor: pressed ? colors.surfaceElevated : colors.transparent,
+          borderColor: disabled ? colors.borderSubtle : tone === 'danger' ? colors.error : press.pressed ? colors.primary : colors.borderGold,
+          backgroundColor: press.pressed ? colors.surfaceElevated : colors.transparent,
         },
         style,
+        press.scaleStyle,
       ]}
       {...rest}>
       <AppText variant="label" color={disabled ? 'disabledText' : tone === 'danger' ? 'error' : 'textPrimary'} align="center">
         {label}
       </AppText>
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 

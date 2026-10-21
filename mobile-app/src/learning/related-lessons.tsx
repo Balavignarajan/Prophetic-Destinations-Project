@@ -1,8 +1,8 @@
 import { useRouter } from 'expo-router';
-import { Pressable, View } from 'react-native';
+import { View } from 'react-native';
 
 import { useResource } from '@/api/use-resource';
-import { AppText, ChevronIcon } from '@/components/ui';
+import { AppText, Card, ChevronIcon } from '@/components/ui';
 import { loadRelated } from '@/features/offline/offline-api';
 import { CoverImage, lessonCoverUrl } from '@/learning/cover-image';
 import type { RelatedLessonItem } from '@/api/types';
@@ -41,7 +41,7 @@ export function RelatedLessons({ lessonId, level, contentHash }: { lessonId: str
  */
 export function RelatedLessonCards({ lessons, level, heading, listNote }: { lessons: RelatedLessonItem[]; level: LearningLevel; heading: string; listNote?: string }) {
   const router = useRouter();
-  const { spacing, colors, radius, layout } = useTheme();
+  const { spacing, layout } = useTheme();
   if (lessons.length === 0) return null;
 
   return (
@@ -50,38 +50,29 @@ export function RelatedLessonCards({ lessons, level, heading, listNote }: { less
         {heading}
       </AppText>      <View style={{ gap: spacing.sm }}>
         {lessons.map((item) => (
-          <Pressable
+          <Card
             key={item.lessonId}
-            accessibilityRole="button"
             accessibilityLabel={`Related lesson: ${labelOf(item) ?? item.title}.${labelOf(item) ? ` Lesson: ${item.title}.` : ''}${item.subtitle ? ` ${item.subtitle}.` : ''}`}
             onPress={() => router.push({ pathname: '/lesson/[lessonId]', params: { lessonId: item.lessonId, level } })}
-            style={({ pressed }) => ({
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: spacing.md,
-              minHeight: layout.touchTarget + spacing.md,
-              padding: spacing.md,
-              borderRadius: radius.lg,
-              borderWidth: layout.hairline,
-              borderColor: colors.borderSubtle,
-              backgroundColor: pressed ? colors.surfaceElevated : colors.surface,
-            })}>
-            {item.coverMediaId ? <CoverImage mediaId={item.coverMediaId} uri={lessonCoverUrl(item.lessonId, item.coverMediaId, level)} width={56} height={40} /> : null}
-            <View style={{ flex: 1, gap: 2 }}>
-              <AppText variant="body" style={{ fontWeight: '600' }}>{labelOf(item) ?? item.title}</AppText>
-              {labelOf(item) ? (
-                <AppText variant="bodySmall" color="textMuted">
-                  Lesson: {item.title}
-                </AppText>
-              ) : null}
-              {item.subtitle ? (
-                <AppText variant="bodySmall" color="textSecondary">
-                  {item.subtitle}
-                </AppText>
-              ) : null}
+            style={{ minHeight: layout.touchTarget + spacing.md, padding: spacing.md }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+              {item.coverMediaId ? <CoverImage mediaId={item.coverMediaId} uri={lessonCoverUrl(item.lessonId, item.coverMediaId, level)} width={56} height={40} /> : null}
+              <View style={{ flex: 1, gap: 2 }}>
+                <AppText variant="body" style={{ fontWeight: '600' }}>{labelOf(item) ?? item.title}</AppText>
+                {labelOf(item) ? (
+                  <AppText variant="bodySmall" color="textMuted">
+                    Lesson: {item.title}
+                  </AppText>
+                ) : null}
+                {item.subtitle ? (
+                  <AppText variant="bodySmall" color="textSecondary">
+                    {item.subtitle}
+                  </AppText>
+                ) : null}
+              </View>
+              <ChevronIcon direction="right" color="primaryHighlight" />
             </View>
-            <ChevronIcon direction="right" color="primaryHighlight" />
-          </Pressable>
+          </Card>
         ))}
       </View>
       {listNote ? (

@@ -5,6 +5,7 @@ import { useTheme } from '@/theme';
 import { AppText } from './app-text';
 import { Card } from './card';
 import { PrimaryButton } from './primary-button';
+import { Reveal } from './reveal';
 import { SecondaryButton } from './secondary-button';
 
 export type EmptyStateProps = {
@@ -17,7 +18,7 @@ export type EmptyStateProps = {
 
 /** What to show when there is nothing to list yet. */
 export function EmptyState({ title, message, action, variant = 'plain' }: EmptyStateProps) {
-  const { spacing } = useTheme();
+  const { colors, spacing } = useTheme();
   if (variant === 'card') {
     return (
       <Card variant="elevated">
@@ -36,7 +37,8 @@ export function EmptyState({ title, message, action, variant = 'plain' }: EmptyS
     );
   }
   return (
-    <View style={[styles.center, { gap: spacing.md, padding: spacing.xl }]}>
+    <Reveal style={[styles.center, { gap: spacing.md, padding: spacing.xl }]}>
+      <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ width: 32, height: 2, backgroundColor: colors.primary }} />
       <AppText variant="heading" align="center">
         {title}
       </AppText>
@@ -48,7 +50,7 @@ export function EmptyState({ title, message, action, variant = 'plain' }: EmptyS
       {action ? (
         <SecondaryButton label={action.label} onPress={action.onPress} style={{ marginTop: spacing.md, alignSelf: 'stretch' }} />
       ) : null}
-    </View>
+    </Reveal>
   );
 }
 

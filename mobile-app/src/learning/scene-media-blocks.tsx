@@ -2,13 +2,14 @@ import { Image } from 'expo-image';
 import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 
-import { AppText, BlockNotice } from '@/components/ui';
+import { AppText, BlockNotice, Reveal } from '@/components/ui';
 import { useReduceMotion } from '@/accessibility/use-reduce-motion';
 import { reportBrokenAsset, useAssetUri } from '@/features/offline/offline-media';
 import { LessonImage, lessonImageUrl } from '@/learning/lesson-image';
 import type { LearningLevel } from '@/learning/levels';
 import { ScriptureLinks } from '@/learning/scripture-links';
 import { useTheme } from '@/theme';
+import { motion } from '@/theme/motion';
 
 /**
  * Renders published NARRATIVE_SCENE and MEDIA_ANIMATION blocks (backend/src/modules/lessons/domain/blocks/scene-media.ts; PROPOSED schemas):
@@ -42,7 +43,7 @@ export function NarrativeSceneBlock({ lessonId, level, content }: { lessonId: st
   return (
     <View style={{ gap: spacing.lg }}>
       {image ? <LessonImage lessonId={lessonId} level={level} content={image} /> : null}
-      <View style={{ gap: spacing.md, paddingHorizontal: spacing.xs }}>
+      <Reveal offset={motion.offset.subtle} style={{ gap: spacing.md, paddingHorizontal: spacing.xs }}>
         <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ width: 40, height: 2, backgroundColor: colors.primary }} />
         {isText(content.title) ? (
           <AppText variant="sectionHeading" accessibilityRole="header">
@@ -52,7 +53,7 @@ export function NarrativeSceneBlock({ lessonId, level, content }: { lessonId: st
         <AppText variant="body" style={{ fontSize: 17, lineHeight: 28 }}>
           {content.narrative}
         </AppText>
-      </View>
+      </Reveal>
       <ScriptureLinks entries={content.scripture} />
     </View>
   );
@@ -111,6 +112,7 @@ export function AnimatedImageBlock({ lessonId, level, content }: { lessonId: str
           source={{ uri: shownUri ?? undefined }}
           style={{ width: '100%', height: '100%' }}
           contentFit="contain"
+          transition={reduceMotion ? 0 : motion.duration.selection}
           autoplay={playing}
           accessible
           accessibilityRole="image"

@@ -2,7 +2,7 @@ import { useRouter } from 'expo-router';
 import { View } from 'react-native';
 
 import { useResource } from '@/api/use-resource';
-import { AppText, Card, ErrorState, LoadingState, PrimaryButton, ScreenContainer, SecondaryButton } from '@/components/ui';
+import { AppText, Card, ErrorState, GoldGlow, LoadingState, PrimaryButton, ScreenContainer, SecondaryButton } from '@/components/ui';
 import { useBookmarks } from '@/features/bookmarks/bookmarks-provider';
 import { useLearningProgress } from '@/features/learning/learning-provider';
 import { continueTarget, summarise } from '@/features/learning/progress-model';
@@ -26,7 +26,7 @@ const HOME_COURSES = 3;
  */
 export function HomeScreen() {
   const router = useRouter();
-  const { spacing } = useTheme();
+  const { colors, layout, radius, spacing } = useTheme();
   const { level, ready } = useLearningLevel();
   const { progress } = useLearningProgress();
   const { items: saved } = useBookmarks();
@@ -41,10 +41,21 @@ export function HomeScreen() {
   return (
     <ScreenContainer scroll>
       <View style={{ gap: spacing.xl, paddingTop: spacing.xl, paddingBottom: spacing.xxl }}>
-        <View style={{ gap: spacing.sm }}>
+        {/* An editorial opening: a calm panel with a faint gold wash, the name in small gold capitals, a short rule and the headline. */}
+        <View
+          style={{
+            gap: spacing.md,
+            padding: spacing.xl,
+            borderRadius: radius.xl,
+            borderWidth: layout.hairline,
+            borderColor: colors.borderSubtle,
+            backgroundColor: colors.surface,
+          }}>
+          <GoldGlow radius={radius.xl} />
           <AppText variant="bodySmall" color="primaryHighlight" style={{ fontWeight: '700', letterSpacing: 1 }}>
             PROPHETIC DESTINATIONS
           </AppText>
+          <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ width: 40, height: 2, backgroundColor: colors.primary }} />
           <AppText variant="sectionHeading" accessibilityRole="header">
             Discover Bible prophecy through Scripture and history.
           </AppText>
@@ -59,6 +70,7 @@ export function HomeScreen() {
           />
         ) : (
           <Card variant="elevated">
+            <GoldGlow radius={radius.lg} />
             <View style={{ gap: spacing.md }}>
               <AppText variant="heading">Start learning</AppText>
               <AppText variant="body" color="textSecondary">

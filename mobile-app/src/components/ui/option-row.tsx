@@ -1,7 +1,11 @@
-import { Pressable, StyleSheet, View } from 'react-native';
+import { useEffect, useRef } from 'react';
+import { Animated, StyleSheet, View } from 'react-native';
 
+import { useReduceMotion } from '@/accessibility/use-reduce-motion';
 import { useTheme } from '@/theme';
+import { NATIVE_DRIVER, motion } from '@/theme/motion';
 
+import { AnimatedPressable, usePressMotion } from './animated-pressable';
 import { AppText } from './app-text';
 
 export type OptionRowProps = {
@@ -17,21 +21,38 @@ export type OptionRowProps = {
 
 /**
  * One choice in a radio-style list. The selected state is shown three ways (gold border, filled dot, bold weight of the
- * indicator) and announced to screen readers as "selected", so it never depends on colour alone.
+ * indicator) and announced to screen readers as "selected", so it never depends on colour alone. The dot grows in when the row
+ * is chosen (not with Reduce Motion), and the row gives slight press feedback.
  */
 export function OptionRow({ title, description, selected, onSelect, locked = false, outcome }: OptionRowProps) {
   const { colors, layout, radius, spacing } = useTheme();
+  const reduce = useReduceMotion();
+  const press = usePressMotion({ scaleTo: motion.scale.option, pressMs: motion.duration.cardPress, releaseMs: motion.duration.cardPress + 20, disabled: locked });
+  const dot = useRef(new Animated.Value(selected ? 1 : 0)).current;
+
+  useEffect(() => {
+    if (reduce) {
+      dot.setValue(selected ? 1 : 0);
+      return;
+    }
+    const animation = Animated.timing(dot, { toValue: selected ? 1 : 0, duration: motion.duration.selection, easing: motion.easing.standard, useNativeDriver: NATIVE_DRIVER });
+    animation.start();
+    return () => animation.stop();
+  }, [selected, reduce, dot]);
+
   const outcomeText =
     outcome === 'correct' ? (selected ? '✓ Correct. Your answer' : '✓ Correct answer') : outcome === 'incorrect' ? '✗ Not correct. Your answer' : null;
   const emphasised = selected || outcome !== undefined;
   return (
-    <Pressable
+    <AnimatedPressable
       accessibilityRole="radio"
       accessibilityLabel={`${description ? `${title}. ${description}` : title}${outcomeText ? `. ${outcomeText.replace(/^[✓✗]\s*/, '')}` : ''}`}
       aria-checked={selected}
       aria-disabled={locked}
       onPress={locked ? undefined : onSelect}
-      style={({ pressed }) => [
+      onPressIn={press.onPressIn}
+      onPressOut={press.onPressOut}
+      style={[
         styles.row,
         {
           minHeight: layout.touchTarget + spacing.md,
@@ -41,15 +62,25 @@ export function OptionRow({ title, description, selected, onSelect, locked = fal
           borderRadius: radius.lg,
           borderWidth: emphasised ? 2 : layout.hairline,
           borderColor: outcome === 'correct' ? colors.success : outcome === 'incorrect' ? colors.error : selected ? colors.primary : colors.border,
-          backgroundColor: selected || (pressed && !locked) ? colors.surfaceElevated : colors.surface,
+          backgroundColor: selected || press.pressed ? colors.surfaceElevated : colors.surface,
         },
+        press.scaleStyle,
       ]}>
       <View
         style={[
           styles.radio,
           { borderColor: selected ? colors.primaryHighlight : colors.textMuted },
         ]}>
-        {selected ? <View style={[styles.dot, { backgroundColor: colors.primaryHighlight }]} /> : null}
+        <Animated.View
+          style={[
+            styles.dot,
+            {
+              backgroundColor: colors.primaryHighlight,
+              opacity: dot,
+              transform: [{ scale: dot.interpolate({ inputRange: [0, 1], outputRange: [motion.scale.radioDot, 1] }) }],
+            },
+          ]}
+        />
       </View>
       <View style={styles.text}>
         <AppText variant="body" style={{ fontWeight: selected ? '700' : '500' }}>
@@ -66,7 +97,7 @@ export function OptionRow({ title, description, selected, onSelect, locked = fal
           </AppText>
         ) : null}
       </View>
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 

@@ -8,6 +8,8 @@ import type { LessonSnapshotBlock } from '@/api/types';
 import { useResource } from '@/api/use-resource';
 import {
   AppText,
+  Card,
+  CompletionMark,
   Divider,
   EmptyState,
   ErrorState,
@@ -81,7 +83,7 @@ function offlineNote(status: OwnerStatus, showingSavedCopy: boolean): string | n
  */
 export function LessonScreen() {
   const router = useRouter();
-  const { spacing } = useTheme();
+  const { spacing, colors } = useTheme();
   const params = useLocalSearchParams<{ lessonId: string; level?: string }>();
   const lessonId = firstParam(params.lessonId);
   const { level, ready } = useRouteLevel(params.level);
@@ -212,6 +214,22 @@ export function LessonScreen() {
   // laid out (so late-loading images and larger fonts stay accurate) and read when a section is chosen.
   const sections = useMemo(() => (lesson.status === 'success' ? lessonSections(lesson.data.value.snapshot.blocks) : []), [lesson]);
   const [contentsOpen, setContentsOpen] = useState(false);
+
+  // The "lesson complete" moment belongs to the learner's own tap on "Mark lesson as complete" (completion is synchronous, so the lesson is
+  // complete the instant it runs). It is remembered per lesson and level, so it is never shown for a lesson that was already complete when
+  // opened, after moving to another lesson, or after "undo"; and it is only drawn while the lesson really is complete.
+  const [celebratedKey, setCelebratedKey] = useState<string | null>(null);
+  const celebrate = completed && celebratedKey === restoreKey;
+  const markComplete = () => {
+    if (!lessonRef || completed) return;
+    setCompleted(lessonRef, true);
+    setCelebratedKey(restoreKey);
+  };
+  const undoComplete = () => {
+    if (!lessonRef) return;
+    setCompleted(lessonRef, false);
+    setCelebratedKey(null);
+  };
   const layoutY = useRef({ column: 0, body: 0, sections: {} as Record<string, number> });
   const onBodyLayout = useCallback((y: number) => {
     layoutY.current.body = y;
@@ -319,7 +337,11 @@ export function LessonScreen() {
         {lesson.status === 'success' ? (
           <View style={{ gap: spacing.lg }}>
             <Divider />
-            {completed ? (
+            {celebrate ? (
+              <Card variant="elevated" style={{ borderColor: colors.borderGold }}>
+                <CompletionMark title="Lesson complete" message="This lesson is marked complete." />
+              </Card>
+            ) : completed ? (
               <AppText variant="bodySmall" color="success" align="center" style={{ fontWeight: '700' }}>
                 ✓ This lesson is marked complete
               </AppText>
@@ -327,12 +349,12 @@ export function LessonScreen() {
             {/* Manual completion is unchanged. It is the dominant action only when there is no next lesson to continue to. */}
             {lessonRef ? (
               !next && !completed ? (
-                <PrimaryButton label="Mark lesson as complete" onPress={() => setCompleted(lessonRef, true)} />
+                <PrimaryButton label="Mark lesson as complete" onPress={markComplete} />
               ) : (
                 <SecondaryButton
                   size="medium"
                   label={completed ? 'Completed. Tap to undo' : 'Mark lesson as complete'}
-                  onPress={() => setCompleted(lessonRef, !completed)}
+                  onPress={completed ? undoComplete : markComplete}
                 />
               )
             ) : null}

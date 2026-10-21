@@ -1,6 +1,6 @@
 import { View } from 'react-native';
 
-import { AppText, Card, PrimaryButton } from '@/components/ui';
+import { AppText, Card, GoldGlow, PrimaryButton } from '@/components/ui';
 import { LEVEL_LABELS, type LearningLevel } from '@/learning/levels';
 import { useTheme } from '@/theme';
 
@@ -16,10 +16,11 @@ export function ContinueCard({
   level: LearningLevel;
   onPress: () => void;
 }) {
-  const { colors, spacing } = useTheme();
+  const { colors, radius, spacing } = useTheme();
   const meta = `${courseTitle ? `${courseTitle} · ` : ''}${LEVEL_LABELS[level]} level`;
   return (
     <Card variant="elevated" style={{ borderColor: colors.borderGold }}>
+      <GoldGlow radius={radius.lg} />
       <View style={{ gap: spacing.md }}>
         <View style={{ gap: spacing.xs }}>
           <AppText variant="bodySmall" color="primaryHighlight" style={{ fontWeight: '700' }}>

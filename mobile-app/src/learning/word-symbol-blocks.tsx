@@ -1,10 +1,11 @@
 import { Text, View } from 'react-native';
 
-import { AppText, BlockFrame, BlockNotice } from '@/components/ui';
+import { AccentRule, AppText, BlockFrame, BlockNotice, Reveal } from '@/components/ui';
 import { LessonImage } from '@/learning/lesson-image';
 import type { LearningLevel } from '@/learning/levels';
 import { ScriptureLinks } from '@/learning/scripture-links';
 import { useTheme } from '@/theme';
+import { motion } from '@/theme/motion';
 
 /**
  * Renders published WORD_STUDY and SYMBOL_STUDY blocks (backend/src/modules/lessons/domain/blocks/word-symbol.ts; PROPOSED schemas):
@@ -51,6 +52,7 @@ export function WordStudyBlock({ content }: { content: Record<string, unknown> }
   const references = Array.isArray(content.references) ? content.references : [];
 
   return (
+    <Reveal offset={motion.offset.subtle}>
     <BlockFrame variant="interactive">
       <View style={{ gap: 4 }}>
         <AppText variant="bodySmall" color="primaryHighlight" style={{ fontWeight: '700' }}>
@@ -59,6 +61,7 @@ export function WordStudyBlock({ content }: { content: Record<string, unknown> }
         <AppText variant="heading" accessibilityRole="header">
           {english}
         </AppText>
+        <AccentRule />
         {/* The original word uses the device's own font (no custom face), so Greek and Hebrew letters always draw correctly. */}
         <Text style={{ color: colors.textBright, fontSize: 34, lineHeight: 46, writingDirection: 'auto' }}>{original}</Text>
         {transliteration ? (
@@ -86,6 +89,7 @@ export function WordStudyBlock({ content }: { content: Record<string, unknown> }
         </Part>
       ) : null}
     </BlockFrame>
+    </Reveal>
   );
 }
 
@@ -99,6 +103,7 @@ export function SymbolStudyBlock({ lessonId, level, content }: { lessonId: strin
   const references = Array.isArray(content.references) ? content.references : [];
 
   return (
+    <Reveal offset={motion.offset.subtle}>
     <BlockFrame variant="interactive">
       <View style={{ gap: 4 }}>
         <AppText variant="bodySmall" color="primaryHighlight" style={{ fontWeight: '700' }}>
@@ -107,6 +112,7 @@ export function SymbolStudyBlock({ lessonId, level, content }: { lessonId: strin
         <AppText variant="sectionHeading" accessibilityRole="header">
           {symbol}
         </AppText>
+        <AccentRule />
       </View>
       {image ? <LessonImage lessonId={lessonId} level={level} content={image} /> : null}
       {content.primaryPassage !== undefined ? (
@@ -139,5 +145,6 @@ export function SymbolStudyBlock({ lessonId, level, content }: { lessonId: strin
         </Part>
       ) : null}
     </BlockFrame>
+    </Reveal>
   );
 }

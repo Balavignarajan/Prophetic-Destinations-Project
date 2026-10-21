@@ -18,20 +18,20 @@ export function createShadows(colors: ColorTokens, isDark: boolean): ShadowToken
     card: Platform.select<ViewStyle>({
       ios: {
         shadowColor: colors.shadow,
-        shadowOpacity: isDark ? 0.45 : 0.14,
-        shadowRadius: isDark ? 14 : 10,
-        shadowOffset: { width: 0, height: isDark ? 6 : 4 },
+        shadowOpacity: isDark ? 0.36 : 0.14,
+        shadowRadius: isDark ? 12 : 10,
+        shadowOffset: { width: 0, height: isDark ? 5 : 4 },
       },
-      default: { elevation: isDark ? 6 : 2, shadowColor: colors.shadow },
+      default: { elevation: isDark ? 3 : 2, shadowColor: colors.shadow },
     }) as ViewStyle,
     glow: Platform.select<ViewStyle>({
       ios: {
         shadowColor: colors.primary,
-        shadowOpacity: isDark ? 0.35 : 0.3,
-        shadowRadius: 16,
+        shadowOpacity: isDark ? 0.24 : 0.22,
+        shadowRadius: 12,
         shadowOffset: { width: 0, height: 4 },
       },
-      default: { elevation: isDark ? 8 : 4, shadowColor: colors.primary },
+      default: { elevation: isDark ? 4 : 3, shadowColor: colors.primary },
     }) as ViewStyle,
   };
 }

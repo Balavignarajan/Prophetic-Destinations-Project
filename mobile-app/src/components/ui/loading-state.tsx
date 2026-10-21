@@ -1,16 +1,17 @@
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, StyleSheet } from 'react-native';
 
 import { useTheme } from '@/theme';
 
 import { AppText } from './app-text';
+import { Reveal } from './reveal';
 
 export type LoadingStateProps = { message?: string };
 
-/** Centred spinner with an optional message, announced politely to screen readers. */
+/** Centred spinner with an optional message, announced politely to screen readers. It fades in rather than popping. */
 export function LoadingState({ message = 'Loading…' }: LoadingStateProps) {
   const { colors, spacing } = useTheme();
   return (
-    <View
+    <Reveal
       accessible
       accessibilityRole="progressbar"
       accessibilityLabel={message}
@@ -20,7 +21,7 @@ export function LoadingState({ message = 'Loading…' }: LoadingStateProps) {
       <AppText variant="bodySmall" color="textMuted" align="center">
         {message}
       </AppText>
-    </View>
+    </Reveal>
   );
 }
 

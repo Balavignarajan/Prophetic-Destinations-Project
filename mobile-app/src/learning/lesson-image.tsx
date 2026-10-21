@@ -1,13 +1,14 @@
-import { useState } from 'react';
-import { ActivityIndicator, Image, Modal, type ImageLoadEventData, type NativeSyntheticEvent, Pressable, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Animated, Image, Modal, type ImageLoadEventData, type NativeSyntheticEvent, Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { API_BASE_URL } from '@/config/api';
 import { useReduceMotion } from '@/accessibility/use-reduce-motion';
-import { AppText, BlockNotice, IconButton } from '@/components/ui';
+import { AppText, BlockNotice, IconButton, Reveal } from '@/components/ui';
 import { reportBrokenAsset, useAssetUri } from '@/features/offline/offline-media';
 import type { LearningLevel } from '@/learning/levels';
 import { useTheme } from '@/theme';
+import { NATIVE_DRIVER, motion } from '@/theme/motion';
 
 /**
  * Renders a published IMAGE block (backend/src/modules/lessons/domain/blocks/image.ts):
@@ -53,6 +54,22 @@ export function LessonImage({ lessonId, level, content }: { lessonId: string; le
 
   const failed = !uri || status === 'failed';
 
+  // The picture fades in when it has loaded (a loaded picture is never hidden by this: it only changes opacity, and Reduce Motion skips it).
+  const [fade] = useState(() => new Animated.Value(0));
+  useEffect(() => {
+    if (status !== 'ready') {
+      fade.setValue(0);
+      return;
+    }
+    if (reduceMotion) {
+      fade.setValue(1);
+      return;
+    }
+    const animation = Animated.timing(fade, { toValue: 1, duration: motion.duration.selection, easing: motion.easing.standard, useNativeDriver: NATIVE_DRIVER });
+    animation.start();
+    return () => animation.stop();
+  }, [status, reduceMotion, fade]);
+
   return (
     <View style={{ gap: spacing.sm }} accessible={false}>
       {failed ? (
@@ -85,10 +102,10 @@ export function LessonImage({ lessonId, level, content }: { lessonId: string; le
           disabled={status !== 'ready'}
           onPress={() => setZoomed(true)}
           style={{ borderRadius: radius.lg, overflow: 'hidden', backgroundColor: status === 'ready' ? colors.surface : colors.surfaceElevated, aspectRatio: ratio, width: '100%' }}>
-          <Image
+          <Animated.Image
             key={attempt}
             source={{ uri }}
-            style={{ width: '100%', height: '100%' }}
+            style={{ width: '100%', height: '100%', opacity: fade }}
             resizeMode="contain"
             onLoad={onLoad}
             onError={() => {
@@ -129,7 +146,11 @@ export function LessonImage({ lessonId, level, content }: { lessonId: string; le
           </View>
           {/* tapping the picture also closes it; screen readers use the close button above, so this area is not announced as a second one */}
           <Pressable accessible={false} onPress={() => setZoomed(false)} style={{ flex: 1, width: '100%', maxWidth: layout.maxContentWidth * 2, alignSelf: 'center', padding: spacing.lg }}>
-            {uri ? <Image source={{ uri }} resizeMode="contain" accessible accessibilityRole="image" accessibilityLabel={alt || caption || 'Lesson image'} style={{ flex: 1 }} /> : null}
+            {uri ? (
+              <Reveal offset={0} scaleFrom={0.97} duration={motion.duration.modal} style={{ flex: 1 }}>
+                <Image source={{ uri }} resizeMode="contain" accessible accessibilityRole="image" accessibilityLabel={alt || caption || 'Lesson image'} style={{ flex: 1 }} />
+              </Reveal>
+            ) : null}
           </Pressable>
         </View>
       </Modal>

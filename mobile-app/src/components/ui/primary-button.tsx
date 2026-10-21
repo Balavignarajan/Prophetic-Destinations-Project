@@ -1,6 +1,5 @@
 import {
   ActivityIndicator,
-  Pressable,
   StyleSheet,
   type PressableProps,
   type StyleProp,
@@ -8,7 +7,9 @@ import {
 } from 'react-native';
 
 import { useTheme } from '@/theme';
+import { motion } from '@/theme/motion';
 
+import { AnimatedPressable, usePressMotion } from './animated-pressable';
 import { AppText } from './app-text';
 
 export type PrimaryButtonProps = Omit<PressableProps, 'style' | 'children'> & {
@@ -20,28 +21,32 @@ export type PrimaryButtonProps = Omit<PressableProps, 'style' | 'children'> & {
   style?: StyleProp<ViewStyle>;
 };
 
-/** The gold call to action. Use it once per screen for the main action. */
-export function PrimaryButton({ label, size = 'large', loading = false, disabled, style, ...rest }: PrimaryButtonProps) {
+/** The gold call to action. Use it once per screen for the main action. It shrinks slightly while pressed and eases back (not with Reduce Motion). */
+export function PrimaryButton({ label, size = 'large', loading = false, disabled, style, onPressIn, onPressOut, ...rest }: PrimaryButtonProps) {
   const { colors, layout, radius, shadows, spacing } = useTheme();
   const inactive = Boolean(disabled) || loading;
+  const press = usePressMotion({ scaleTo: motion.scale.button, disabled: inactive, onPressIn, onPressOut });
   return (
-    <Pressable
+    <AnimatedPressable
       accessibilityRole="button"
       accessibilityLabel={label}
       aria-disabled={inactive}
       aria-busy={loading}
       disabled={inactive}
       hitSlop={4}
-      style={({ pressed }) => [
+      onPressIn={press.onPressIn}
+      onPressOut={press.onPressOut}
+      style={[
         styles.base,
         {
           minHeight: size === 'small' ? layout.minTouchTarget : size === 'medium' ? layout.touchTarget : layout.buttonHeight,
           paddingHorizontal: size === 'small' ? spacing.lg : spacing.xl,
           borderRadius: radius.md,
-          backgroundColor: disabled ? colors.disabled : pressed ? colors.primaryPressed : colors.primary,
+          backgroundColor: disabled ? colors.disabled : press.pressed ? colors.primaryPressed : colors.primary,
         },
-        !inactive && !pressed ? shadows.glow : null,
+        !inactive && !press.pressed ? shadows.glow : null,
         style,
+        press.scaleStyle,
       ]}
       {...rest}>
       {loading ? (
@@ -51,7 +56,7 @@ export function PrimaryButton({ label, size = 'large', loading = false, disabled
           {label}
         </AppText>
       )}
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 

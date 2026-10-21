@@ -11,7 +11,7 @@ export function ScreenSection({ title, description, children }: { title: string;
   return (
     <View style={{ gap: spacing.md }}>
       <View style={{ gap: spacing.xs }}>
-        <AppText variant="heading" accessibilityRole="header">
+        <AppText variant="sectionHeading" accessibilityRole="header">
           {title}
         </AppText>
         {description ? (

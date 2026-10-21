@@ -4,7 +4,7 @@ import { View } from 'react-native';
 import { ApiError } from '@/api/errors';
 import type { CatalogLesson } from '@/api/types';
 import { useResource } from '@/api/use-resource';
-import { AppText, EmptyState, ErrorState, LoadingState, PrimaryButton, ScreenContainer, ScreenHeader } from '@/components/ui';
+import { AppText, Divider, EmptyState, ErrorState, LoadingState, PrimaryButton, ScreenContainer, ScreenHeader } from '@/components/ui';
 import { useLearningProgress } from '@/features/learning/learning-provider';
 import { unfinishedLessons } from '@/features/learning/progress-model';
 import { describeLoadError } from '@/features/offline/describe-offline';
@@ -75,7 +75,7 @@ export function CourseScreen() {
         {data ? (
           <>
             <View style={{ gap: spacing.lg }}>
-              {data.coverMediaId ? <CoverImage mediaId={data.coverMediaId} uri={courseCoverUrl(data.courseId, data.coverMediaId, level)} width="100%" height={180} /> : null}
+              {data.coverMediaId ? <CoverImage mediaId={data.coverMediaId} uri={courseCoverUrl(data.courseId, data.coverMediaId, level)} width="100%" aspectRatio={16 / 9} /> : null}
               <View style={{ gap: spacing.sm }}>
                 <AppText variant="bodySmall" color="primaryHighlight" style={{ fontWeight: '600' }}>
                   {LEVEL_LABELS[level]} level{allLessons.length > 0 ? ` · ${allLessons.length} ${allLessons.length === 1 ? 'lesson' : 'lessons'}` : ''}
@@ -123,6 +123,7 @@ export function CourseScreen() {
 
             {data.modules.map((module, moduleIndex) => (
               <View key={module.moduleId} style={{ gap: spacing.md }}>
+                {moduleIndex > 0 || directLessons.length > 0 ? <Divider /> : null}
                 <View style={{ gap: spacing.xs }}>
                   <AppText variant="bodySmall" color="primaryHighlight" style={{ fontWeight: '700', letterSpacing: 1 }}>
                     MODULE {String(moduleIndex + 1).padStart(2, '0')}

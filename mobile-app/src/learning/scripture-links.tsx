@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 
-import { AppText, ChevronIcon } from '@/components/ui';
+import { AppText, Reveal, TurnChevron } from '@/components/ui';
 import { ScripturePassage } from '@/learning/scripture-passage';
 import { useTheme } from '@/theme';
 
@@ -49,11 +49,13 @@ export function ScriptureLinks({ entries }: { entries: unknown }) {
               <AppText variant="bodySmall" color="primaryHighlight" style={{ fontWeight: '600', flexShrink: 1 }}>
                 {expanded ? 'Hide' : 'Read'} {name}
               </AppText>
-              <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ transform: [{ rotate: expanded ? '-90deg' : '90deg' }] }}>
-                <ChevronIcon direction="right" color="primaryHighlight" size={10} />
-              </View>
+              <TurnChevron open={expanded} size={10} />
             </Pressable>
-            {expanded ? <ScripturePassage content={entry} /> : null}
+            {expanded ? (
+              <Reveal>
+                <ScripturePassage content={entry} />
+              </Reveal>
+            ) : null}
           </View>
         );
       })}
