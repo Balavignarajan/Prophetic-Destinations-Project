@@ -1,6 +1,4 @@
-import { View } from 'react-native';
-
-import { AppText } from '@/components/ui';
+import { AppText, BlockFrame, BlockNotice } from '@/components/ui';
 import { useTheme } from '@/theme';
 
 /**
@@ -15,7 +13,7 @@ const LABELS: Record<string, string> = { REMEMBER: 'Remember', KEY_IDEA: 'Key id
 const asText = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
 
 export function CalloutBlock({ content }: { content: Record<string, unknown> }) {
-  const { spacing, colors, radius } = useTheme();
+  const { colors } = useTheme();
   const type = asText(content.calloutType);
   const label = LABELS[type];
   const body = asText(content.body);
@@ -23,31 +21,35 @@ export function CalloutBlock({ content }: { content: Record<string, unknown> }) 
 
   if (!label || !body) {
     return (
-      <View style={{ gap: spacing.xs, padding: spacing.lg, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderSubtle, backgroundColor: colors.surface }}>
-        <AppText variant="label" color="warning">
-          Callout not available
-        </AppText>
-        <AppText variant="bodySmall" color="textSecondary" accessibilityLiveRegion="polite">
-          This note could not be shown. The rest of the lesson is not affected.
-        </AppText>
-      </View>
+      <BlockNotice title="Callout not available" message="This note could not be shown. The rest of the lesson is not affected." />
     );
   }
 
+  // Each kind differs in its label AND its shape, never by colour alone:
+  //  - Remember: the plain gold-edged note.
+  //  - Key idea: a raised surface with a Cinzel title.
+  //  - Prophecy principle: a raised surface with a gold hairline across the top.
+  const keyIdea = type === 'KEY_IDEA';
+  const principle = type === 'PROPHECY_PRINCIPLE';
+  const frameStyle = keyIdea
+    ? { backgroundColor: colors.surfaceElevated }
+    : principle
+      ? { backgroundColor: colors.surfaceElevated, borderTopWidth: 1, borderTopColor: colors.borderGold }
+      : undefined;
+
   return (
-    <View
-      accessible
-      accessibilityLabel={`${label}. ${title ? `${title}. ` : ''}${body}`}
-      style={{ gap: spacing.xs, padding: spacing.lg, borderRadius: radius.md, borderLeftWidth: 6, borderLeftColor: colors.primaryHighlight, backgroundColor: colors.surface }}>
-      <AppText variant="label" color="primaryHighlight" style={{ textTransform: 'uppercase' }}>
+    <BlockFrame variant="callout" style={frameStyle} accessible accessibilityLabel={`${label}. ${title ? `${title}. ` : ''}${body}`}>
+      <AppText variant="label" color="primaryHighlight">
         {label}
       </AppText>
       {title ? (
-        <AppText variant="body" style={{ fontWeight: '700' }}>
+        <AppText variant={keyIdea ? 'heading' : 'body'} style={keyIdea ? undefined : { fontWeight: '700' }}>
           {title}
         </AppText>
       ) : null}
-      <AppText variant="body">{body}</AppText>
-    </View>
+      <AppText variant="body" style={{ fontSize: 17, lineHeight: 27 }}>
+        {body}
+      </AppText>
+    </BlockFrame>
   );
 }

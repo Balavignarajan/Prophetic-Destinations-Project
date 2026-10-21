@@ -1,6 +1,6 @@
-import { Text, type TextProps } from 'react-native';
+import { StyleSheet, Text, type TextProps, type TextStyle } from 'react-native';
 
-import { type ColorToken, type TypographyVariant, useTheme } from '@/theme';
+import { type ColorToken, type TypographyVariant, resolveFontFace, useTheme } from '@/theme';
 
 export type AppTextProps = TextProps & {
   /** Which typographic style to use. */
@@ -19,10 +19,9 @@ export function AppText({
   ...rest
 }: AppTextProps) {
   const { typography, colors } = useTheme();
-  return (
-    <Text
-      style={[typography[variant], { color: colors[color] }, align ? { textAlign: align } : null, style]}
-      {...rest}
-    />
-  );
+  const merged: TextStyle = StyleSheet.flatten([typography[variant], { color: colors[color] }, align ? { textAlign: align } : null, style]);
+  // Inter and EB Garamond are separate font files per weight/style: pick the real face for a bold or italic override.
+  const face = resolveFontFace(merged.fontFamily, merged.fontWeight, merged.fontStyle);
+  if (!face) return <Text style={merged} {...rest} />;
+  return <Text style={[merged, { fontFamily: face.fontFamily, fontWeight: 'normal', fontStyle: face.italicIncluded ? 'normal' : merged.fontStyle }]} {...rest} />;
 }

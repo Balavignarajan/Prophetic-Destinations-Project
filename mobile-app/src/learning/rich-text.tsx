@@ -12,6 +12,9 @@ import { useTheme } from '@/theme';
 type Mark = { type?: unknown; attrs?: { href?: unknown } };
 type RichNode = { type?: unknown; text?: unknown; marks?: unknown; content?: unknown; attrs?: unknown };
 
+/** Long-form prose: Inter at 17/28 (Scripture keeps EB Garamond in its own block). */
+const READING: TextStyle = { fontSize: 17, lineHeight: 28 };
+
 const LINK_SCHEMES = /^(https?:|mailto:)/i;
 
 const asNodes = (value: unknown): RichNode[] => (Array.isArray(value) ? (value as RichNode[]) : []);
@@ -24,8 +27,9 @@ export function RichTextContent({ content }: { content: Record<string, unknown> 
 
 function Blocks({ nodes, depth }: { nodes: RichNode[]; depth: number }) {
   const { spacing } = useTheme();
+  // Top-level paragraphs and lists get more air than the content nested inside a list item.
   return (
-    <View style={{ gap: spacing.md }}>
+    <View style={{ gap: depth === 0 ? spacing.lg : spacing.sm }}>
       {nodes.map((node, index) => {
         if (node.type === 'paragraph') return <Paragraph key={index} node={node} />;
         if (node.type === 'bulletList' || node.type === 'orderedList') {
@@ -41,10 +45,10 @@ function List({ node, ordered, depth }: { node: RichNode; ordered: boolean; dept
   const { spacing, typography, colors } = useTheme();
   const items = asNodes(node.content).filter((item) => item.type === 'listItem');
   return (
-    <View style={{ gap: spacing.sm, paddingLeft: depth > 0 ? spacing.md : 0 }}>
+    <View style={{ gap: spacing.sm, paddingLeft: depth > 0 ? spacing.lg : spacing.xs }}>
       {items.map((item, index) => (
         <View key={index} style={{ flexDirection: 'row', gap: spacing.sm }}>
-          <Text style={[typography.scripture, { color: colors.primaryHighlight, minWidth: 22 }]} accessibilityElementsHidden>
+          <Text style={[typography.body, READING, { color: colors.primaryHighlight, minWidth: ordered ? 28 : 16 }]} accessibilityElementsHidden>
             {ordered ? `${index + 1}.` : '•'}
           </Text>
           <View style={{ flex: 1 }}>
@@ -59,7 +63,7 @@ function List({ node, ordered, depth }: { node: RichNode; ordered: boolean; dept
 function Paragraph({ node }: { node: RichNode }) {
   const { typography, colors } = useTheme();
   return (
-    <Text style={[typography.scripture, { color: colors.textPrimary }]}>
+    <Text style={[typography.body, READING, { color: colors.textPrimary }]}>
       {asNodes(node.content).map((child, index) => (
         <Inline key={index} node={child} />
       ))}
@@ -68,13 +72,16 @@ function Paragraph({ node }: { node: RichNode }) {
 }
 
 function Inline({ node }: { node: RichNode }) {
-  const { colors } = useTheme();
+  const { colors, fontFamilies } = useTheme();
   if (node.type !== 'text' || typeof node.text !== 'string') return null;
   const marks = (Array.isArray(node.marks) ? node.marks : []) as Mark[];
   const style: TextStyle = {};
   let href: string | null = null;
   for (const mark of marks) {
-    if (mark.type === 'bold') style.fontWeight = '700';
+    if (mark.type === 'bold') {
+      style.fontFamily = fontFamilies.sansBold; // a custom font has no weight axis: use the real bold face
+      style.fontWeight = 'normal';
+    }
     else if (mark.type === 'italic') style.fontStyle = 'italic';
     else if (mark.type === 'link' && typeof mark.attrs?.href === 'string' && LINK_SCHEMES.test(mark.attrs.href)) {
       href = mark.attrs.href;
@@ -85,8 +92,9 @@ function Inline({ node }: { node: RichNode }) {
     return (
       <Text
         accessibilityRole="link"
+        accessibilityHint="Opens a link outside this lesson"
         onPress={() => void Linking.openURL(target).catch(() => undefined)}
-        style={[style, { color: colors.primaryHighlight, textDecorationLine: 'underline' }]}>
+        style={[style, { color: colors.primaryHighlight, textDecorationLine: 'underline', fontFamily: style.fontFamily ?? fontFamilies.sansMedium }]}>
         {node.text}
       </Text>
     );

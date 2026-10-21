@@ -1,7 +1,7 @@
 import { useRouter } from 'expo-router';
 import { Text, View } from 'react-native';
 
-import { AppText, SecondaryButton } from '@/components/ui';
+import { AppText, BlockFrame, BlockNotice, SecondaryButton } from '@/components/ui';
 import { bibleReadHref, referenceFromFrozen } from '@/features/scripture/bible-navigation';
 import { getScriptureAvailability } from '@/features/scripture/scripture-lookup';
 import { useTheme } from '@/theme';
@@ -57,58 +57,58 @@ function readPassage(content: Record<string, unknown>) {
 }
 
 export function ScripturePassage({ content }: { content: Record<string, unknown> }) {
-  const { spacing, colors, radius, typography } = useTheme();
+  const { spacing, colors, typography, fontFamilies } = useTheme();
   const router = useRouter();
   const passage = readPassage(content);
   const bible = getScriptureAvailability();
 
   if (!passage) {
     return (
-      <View style={{ gap: spacing.xs, padding: spacing.lg, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderSubtle, backgroundColor: colors.surface }}>
-        <AppText variant="label" color="warning">
-          Scripture passage not available
-        </AppText>
-        <AppText variant="bodySmall" color="textSecondary" accessibilityLiveRegion="polite">
-          This passage could not be shown, so nothing is shown in its place. The rest of the lesson is not affected.
-        </AppText>
-      </View>
+      <BlockNotice title="Scripture passage not available" message="This passage could not be shown, so nothing is shown in its place. The rest of the lesson is not affected." />
     );
   }
 
+  const multiple = passage.verses.length > 1;
   return (
-    <View style={{ gap: spacing.md }}>
-      <View style={{ gap: spacing.sm, padding: spacing.lg, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderGold, backgroundColor: colors.surface }}>
+    <View style={{ gap: spacing.lg }}>
+      {/* Scripture: a calm surface with a single antique-gold rule on its leading edge. The text is exactly the published passage. */}
+      <BlockFrame
+        variant="scripture"
+        style={{ borderWidth: 0, borderLeftWidth: 3, borderLeftColor: colors.primary, gap: spacing.md, paddingVertical: spacing.lg, paddingHorizontal: spacing.xl }}>
         <AppText variant="label" color="primaryHighlight" accessibilityRole="header">
           {passage.display}
         </AppText>
-        <Text style={[typography.scripture, { color: colors.textPrimary }]} accessibilityLabel={`${passage.display}. ${passage.verses.map((v) => `Verse ${v.verse}. ${v.text}`).join(' ')}`}>
-          {passage.verses.map((v) => `${passage.verses.length > 1 ? `${v.verse} ` : ''}${v.text}`).join(' ')}
+        <Text
+          style={[typography.scripture, { color: colors.textBright, fontSize: 20, lineHeight: 32 }]}
+          accessibilityLabel={`${passage.display}. ${passage.verses.map((v) => `Verse ${v.verse}. ${v.text}`).join(' ')}`}>
+          {passage.verses.map((v, index) => (
+            <Text key={v.verse}>
+              {multiple ? <Text style={{ color: colors.primaryHighlight, fontFamily: fontFamilies.sansSemiBold, fontSize: 13 }}>{v.verse} </Text> : null}
+              {v.text}
+              {index < passage.verses.length - 1 ? ' ' : ''}
+            </Text>
+          ))}
         </Text>
         <AppText variant="caption" color="textMuted">
           {passage.translation}
           {passage.edition ? `, ${passage.edition}` : ''}
         </AppText>
-        {passage.reference ? (
-          <View style={{ gap: spacing.xs }}>
-            <SecondaryButton
-              label={`Open ${passage.display} in the Bible`}
-              disabled={!bible.available}
-              onPress={() => passage.reference && router.push(bibleReadHref(passage.reference, passage.published))}
-            />
-            {!bible.available ? (
-              <AppText variant="caption" color="textMuted" accessibilityLiveRegion="polite">
-                The Bible is not included in this version of the app yet. This passage stays here as published.
-              </AppText>
-            ) : null}
-          </View>
+        {/* Only offered when the Bible text is in the app; when it is not, the passage simply stands on its own. */}
+        {passage.reference && bible.available ? (
+          <SecondaryButton
+            size="small"
+            label={`Open ${passage.display} in the Bible`}
+            style={{ alignSelf: 'flex-start' }}
+            onPress={() => passage.reference && router.push(bibleReadHref(passage.reference, passage.published))}
+          />
         ) : null}
-      </View>
+      </BlockFrame>
       {passage.commentary ? (
-        <View style={{ gap: spacing.xs }}>
-          <AppText variant="caption" color="textMuted" style={{ textTransform: 'uppercase' }}>
+        <View style={{ gap: spacing.xs, paddingHorizontal: spacing.xs }}>
+          <AppText variant="bodySmall" color="textMuted" style={{ fontWeight: '600' }}>
             Author commentary
           </AppText>
-          <AppText variant="body" color="textSecondary">
+          <AppText variant="body" color="textSecondary" style={{ fontSize: 17, lineHeight: 28 }}>
             {passage.commentary}
           </AppText>
         </View>

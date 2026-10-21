@@ -1,6 +1,6 @@
 import { View } from 'react-native';
 
-import { AppText } from '@/components/ui';
+import { AppText, BlockNotice } from '@/components/ui';
 import { LessonImage } from '@/learning/lesson-image';
 import { ScriptureLinks } from '@/learning/scripture-links';
 import type { LearningLevel } from '@/learning/levels';
@@ -52,47 +52,37 @@ export function TimelineContent({ lessonId, level, content }: { lessonId: string
 
   if (!events) {
     return (
-      <View style={{ gap: spacing.xs, padding: spacing.lg, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderSubtle, backgroundColor: colors.surface }}>
-        <AppText variant="label" color="warning">
-          Timeline not available
-        </AppText>
-        <AppText variant="bodySmall" color="textSecondary" accessibilityLiveRegion="polite">
-          This lesson has a timeline that could not be shown completely, so it is hidden rather than shown with events missing. The rest of the lesson is not
-          affected.
-        </AppText>
-      </View>
+      <BlockNotice title="Timeline not available" message="This lesson has a timeline that could not be shown completely, so it is hidden rather than shown with events missing. The rest of the lesson is not affected." />
     );
   }
   const heading = asText(content.heading);
 
   return (
-    <View style={{ gap: spacing.md }} accessible={false}>
-      <AppText variant="heading" accessibilityRole="header">
+    <View style={{ gap: spacing.lg }} accessible={false}>
+      <AppText variant="sectionHeading" accessibilityRole="header">
         {heading || 'Timeline'}
       </AppText>
-      <View style={{ gap: spacing.md }}>
+      <View>
         {events.map((event, index) => (
-          <View key={event.id} style={{ flexDirection: 'row', gap: spacing.md }}>
+          <View key={event.id} style={{ flexDirection: 'row', gap: spacing.lg }}>
             <View style={{ alignItems: 'center' }} importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
-              <View style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: colors.borderGold, alignItems: 'center', justifyContent: 'center' }}>
-                <AppText variant="caption" color="primaryHighlight" style={{ fontWeight: '700' }}>
+              <View style={{ width: 32, height: 32, borderRadius: 16, borderWidth: 2, borderColor: colors.primary, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' }}>
+                <AppText variant="caption" color="primaryHighlight" style={{ fontWeight: '700' }} allowFontScaling={false}>
                   {index + 1}
                 </AppText>
               </View>
-              {index < events.length - 1 ? <View style={{ flex: 1, width: 2, marginTop: 2, backgroundColor: colors.borderSubtle, borderRadius: radius.sm }} /> : null}
+              {index < events.length - 1 ? <View style={{ flex: 1, width: 2, marginVertical: 2, backgroundColor: colors.borderGold, borderRadius: radius.sm }} /> : null}
             </View>
-            <View style={{ flex: 1, gap: spacing.sm, paddingBottom: spacing.sm }}>
+            <View style={{ flex: 1, gap: spacing.md, paddingBottom: index < events.length - 1 ? spacing.xl : 0 }}>
               <View
                 accessible
                 accessibilityLabel={`Event ${index + 1} of ${events.length}. ${event.dateLabel}. ${event.title}. ${event.explanation}`}
                 style={{ gap: spacing.xs }}>
-                <AppText variant="label" color="primaryHighlight">
+                <AppText variant="bodySmall" color="primaryHighlight" style={{ fontWeight: '700' }}>
                   {event.dateLabel}
                 </AppText>
-                <AppText variant="body" style={{ fontWeight: '700' }}>
-                  {event.title}
-                </AppText>
-                <AppText variant="bodySmall" color="textSecondary">
+                <AppText variant="heading">{event.title}</AppText>
+                <AppText variant="body" color="textSecondary" style={{ fontSize: 16, lineHeight: 25 }}>
                   {event.explanation}
                 </AppText>
               </View>

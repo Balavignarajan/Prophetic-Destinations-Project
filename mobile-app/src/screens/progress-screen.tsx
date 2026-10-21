@@ -2,17 +2,18 @@ import { useRouter } from 'expo-router';
 import { View } from 'react-native';
 
 import { useResource } from '@/api/use-resource';
-import { AppText, Card, EmptyState, ScreenContainer, ScreenHeader, SectionHeader } from '@/components/ui';
+import { AppText, Card, ChevronIcon, EmptyState, PageHeading, ScreenContainer, ScreenSection } from '@/components/ui';
 import { useLearningProgress } from '@/features/learning/learning-provider';
-import { completedLessons, quizResultsList, summarise, unfinishedLessons } from '@/features/learning/progress-model';
+import { completedLessons, continueTarget, quizResultsList, summarise, unfinishedLessons } from '@/features/learning/progress-model';
 import { loadCourseList } from '@/features/offline/offline-api';
+import { ContinueCard } from '@/learning/continue-card';
 import { LEVEL_LABELS } from '@/learning/levels';
 import { useLearningLevel } from '@/learning/use-learning-level';
 import { useTheme } from '@/theme';
 
 /**
- * Progress: lessons completed and remaining, and the lessons in progress, all from this device. The remaining count comes from the
- * published catalog at the learner's level (live, or its saved copy); with neither it is simply not shown, never guessed.
+ * Progress: lessons completed and in progress, the quiz results saved on this device, and a way to continue. Everything comes from this device;
+ * the "remaining" count comes from the published catalog at the learner's level (live, or its saved copy) and is left out when that is unknown.
  *
  * There is deliberately NO "overall progress" percentage: the specification does not define the formula (decision C-14). Quiz scores are the
  * latest completed result of each quiz block taken on this device (provisional rule, see QuizResult); a lesson counts as complete on its own,
@@ -24,107 +25,181 @@ export function ProgressScreen() {
   const { level, ready } = useLearningLevel();
   const { progress } = useLearningProgress();
   const [courses] = useResource(ready ? `courses:${level}` : null, (signal) => loadCourseList(level, signal));
-  const total = courses.status === 'success' ? courses.data.value.courses.reduce((sum, course) => sum + course.lessonCount, 0) : null;
+  const courseList = courses.status === 'success' ? courses.data.value.courses : [];
+  const total = courses.status === 'success' ? courseList.reduce((sum, course) => sum + course.lessonCount, 0) : null;
   const summary = summarise(progress, level, total);
   const unfinished = unfinishedLessons(progress);
+  const resume = continueTarget(progress);
+  const others = resume ? unfinished.slice(1) : unfinished;
   const done = completedLessons(progress);
   const quizzes = quizResultsList(progress.quizResults);
+  const hasAnything = unfinished.length + done.length + quizzes.length > 0;
+  // The course name is only known when the resumed lesson is at the level whose course list is loaded.
+  const resumeCourse = resume && resume.level === level && resume.courseId ? courseList.find((course) => course.courseId === resume.courseId) : undefined;
   const open = (lessonId: string, lessonLevel: string) => router.push({ pathname: '/lesson/[lessonId]', params: { lessonId, level: lessonLevel } });
+  const levelLine = `${LEVEL_LABELS[level]} level: ${summary.completedAtLevel} completed${summary.remainingAtLevel !== null ? ` · ${summary.remainingAtLevel} remaining of ${total} available` : ''}`;
 
   return (
     <ScreenContainer scroll>
-      <ScreenHeader title="Progress" onBack={null} />
       <View style={{ gap: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.xxl }}>
-        <Card>
+        <PageHeading title="Your Progress" description="See how far you've come in your learning journey." />
+
+        {!hasAnything ? (
+          <EmptyState
+            variant="card"
+            title="Your journey starts here"
+            message="Lessons you start appear here, so you can pick up where you stopped. Completed lessons and quiz results are listed too. Everything is kept on this device."
+            action={{ label: 'Browse courses', onPress: () => router.push('/learn') }}
+          />
+        ) : (
           <View style={{ gap: spacing.md }}>
-            <View style={{ gap: spacing.xs }}>
-              <AppText variant="label" color="textMuted">
-                {LEVEL_LABELS[level]} level
-              </AppText>
-              <AppText variant="heading">
-                {summary.completedAtLevel} {summary.completedAtLevel === 1 ? 'lesson' : 'lessons'} completed
-              </AppText>
-              <AppText variant="bodySmall" color="textSecondary">
-                {summary.remainingAtLevel === null
-                  ? 'Lessons remaining: not available until the course list has loaded once.'
-                  : `${summary.remainingAtLevel} remaining of ${total} published`}
-              </AppText>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md }}>
+              <StatTile value={summary.completed} label="Completed" spoken={`${summary.completed} ${summary.completed === 1 ? 'lesson' : 'lessons'} completed`} />
+              <StatTile value={summary.inProgress} label="In progress" spoken={`${summary.inProgress} ${summary.inProgress === 1 ? 'lesson' : 'lessons'} in progress`} />
+              <StatTile value={quizzes.length} label={quizzes.length === 1 ? 'Quiz taken' : 'Quizzes taken'} spoken={`${quizzes.length} ${quizzes.length === 1 ? 'quiz' : 'quizzes'} taken`} />
             </View>
-            <AppText variant="caption" color="textMuted">
-              {summary.completed} completed across all levels · {summary.inProgress} in progress
+            <AppText variant="bodySmall" color="textSecondary">
+              {levelLine}
             </AppText>
           </View>
-        </Card>
+        )}
 
-        <View style={{ gap: spacing.md }}>
-          <SectionHeader title="In progress" />
-          {unfinished.length === 0 ? (
-            <EmptyState title="Nothing in progress" message="Lessons you start and do not finish appear here, so you can continue where you stopped." />
-          ) : (
-            unfinished.map((lesson) => (
-              <Card
+        {resume ? (
+          <ContinueCard
+            lessonTitle={resume.title}
+            courseTitle={resumeCourse?.title}
+            level={resume.level}
+            onPress={() => open(resume.lessonId, resume.level)}
+          />
+        ) : null}
+
+        {others.length > 0 ? (
+          <ScreenSection title={resume ? 'Also in progress' : 'In progress'}>
+            {others.map((lesson) => (
+              <LessonEntry
                 key={`${lesson.lessonId}:${lesson.level}`}
-                variant="outlined"
+                title={lesson.title}
+                meta={`${LEVEL_LABELS[lesson.level]} level${dateOf(lesson.at) ? ` · Last visited ${dateOf(lesson.at)}` : ''}`}
                 onPress={() => open(lesson.lessonId, lesson.level)}
-                accessibilityLabel={`Continue ${lesson.title}, ${LEVEL_LABELS[lesson.level]} level`}>
-                <View style={{ gap: spacing.xs }}>
-                  <AppText variant="heading">{lesson.title}</AppText>
-                  <AppText variant="caption" color="textMuted">
-                    {LEVEL_LABELS[lesson.level]} level · tap to continue
-                  </AppText>
-                </View>
-              </Card>
-            ))
-          )}
-        </View>
+                accessibilityLabel={`Continue ${lesson.title}, ${LEVEL_LABELS[lesson.level]} level`}
+              />
+            ))}
+          </ScreenSection>
+        ) : null}
 
-        <View style={{ gap: spacing.md }}>
-          <SectionHeader title="Completed" />
-          {done.length === 0 ? (
-            <AppText variant="bodySmall" color="textSecondary">
-              Lessons you mark as complete are listed here.
-            </AppText>
-          ) : (
-            done.map((lesson) => (
-              <Card
+        {done.length > 0 ? (
+          <ScreenSection title="Completed">
+            {done.map((lesson) => (
+              <LessonEntry
                 key={`${lesson.lessonId}:${lesson.level}`}
+                done
+                title={lesson.title}
+                meta={`Completed${dateOf(lesson.completedAt) ? ` ${dateOf(lesson.completedAt)}` : ''} · ${LEVEL_LABELS[lesson.level]} level`}
                 onPress={() => open(lesson.lessonId, lesson.level)}
-                accessibilityLabel={`${lesson.title}, ${LEVEL_LABELS[lesson.level]} level, completed. Open again.`}>
-                <View style={{ gap: spacing.xs }}>
-                  <AppText variant="body">{lesson.title}</AppText>
-                  <AppText variant="caption" color="success">
-                    ✓ Completed · {LEVEL_LABELS[lesson.level]} level
-                  </AppText>
-                </View>
-              </Card>
-            ))
-          )}
-        </View>
+                accessibilityLabel={`${lesson.title}, ${LEVEL_LABELS[lesson.level]} level, completed. Open again.`}
+              />
+            ))}
+          </ScreenSection>
+        ) : null}
 
-        <View style={{ gap: spacing.md }}>
-          <SectionHeader title="Quiz scores" />
-          {quizzes.length === 0 ? (
-            <AppText variant="bodySmall" color="textSecondary">
-              Quizzes you finish are listed here with your latest score.
-            </AppText>
-          ) : (
-            quizzes.map((quiz) => (
+        {quizzes.length > 0 ? (
+          <ScreenSection title="Quiz results" description="Your latest result for each quiz, saved on this device.">
+            {quizzes.map((quiz) => (
               <Card
                 key={`${quiz.lessonId}:${quiz.level}:${quiz.blockId}`}
-                variant="outlined"
                 onPress={() => open(quiz.lessonId, quiz.level)}
                 accessibilityLabel={`Quiz in ${quiz.lessonTitle || 'a lesson'}, ${LEVEL_LABELS[quiz.level]} level. Latest score ${quiz.score} of ${quiz.total}. Open the lesson.`}>
-                <View style={{ gap: spacing.xs }}>
-                  <AppText variant="body">{quiz.lessonTitle || 'Lesson quiz'}</AppText>
-                  <AppText variant="caption" color="textMuted">
-                    {quiz.score} of {quiz.total} correct · latest result · {LEVEL_LABELS[quiz.level]} level · {new Date(quiz.completedAt).toLocaleDateString()}
-                  </AppText>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <AppText variant="body" style={{ fontWeight: '600' }}>
+                      {quiz.lessonTitle || 'Lesson quiz'}
+                    </AppText>
+                    <AppText variant="bodySmall" color="textMuted">
+                      {[dateOf(quiz.completedAt), `${LEVEL_LABELS[quiz.level]} level`].filter(Boolean).join(' · ')}
+                    </AppText>
+                  </View>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <AppText variant="heading" color="primaryHighlight">
+                      {quiz.score} of {quiz.total}
+                    </AppText>
+                    <AppText variant="bodySmall" color="textMuted">
+                      correct
+                    </AppText>
+                  </View>
+                  <ChevronIcon direction="right" color="textMuted" />
                 </View>
               </Card>
-            ))
-          )}
-        </View>
+            ))}
+          </ScreenSection>
+        ) : null}
       </View>
     </ScreenContainer>
+  );
+}
+
+function dateOf(time: number): string {
+  try {
+    return new Date(time).toLocaleDateString(undefined, { dateStyle: 'medium' });
+  } catch {
+    return '';
+  }
+}
+
+/** One count, big, with its label. Wraps onto a new line on a narrow screen or at a large font size. */
+function StatTile({ value, label, spoken }: { value: number; label: string; spoken: string }) {
+  const { spacing } = useTheme();
+  return (
+    <Card style={{ flexGrow: 1, flexBasis: 96 }}>
+      <View accessible accessibilityLabel={spoken} style={{ gap: spacing.xs }}>
+        <AppText variant="title" color="primaryHighlight">
+          {value}
+        </AppText>
+        <AppText variant="bodySmall" color="textSecondary">
+          {label}
+        </AppText>
+      </View>
+    </Card>
+  );
+}
+
+/** A lesson in a list. Completed lessons carry a check badge AND the word "Completed", so the state is never colour alone. */
+function LessonEntry({
+  title,
+  meta,
+  done = false,
+  onPress,
+  accessibilityLabel,
+}: {
+  title: string;
+  meta: string;
+  done?: boolean;
+  onPress: () => void;
+  accessibilityLabel: string;
+}) {
+  const { colors, spacing } = useTheme();
+  return (
+    <Card onPress={onPress} accessibilityLabel={accessibilityLabel}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+        {done ? (
+          <View
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: colors.success, alignItems: 'center', justifyContent: 'center' }}>
+            <AppText variant="caption" color="onPrimary" style={{ fontWeight: '700' }} allowFontScaling={false}>
+              ✓
+            </AppText>
+          </View>
+        ) : null}
+        <View style={{ flex: 1, gap: 2 }}>
+          <AppText variant="body" style={{ fontWeight: '600' }}>
+            {title}
+          </AppText>
+          <AppText variant="bodySmall" color={done ? 'success' : 'textMuted'} style={done ? { fontWeight: '600' } : undefined}>
+            {meta}
+          </AppText>
+        </View>
+        <ChevronIcon direction="right" color="textMuted" />
+      </View>
+    </Card>
   );
 }

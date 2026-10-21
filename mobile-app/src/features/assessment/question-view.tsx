@@ -16,16 +16,19 @@ type Props = {
   required: boolean;
 };
 
-/** One single-choice question: progress, the question text and its answers as a radio list. Selecting again changes the answer. */
+/**
+ * One single-choice question: progress, the question text and its answers as a radio list. Selecting again changes the answer.
+ * No answer is marked right or wrong: the assessment only suggests a level.
+ */
 export function QuestionView({ question, index, total, selectedOptionId, onSelect, required }: Props) {
   const { spacing } = useTheme();
   return (
     <View style={{ gap: spacing.lg }}>
       <ProgressIndicator value={(index + 1) / total} label={`Question ${index + 1} of ${total}`} showPercent={false} />
-      <AppText variant="heading" accessibilityRole="header">
+      <AppText variant="body" accessibilityRole="header" style={{ fontSize: 18, lineHeight: 27, fontWeight: '600' }}>
         {question.prompt}
       </AppText>
-      <AppText variant="caption" color="textMuted">
+      <AppText variant="bodySmall" color="textMuted">
         {required ? 'Choose one answer to continue.' : 'Choose one answer, or skip this question.'}
       </AppText>
       <View accessibilityRole="radiogroup" accessibilityLabel={`Answers to question ${index + 1}`} style={{ gap: spacing.md }}>

@@ -1,6 +1,6 @@
 import { View } from 'react-native';
 
-import { AppText } from '@/components/ui';
+import { AppText, BlockFrame, BlockNotice } from '@/components/ui';
 import { ScriptureLinks } from '@/learning/scripture-links';
 import { useTheme } from '@/theme';
 
@@ -28,14 +28,7 @@ const strictList = (value: unknown): Record<string, unknown>[] | null => (Array.
 function Incomplete({ what }: { what: string }) {
   const { spacing, colors, radius } = useTheme();
   return (
-    <View style={{ gap: spacing.xs, padding: spacing.lg, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderSubtle, backgroundColor: colors.surface }}>
-      <AppText variant="label" color="warning">
-        {what} is incomplete
-      </AppText>
-      <AppText variant="bodySmall" color="textSecondary" accessibilityLiveRegion="polite">
-        Part of this block could not be read, so none of it is shown rather than a shortened version. The rest of the lesson is not affected.
-      </AppText>
-    </View>
+    <BlockNotice title={`${what} is incomplete`} message="Part of this block could not be read, so none of it is shown rather than a shortened version. The rest of the lesson is not affected." />
   );
 }
 
@@ -46,7 +39,7 @@ function OptionalScripture({ entries }: { entries: unknown }) {
   if (!Array.isArray(entries)) {
     return (
       <View style={{ paddingTop: spacing.xs }}>
-        <AppText variant="caption" color="warning" accessibilityLiveRegion="polite">
+        <AppText variant="bodySmall" color="warning" accessibilityLiveRegion="polite">
           The Scripture for this item could not be shown.
         </AppText>
       </View>
@@ -58,7 +51,7 @@ function OptionalScripture({ entries }: { entries: unknown }) {
 function Labelled({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <View style={{ gap: 2 }}>
-      <AppText variant="caption" color="textMuted">
+      <AppText variant="bodySmall" color="textMuted" style={{ fontWeight: '600' }}>
         {label}
       </AppText>
       {children}
@@ -66,10 +59,12 @@ function Labelled({ label, children }: { label: string; children: React.ReactNod
   );
 }
 
-function Card({ children, strong = false }: { children: React.ReactNode; strong?: boolean }) {
-  const { spacing, colors, radius } = useTheme();
+/** One panel of a prophecy block: a raised surface, or (strong) the gold-edged interactive frame. */
+function Panel({ children, strong = false }: { children: React.ReactNode; strong?: boolean }) {
   return (
-    <View style={{ gap: spacing.sm, padding: spacing.lg, borderRadius: radius.md, borderWidth: 1, borderColor: strong ? colors.borderGold : colors.borderSubtle, backgroundColor: colors.surface }}>{children}</View>
+    <BlockFrame variant={strong ? 'interactive' : 'evidence'} style={{ gap: 12 }}>
+      {children}
+    </BlockFrame>
   );
 }
 
@@ -81,24 +76,34 @@ export function EquivalenceBlock({ content }: { content: Record<string, unknown>
   const concept = content.concept as string;
 
   return (
-    <View style={{ gap: spacing.md }}>
-      <View style={{ gap: 2 }}>
-        <AppText variant="label" color="primaryHighlight">
+    <View style={{ gap: spacing.lg }}>
+      <View style={{ gap: spacing.xs }}>
+        <AppText variant="bodySmall" color="primaryHighlight" style={{ fontWeight: '700' }}>
           Prophecy equivalence
         </AppText>
-        <AppText variant="heading" accessibilityRole="header">
+        <AppText variant="sectionHeading" accessibilityRole="header">
           {concept}
         </AppText>
       </View>
-      <View style={{ gap: spacing.sm, borderLeftWidth: 3, borderLeftColor: colors.borderGold, paddingLeft: spacing.md }}>
+      <View style={{ gap: spacing.md }}>
         {items.map((item, index) => (
-          <Card key={index}>
-            <AppText variant="body" accessibilityLabel={`Expression ${index + 1} of ${items.length}, equivalent to ${concept}: ${item.expression as string}`}>
-              {item.expression as string}
-            </AppText>
-            {isText(item.label) ? <AppText variant="bodySmall" color="textSecondary">{item.label}</AppText> : null}
-            <OptionalScripture entries={item.scripture} />
-          </Card>
+          <View key={index} style={{ flexDirection: 'row', gap: spacing.md, alignItems: 'stretch' }}>
+            {/* the "equals" mark joins each expression to the concept above; it is decorative, the screen-reader label says "equivalent to" */}
+            <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ width: 28, alignItems: 'center', paddingTop: spacing.lg }}>
+              <AppText variant="heading" color="primaryHighlight">
+                =
+              </AppText>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Panel>
+                <AppText variant="body" style={{ fontSize: 17, lineHeight: 26, fontWeight: '600' }} accessibilityLabel={`Expression ${index + 1} of ${items.length}, equivalent to ${concept}: ${item.expression as string}`}>
+                  {item.expression as string}
+                </AppText>
+                {isText(item.label) ? <AppText variant="bodySmall" color="textSecondary">{item.label}</AppText> : null}
+                <OptionalScripture entries={item.scripture} />
+              </Panel>
+            </View>
+          </View>
         ))}
       </View>
     </View>
@@ -119,13 +124,14 @@ export function ComparisonBlock({ content }: { content: Record<string, unknown> 
   if (!valid || !entities) return <Incomplete what="Prophecy comparison" />;
 
   return (
-    <View style={{ gap: spacing.md }}>
-      <AppText variant="heading" accessibilityRole="header">
+    <View style={{ gap: spacing.lg }}>
+      <AppText variant="sectionHeading" accessibilityRole="header">
         {isText(content.title) ? content.title : 'Prophecy comparison'}
       </AppText>
+      {/* stacked, one panel per compared item, so nothing needs sideways scrolling on a phone */}
       {entities.map((entity, index) => (
-        <Card key={index} strong>
-          <AppText variant="label" color="primaryHighlight" accessibilityRole="header">
+        <Panel key={index} strong>
+          <AppText variant="heading" color="primaryHighlight" accessibilityRole="header">
             {entity.name as string}
           </AppText>
           {(rowsOf(entity) ?? []).map((row, r) => (
@@ -136,17 +142,19 @@ export function ComparisonBlock({ content }: { content: Record<string, unknown> 
           <OptionalScripture entries={entity.scripture} />
           {isText(entity.explanation) ? (
             <Labelled label="Explanation">
-              <AppText variant="body">{entity.explanation}</AppText>
+              <AppText variant="body" color="textSecondary">
+                {entity.explanation}
+              </AppText>
             </Labelled>
           ) : null}
-        </Card>
+        </Panel>
       ))}
     </View>
   );
 }
 
 export function CalculationBlock({ content }: { content: Record<string, unknown> }) {
-  const { spacing } = useTheme();
+  const { spacing, colors } = useTheme();
   const steps = strictList(content.steps);
   const valid =
     steps !== null &&
@@ -155,31 +163,39 @@ export function CalculationBlock({ content }: { content: Record<string, unknown>
   if (!valid || !steps) return <Incomplete what="Prophecy calculation" />;
 
   return (
-    <View style={{ gap: spacing.md }}>
-      <AppText variant="heading" accessibilityRole="header">
+    <View style={{ gap: spacing.lg }}>
+      <AppText variant="sectionHeading" accessibilityRole="header">
         {isText(content.title) ? content.title : 'Prophecy calculation'}
       </AppText>
       {steps.map((step, index) => (
-        <Card key={index}>
-          <AppText variant="label" color="primaryHighlight">
+        <Panel key={index}>
+          <AppText variant="bodySmall" color="primaryHighlight" style={{ fontWeight: '700' }}>
             Step {index + 1}
           </AppText>
           <Labelled label="Value">
-            <AppText variant="body">{step.value as string}</AppText>
+            <AppText variant="body" style={{ fontSize: 17, lineHeight: 26 }}>
+              {step.value as string}
+            </AppText>
           </Labelled>
           {isText(step.operator) ? (
             <Labelled label="Operator or explanation">
-              <AppText variant="body">{step.operator}</AppText>
+              <AppText variant="body" color="textSecondary">
+                {step.operator}
+              </AppText>
             </Labelled>
           ) : null}
-          <Labelled label="Result">
-            <AppText variant="body" style={{ fontWeight: '700' }}>
+          {/* the author's result, set apart so it is easy to find; shown exactly as written */}
+          <View style={{ gap: 2, paddingLeft: spacing.md, borderLeftWidth: 3, borderLeftColor: colors.primary }}>
+            <AppText variant="bodySmall" color="textMuted" style={{ fontWeight: '600' }}>
+              Result
+            </AppText>
+            <AppText variant="body" style={{ fontSize: 18, lineHeight: 27, fontWeight: '700' }}>
               {step.result as string}
             </AppText>
-          </Labelled>
-        </Card>
+          </View>
+        </Panel>
       ))}
-      <AppText variant="caption" color="textMuted">
+      <AppText variant="bodySmall" color="textMuted">
         Steps and results are shown as written by the author.
       </AppText>
     </View>

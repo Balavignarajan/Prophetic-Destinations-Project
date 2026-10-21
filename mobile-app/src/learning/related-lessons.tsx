@@ -2,7 +2,7 @@ import { useRouter } from 'expo-router';
 import { Pressable, View } from 'react-native';
 
 import { useResource } from '@/api/use-resource';
-import { AppText } from '@/components/ui';
+import { AppText, ChevronIcon } from '@/components/ui';
 import { loadRelated } from '@/features/offline/offline-api';
 import { CoverImage, lessonCoverUrl } from '@/learning/cover-image';
 import type { RelatedLessonItem } from '@/api/types';
@@ -46,7 +46,7 @@ export function RelatedLessonCards({ lessons, level, heading, listNote }: { less
 
   return (
     <View style={{ gap: spacing.md }}>
-      <AppText variant="heading" accessibilityRole="header">
+      <AppText variant="sectionHeading" accessibilityRole="header">
         {heading}
       </AppText>      <View style={{ gap: spacing.sm }}>
         {lessons.map((item) => (
@@ -61,16 +61,16 @@ export function RelatedLessonCards({ lessons, level, heading, listNote }: { less
               gap: spacing.md,
               minHeight: layout.touchTarget + spacing.md,
               padding: spacing.md,
-              borderRadius: radius.md,
+              borderRadius: radius.lg,
               borderWidth: layout.hairline,
               borderColor: colors.borderSubtle,
               backgroundColor: pressed ? colors.surfaceElevated : colors.surface,
             })}>
             {item.coverMediaId ? <CoverImage mediaId={item.coverMediaId} uri={lessonCoverUrl(item.lessonId, item.coverMediaId, level)} width={56} height={40} /> : null}
             <View style={{ flex: 1, gap: 2 }}>
-              <AppText variant="body">{labelOf(item) ?? item.title}</AppText>
+              <AppText variant="body" style={{ fontWeight: '600' }}>{labelOf(item) ?? item.title}</AppText>
               {labelOf(item) ? (
-                <AppText variant="caption" color="textMuted">
+                <AppText variant="bodySmall" color="textMuted">
                   Lesson: {item.title}
                 </AppText>
               ) : null}
@@ -80,15 +80,16 @@ export function RelatedLessonCards({ lessons, level, heading, listNote }: { less
                 </AppText>
               ) : null}
             </View>
+            <ChevronIcon direction="right" color="primaryHighlight" />
           </Pressable>
         ))}
       </View>
       {listNote ? (
-        <AppText variant="caption" color="textMuted">
+        <AppText variant="bodySmall" color="textMuted">
           {listNote}
         </AppText>
       ) : null}
-      <AppText variant="caption" color="textMuted">
+      <AppText variant="bodySmall" color="textMuted">
         A related lesson is available offline only if it is saved on this device. Otherwise it needs an internet connection.
       </AppText>
     </View>

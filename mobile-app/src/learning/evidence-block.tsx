@@ -1,6 +1,6 @@
-import { Linking, View } from 'react-native';
+import { Linking, Text, View } from 'react-native';
 
-import { AppText, SecondaryButton } from '@/components/ui';
+import { AppText, BlockFrame, BlockNotice, SecondaryButton } from '@/components/ui';
 import { LessonImage } from '@/learning/lesson-image';
 import type { LearningLevel } from '@/learning/levels';
 import { useTheme } from '@/theme';
@@ -50,26 +50,19 @@ function readEvidence(content: Record<string, unknown>) {
 }
 
 export function EvidenceBlock({ lessonId, level, content }: { lessonId: string; level: LearningLevel; content: Record<string, unknown> }) {
-  const { spacing, colors, radius } = useTheme();
+  const { spacing, colors, typography, fontFamilies } = useTheme();
   const evidence = readEvidence(content);
 
   if (!evidence) {
     return (
-      <View style={{ gap: spacing.xs, padding: spacing.lg, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderSubtle, backgroundColor: colors.surface }}>
-        <AppText variant="label" color="warning">
-          Historical evidence not available
-        </AppText>
-        <AppText variant="bodySmall" color="textSecondary" accessibilityLiveRegion="polite">
-          This evidence could not be shown completely, so it is hidden rather than shown with parts missing. The rest of the lesson is not affected.
-        </AppText>
-      </View>
+      <BlockNotice title="Historical evidence not available" message="This evidence could not be shown completely, so it is hidden rather than shown with parts missing. The rest of the lesson is not affected." />
     );
   }
 
   return (
-    <View style={{ gap: spacing.md }} accessible={false}>
+    <BlockFrame variant="evidence" accessible={false} style={{ gap: spacing.lg }}>
       <View style={{ gap: spacing.xs }}>
-        <AppText variant="label" color="primaryHighlight">
+        <AppText variant="bodySmall" color="primaryHighlight" style={{ fontWeight: '600' }}>
           {evidence.dateLabel}
         </AppText>
         <AppText variant="heading" accessibilityRole="header">
@@ -77,7 +70,7 @@ export function EvidenceBlock({ lessonId, level, content }: { lessonId: string; 
         </AppText>
       </View>
 
-      <AppText variant="body" color="textSecondary">
+      <AppText variant="body" style={{ fontSize: 17, lineHeight: 28 }}>
         {evidence.explanation}
       </AppText>
 
@@ -85,32 +78,32 @@ export function EvidenceBlock({ lessonId, level, content }: { lessonId: string; 
         <View
           accessible
           accessibilityLabel={`Source quotation: ${evidence.quote}`}
-          style={{ gap: spacing.xs, padding: spacing.lg, borderRadius: radius.md, borderLeftWidth: 4, borderLeftColor: colors.border, backgroundColor: colors.surface }}>
-          <AppText variant="caption" color="textMuted" style={{ textTransform: 'uppercase' }}>
+          style={{ gap: spacing.xs, paddingLeft: spacing.lg, borderLeftWidth: 3, borderLeftColor: colors.primary }}>
+          <AppText variant="bodySmall" color="textMuted" style={{ fontWeight: '600' }}>
             Source quotation
           </AppText>
-          <AppText variant="body" style={{ fontStyle: 'italic' }}>
-            {evidence.quote}
-          </AppText>
+          <Text style={[typography.scripture, { color: colors.textBright, fontFamily: fontFamilies.serifItalic }]}>{evidence.quote}</Text>
         </View>
       ) : null}
 
       {evidence.image ? <LessonImage lessonId={lessonId} level={level} content={evidence.image} /> : null}
 
-      <View style={{ gap: spacing.sm }}>
+      <View style={{ gap: spacing.sm, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.divider }}>
         <AppText variant="bodySmall" color="textSecondary">
           Source: {evidence.citation}
         </AppText>
         {evidence.url ? (
           <SecondaryButton
+            size="small"
             label="Open the source website (external link)"
             accessibilityHint="Opens a website outside this app. It needs an internet connection."
+            style={{ alignSelf: 'flex-start' }}
             onPress={() => {
               void Linking.openURL(evidence.url as string).catch(() => undefined);
             }}
           />
         ) : null}
       </View>
-    </View>
+    </BlockFrame>
   );
 }

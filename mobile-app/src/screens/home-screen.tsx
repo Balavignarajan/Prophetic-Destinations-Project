@@ -2,7 +2,7 @@ import { useRouter } from 'expo-router';
 import { View } from 'react-native';
 
 import { useResource } from '@/api/use-resource';
-import { AppText, Card, ErrorState, LoadingState, PrimaryButton, ScreenContainer, ScreenHeader, SecondaryButton } from '@/components/ui';
+import { AppText, Card, ErrorState, LoadingState, PrimaryButton, ScreenContainer, SecondaryButton } from '@/components/ui';
 import { useBookmarks } from '@/features/bookmarks/bookmarks-provider';
 import { useLearningProgress } from '@/features/learning/learning-provider';
 import { continueTarget, summarise } from '@/features/learning/progress-model';
@@ -10,6 +10,7 @@ import { describeLoadError } from '@/features/offline/describe-offline';
 import { loadCourseList } from '@/features/offline/offline-api';
 import { OfflineBanner } from '@/features/offline/offline-banner';
 import { isRecoverable, useRetryOnReconnect } from '@/features/offline/use-retry-on-reconnect';
+import { ContinueCard } from '@/learning/continue-card';
 import { CourseCard } from '@/learning/course-card';
 import { LEVEL_LABELS } from '@/learning/levels';
 import { useLearningLevel } from '@/learning/use-learning-level';
@@ -19,8 +20,9 @@ import { useTheme } from '@/theme';
 const HOME_COURSES = 3;
 
 /**
- * Home: where the app opens after the first launch. Continue Learning (only when there is an unfinished lesson), a short progress
- * summary, and the published courses at the learner's level (the same catalog Learn shows, from the backend or its saved copy).
+ * Home: where the app opens after the first launch. A short welcome, Continue Learning (only when there is an unfinished lesson), the published
+ * courses at the learner's level in their published order (the same catalog Learn shows, from the backend or its saved copy) and a quiet
+ * progress line.
  */
 export function HomeScreen() {
   const router = useRouter();
@@ -32,84 +34,82 @@ export function HomeScreen() {
   useRetryOnReconnect(isRecoverable(courses), reload);
   const resume = continueTarget(progress);
   const summary = summarise(progress, level, null);
+  const courseList = courses.status === 'success' ? courses.data.value.courses : [];
+  // The course name is only known when the resumed lesson is at the level whose course list is loaded.
+  const resumeCourse = resume && resume.level === level && resume.courseId ? courseList.find((course) => course.courseId === resume.courseId) : undefined;
 
   return (
     <ScreenContainer scroll>
-      <ScreenHeader title="Home" onBack={null} />
-      <View style={{ gap: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.xxl }}>
+      <View style={{ gap: spacing.xl, paddingTop: spacing.xl, paddingBottom: spacing.xxl }}>
+        <View style={{ gap: spacing.sm }}>
+          <AppText variant="bodySmall" color="primaryHighlight" style={{ fontWeight: '700', letterSpacing: 1 }}>
+            PROPHETIC DESTINATIONS
+          </AppText>
+          <AppText variant="sectionHeading" accessibilityRole="header">
+            Discover Bible prophecy through Scripture and history.
+          </AppText>
+        </View>
+
         {resume ? (
-          <Card
-            variant="outlined"
+          <ContinueCard
+            lessonTitle={resume.title}
+            courseTitle={resumeCourse?.title}
+            level={resume.level}
             onPress={() => router.push({ pathname: '/lesson/[lessonId]', params: { lessonId: resume.lessonId, level: resume.level } })}
-            accessibilityLabel={`Continue learning: ${resume.title}, ${LEVEL_LABELS[resume.level]} level`}>
-            <View style={{ gap: spacing.xs }}>
-              <AppText variant="label" color="primaryHighlight">
-                Continue learning
-              </AppText>
-              <AppText variant="heading">{resume.title}</AppText>
-              <AppText variant="caption" color="textMuted">
-                {LEVEL_LABELS[resume.level]} level
-              </AppText>
-            </View>
-          </Card>
+          />
         ) : (
-          <Card variant="outlined">
+          <Card variant="elevated">
             <View style={{ gap: spacing.md }}>
               <AppText variant="heading">Start learning</AppText>
-              <AppText variant="bodySmall" color="textSecondary">
+              <AppText variant="body" color="textSecondary">
                 Pick a course to begin. Where you stop in a lesson is remembered on this device, so you can continue later.
               </AppText>
-              <PrimaryButton label="Browse courses" onPress={() => router.push('/learn')} />
+              <PrimaryButton size="medium" label="Browse courses" onPress={() => router.push('/learn')} />
             </View>
           </Card>
         )}
 
-        <Card onPress={() => router.push('/progress')} accessibilityLabel={`Your progress: ${summary.completed} completed, ${summary.inProgress} in progress. Open progress.`}>
+        <View style={{ gap: spacing.md }}>
           <View style={{ gap: spacing.xs }}>
-            <AppText variant="label" color="textMuted">
-              Your progress
+            <AppText variant="sectionHeading" accessibilityRole="header">
+              Explore courses
             </AppText>
-            <AppText variant="heading">
-              {summary.completed} {summary.completed === 1 ? 'lesson' : 'lessons'} completed
-            </AppText>
-            <AppText variant="caption" color="textMuted">
-              {summary.inProgress} in progress
+            <AppText variant="bodySmall" color="textMuted">
+              {LEVEL_LABELS[level]} level
             </AppText>
           </View>
-        </Card>
-
-        <View style={{ gap: spacing.md }}>
-          <AppText variant="label" color="textMuted">
-            Courses at the {LEVEL_LABELS[level]} level
-          </AppText>
           {courses.status === 'loading' ? <LoadingState message="Loading courses…" /> : null}
           {courses.status === 'error' ? <ErrorState {...describeLoadError(courses.error, 'course list')} onRetry={reload} /> : null}
           {courses.status === 'success' && courses.data.source === 'cache' ? <OfflineBanner loaded={courses.data} onRetry={reload} /> : null}
-          {courses.status === 'success' && courses.data.value.courses.length === 0 ? (
-            <AppText variant="bodySmall" color="textSecondary">
-              There are no published courses at this level right now.
+          {courses.status === 'success' && courseList.length === 0 ? (
+            <AppText variant="body" color="textSecondary">
+              No courses are available at this level yet. You can switch level in Learn, or check back soon.
             </AppText>
           ) : null}
-          {courses.status === 'success'
-            ? courses.data.value.courses
-                .slice(0, HOME_COURSES)
-                .map((course) => (
-                  <CourseCard
-                  level={level}
-                    key={course.courseId}
-                    course={course}
-                    onPress={() => router.push({ pathname: '/course/[courseId]', params: { courseId: course.courseId, level } })}
-                  />
-                ))
-            : null}
-          {courses.status === 'success' && courses.data.value.courses.length > HOME_COURSES ? (
-            <SecondaryButton label="See all courses" onPress={() => router.push('/learn')} />
-          ) : null}
+          {courseList.slice(0, HOME_COURSES).map((course) => (
+            <CourseCard
+              key={course.courseId}
+              level={level}
+              course={course}
+              onPress={() => router.push({ pathname: '/course/[courseId]', params: { courseId: course.courseId, level } })}
+            />
+          ))}
+          {courseList.length > HOME_COURSES ? <SecondaryButton label="See all courses" onPress={() => router.push('/learn')} /> : null}
         </View>
 
-        {saved.length > 0 ? (
-          <SecondaryButton label={`Saved items (${saved.length})`} onPress={() => router.push('/saved')} />
-        ) : null}
+        <View style={{ gap: spacing.md }}>
+          <Card onPress={() => router.push('/progress')} accessibilityLabel={`Your progress: ${summary.completed} completed, ${summary.inProgress} in progress. Open progress.`}>
+            <View style={{ gap: spacing.xs }}>
+              <AppText variant="bodySmall" color="textMuted" style={{ fontWeight: '600' }}>
+                Your progress
+              </AppText>
+              <AppText variant="body" style={{ fontWeight: '600' }}>
+                {summary.completed} {summary.completed === 1 ? 'lesson' : 'lessons'} completed · {summary.inProgress} in progress
+              </AppText>
+            </View>
+          </Card>
+          {saved.length > 0 ? <SecondaryButton size="medium" label={`Saved items (${saved.length})`} onPress={() => router.push('/saved')} /> : null}
+        </View>
       </View>
     </ScreenContainer>
   );

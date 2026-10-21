@@ -4,10 +4,13 @@ import { Pressable, View } from 'react-native';
 import {
   AppText,
   Card,
+  ChevronIcon,
+  Divider,
   EmptyState,
   LoadingState,
   ScreenContainer,
   ScreenHeader,
+  ScreenSection,
   SecondaryButton,
 } from '@/components/ui';
 import { type Bookmark } from '@/features/bookmarks/model';
@@ -35,7 +38,7 @@ function savedLabel(status: OwnerStatus): string {
   }
 }
 
-/** Everything the learner has saved: published lessons and scenes of the built-in Daniel 2 lesson, newest first. */
+/** Everything the learner has saved: published lessons and scenes of the built-in Daniel 2 lesson, newest first. Kept on this device only. */
 export function SavedScreen() {
   const router = useRouter();
   const { spacing } = useTheme();
@@ -53,7 +56,7 @@ export function SavedScreen() {
     const sceneGone = item.type === 'daniel2-scene' && sceneTitles !== null && !sceneTitles.has(item.sceneId);
     const unavailable = item.type === 'lesson' && item.unavailableSince !== undefined;
     const title = item.type === 'daniel2-scene' ? (sceneTitles?.get(item.sceneId) ?? item.title) : item.title;
-    const kind = item.type === 'lesson' ? `Lesson · ${LEVEL_LABELS[item.level]} level` : 'Daniel 2 scene · built-in lesson';
+    const kind = item.type === 'lesson' ? `Lesson · ${LEVEL_LABELS[item.level]} level` : 'Daniel 2 preview · scene';
     const status = unavailable
       ? `No longer available (checked ${formatSavedAt(item.unavailableSince!)})`
       : sceneGone
@@ -70,23 +73,35 @@ export function SavedScreen() {
     return (
       <Card key={item.id}>
         <View style={{ gap: spacing.md }}>
+          {/* Opening and removing are separate targets: the whole top part opens, and the quiet Remove button sits apart below it. */}
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`Open ${kind}: ${title}${status ? `. ${status}` : ''}`}
             disabled={sceneGone}
             onPress={open}
-            style={{ gap: spacing.xs, minHeight: 48, justifyContent: 'center' }}>
-            <AppText variant="caption" color="primaryHighlight" style={{ fontWeight: '700', textTransform: 'uppercase' }}>
-              {kind}
-            </AppText>
-            <AppText variant="heading">{title}</AppText>
-            {status ? (
-              <AppText variant="caption" color={unavailable || sceneGone ? 'warning' : 'textMuted'}>
-                {status}
+            style={{ minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+            <View style={{ flex: 1, gap: spacing.xs }}>
+              <AppText variant="bodySmall" color="primaryHighlight" style={{ fontWeight: '700' }}>
+                {kind}
               </AppText>
-            ) : null}
+              <AppText variant="heading">{title}</AppText>
+              {status ? (
+                <AppText variant="bodySmall" color={unavailable || sceneGone ? 'warning' : 'textMuted'}>
+                  {status}
+                </AppText>
+              ) : null}
+            </View>
+            {sceneGone ? null : <ChevronIcon direction="right" color="primaryHighlight" />}
           </Pressable>
-          <SecondaryButton label="Remove" accessibilityLabel={`Remove saved item: ${title}`} onPress={() => remove(item.id)} />
+          <Divider />
+          <SecondaryButton
+            size="medium"
+            tone="danger"
+            label="Remove"
+            accessibilityLabel={`Remove saved item: ${title}`}
+            onPress={() => remove(item.id)}
+            style={{ alignSelf: 'flex-end' }}
+          />
         </View>
       </Card>
     );
@@ -94,35 +109,26 @@ export function SavedScreen() {
 
   return (
     <ScreenContainer scroll>
-      <ScreenHeader title="Saved items" />
-      <View style={{ gap: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.xxl }}>
+      <ScreenHeader title="Saved" />
+      <View style={{ gap: spacing.xl, paddingTop: spacing.sm, paddingBottom: spacing.xxl }}>
+        <AppText variant="body" color="textSecondary">
+          Lessons you star are kept here, on this device, so you can find them again.
+        </AppText>
+
         {!ready ? <LoadingState message="Loading saved items…" /> : null}
 
         {ready && items.length === 0 ? (
           <EmptyState
+            variant="card"
             title="Nothing saved yet"
             message="Tap the star on a lesson or a Daniel 2 scene to keep it here. Saved items stay on this device."
             action={{ label: 'Browse courses', onPress: () => router.replace('/learn') }}
           />
         ) : null}
 
-        {lessons.length > 0 ? (
-          <View style={{ gap: spacing.md }}>
-            <AppText variant="heading" accessibilityRole="header">
-              Lessons
-            </AppText>
-            {lessons.map(row)}
-          </View>
-        ) : null}
+        {lessons.length > 0 ? <ScreenSection title="Lessons">{lessons.map(row)}</ScreenSection> : null}
 
-        {scenes.length > 0 ? (
-          <View style={{ gap: spacing.md }}>
-            <AppText variant="heading" accessibilityRole="header">
-              Daniel 2 scenes
-            </AppText>
-            {scenes.map(row)}
-          </View>
-        ) : null}
+        {scenes.length > 0 ? <ScreenSection title="Interactive preview">{scenes.map(row)}</ScreenSection> : null}
       </View>
     </ScreenContainer>
   );

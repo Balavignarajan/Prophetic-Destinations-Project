@@ -1,4 +1,12 @@
-import { Cinzel_500Medium, Cinzel_600SemiBold, Cinzel_700Bold, useFonts } from '@expo-google-fonts/cinzel';
+import { Cinzel_500Medium, Cinzel_600SemiBold, Cinzel_700Bold } from '@expo-google-fonts/cinzel';
+import {
+  EBGaramond_400Regular,
+  EBGaramond_400Regular_Italic,
+  EBGaramond_500Medium,
+  EBGaramond_600SemiBold,
+} from '@expo-google-fonts/eb-garamond';
+import { Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from '@expo-google-fonts/inter';
+import { useFonts } from 'expo-font';
 import { type ErrorBoundaryProps, Stack, ThemeProvider as NavigationThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
@@ -11,7 +19,7 @@ import { LearningProgressProvider } from '@/features/learning/learning-provider'
 import { createNavigationTheme } from '@/navigation/navigation-theme';
 import { ThemeProvider, useTheme, useThemePreference } from '@/theme';
 
-// Keep the native splash screen up until the display font AND the saved appearance preference are ready, so the first
+// Keep the native splash screen up until the fonts (Cinzel, EB Garamond, Inter) AND the saved appearance preference are ready, so the first
 // frame is already in the right theme and titles never flash in a fallback face.
 SplashScreen.preventAutoHideAsync();
 
@@ -40,7 +48,19 @@ export default function RootLayout() {
 function AppShell() {
   const theme = useTheme();
   const { ready } = useThemePreference();
-  const [fontsLoaded, fontError] = useFonts({ Cinzel_500Medium, Cinzel_600SemiBold, Cinzel_700Bold });
+  const [fontsLoaded, fontError] = useFonts({
+    Cinzel_500Medium,
+    Cinzel_600SemiBold,
+    Cinzel_700Bold,
+    EBGaramond_400Regular,
+    EBGaramond_400Regular_Italic,
+    EBGaramond_500Medium,
+    EBGaramond_600SemiBold,
+    Inter_400Regular,
+    Inter_500Medium,
+    Inter_600SemiBold,
+    Inter_700Bold,
+  });
   const navigationTheme = useMemo(() => createNavigationTheme(theme), [theme]);
   const showApp = ready && (fontsLoaded || Boolean(fontError));
 

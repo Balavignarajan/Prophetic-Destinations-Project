@@ -1,6 +1,6 @@
 import { View } from 'react-native';
 
-import { AppText } from '@/components/ui';
+import { AppText, BlockFrame } from '@/components/ui';
 import { ScriptureLinks } from '@/learning/scripture-links';
 import { useTheme } from '@/theme';
 
@@ -20,7 +20,7 @@ function Section({ label, children }: { label: string; children: React.ReactNode
   const { spacing } = useTheme();
   return (
     <View style={{ gap: spacing.sm }}>
-      <AppText variant="label" color="primaryHighlight" accessibilityRole="header">
+      <AppText variant="bodySmall" color="primaryHighlight" accessibilityRole="header" style={{ fontWeight: '700' }}>
         {label}
       </AppText>
       {children}
@@ -31,14 +31,14 @@ function Section({ label, children }: { label: string; children: React.ReactNode
 function NumberedList({ items }: { items: string[] }) {
   const { spacing } = useTheme();
   return (
-    <View style={{ gap: spacing.sm }}>
+    <View style={{ gap: spacing.md }}>
       {items.map((item, index) => (
         <View key={index} style={{ flexDirection: 'row', gap: spacing.sm }}>
-          <AppText variant="body" color="primaryHighlight" style={{ minWidth: 24 }} accessibilityElementsHidden importantForAccessibility="no">
+          <AppText variant="body" color="primaryHighlight" style={{ minWidth: 26, fontWeight: '700' }} accessibilityElementsHidden importantForAccessibility="no">
             {index + 1}.
           </AppText>
           <View style={{ flex: 1 }}>
-            <AppText variant="body">{item}</AppText>
+            <AppText variant="body" style={{ fontSize: 17, lineHeight: 27 }}>{item}</AppText>
           </View>
         </View>
       ))}
@@ -47,7 +47,7 @@ function NumberedList({ items }: { items: string[] }) {
 }
 
 export function SummaryContent({ content }: { content: Record<string, unknown> }) {
-  const { spacing, colors, radius } = useTheme();
+  const { spacing } = useTheme();
   const heading = typeof content.heading === 'string' ? content.heading.trim() : '';
   const keyIdeas = textList(content.takeaways);
   const keyScripture = Array.isArray(content.keyScripture) ? content.keyScripture : [];
@@ -56,17 +56,8 @@ export function SummaryContent({ content }: { content: Record<string, unknown> }
   if (keyIdeas.length + keyScripture.length + prophecy.length + application.length === 0) return null;
 
   return (
-    <View
-      accessible={false}
-      style={{
-        gap: spacing.lg,
-        padding: spacing.lg,
-        borderRadius: radius.md,
-        borderWidth: 1,
-        borderColor: colors.borderGold,
-        backgroundColor: colors.surface,
-      }}>
-      <AppText variant="heading" accessibilityRole="header">
+    <BlockFrame variant="evidence" accessible={false} style={{ gap: spacing.xl }}>
+      <AppText variant="sectionHeading" accessibilityRole="header">
         {heading || 'Summary'}
       </AppText>
       {keyIdeas.length > 0 ? (
@@ -89,6 +80,6 @@ export function SummaryContent({ content }: { content: Record<string, unknown> }
           <NumberedList items={application} />
         </Section>
       ) : null}
-    </View>
+    </BlockFrame>
   );
 }

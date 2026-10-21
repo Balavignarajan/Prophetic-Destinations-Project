@@ -1,6 +1,6 @@
 import { View } from 'react-native';
 
-import { AppText } from '@/components/ui';
+import { AppText, BlockNotice } from '@/components/ui';
 import { ScriptureLinks } from '@/learning/scripture-links';
 import { useTheme } from '@/theme';
 
@@ -17,7 +17,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
 const asText = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
 
 export function ScriptureConnectionBlock({ content }: { content: Record<string, unknown> }) {
-  const { spacing, colors, radius } = useTheme();
+  const { spacing, colors } = useTheme();
   const title = asText(content.title);
   const connections = (Array.isArray(content.connections) ? content.connections : [])
     .filter(isRecord)
@@ -26,14 +26,7 @@ export function ScriptureConnectionBlock({ content }: { content: Record<string, 
 
   if (connections.length === 0) {
     return (
-      <View style={{ gap: spacing.xs, padding: spacing.lg, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderSubtle, backgroundColor: colors.surface }}>
-        <AppText variant="label" color="warning">
-          Scripture connection not available
-        </AppText>
-        <AppText variant="bodySmall" color="textSecondary" accessibilityLiveRegion="polite">
-          This part of the lesson could not be shown. The rest of the lesson is not affected.
-        </AppText>
-      </View>
+      <BlockNotice title="Scripture connection not available" message="This part of the lesson could not be shown. The rest of the lesson is not affected." />
     );
   }
 
@@ -45,17 +38,19 @@ export function ScriptureConnectionBlock({ content }: { content: Record<string, 
         </AppText>
       ) : null}
       {connections.map((connection, index) => (
-        <View key={index} style={{ gap: spacing.sm, padding: spacing.lg, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderSubtle, backgroundColor: colors.surface }}>
+        <View key={index} style={{ gap: spacing.md, paddingLeft: spacing.lg, borderLeftWidth: 2, borderLeftColor: colors.borderGold }}>
           <AppText variant="label" color="primaryHighlight" accessibilityRole="header">
             {connection.label ? `${index + 1}. ${connection.label}` : `Connection ${index + 1}`}
           </AppText>
           <ScriptureLinks entries={connection.scripture} />
           {connection.explanation ? (
             <View style={{ gap: spacing.xs }}>
-              <AppText variant="label" color="textSecondary">
+              <AppText variant="bodySmall" color="textMuted" style={{ fontWeight: '600' }}>
                 Explanation
               </AppText>
-              <AppText variant="body">{connection.explanation}</AppText>
+              <AppText variant="body" style={{ fontSize: 17, lineHeight: 28 }}>
+                {connection.explanation}
+              </AppText>
             </View>
           ) : null}
         </View>

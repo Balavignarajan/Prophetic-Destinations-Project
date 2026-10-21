@@ -1,7 +1,8 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, type NativeScrollEvent, type NativeSyntheticEvent, ScrollView, View } from 'react-native';
 
+import { useReduceMotion } from '@/accessibility/use-reduce-motion';
 import { ApiError } from '@/api/errors';
 import type { LessonSnapshotBlock } from '@/api/types';
 import { useResource } from '@/api/use-resource';
@@ -13,7 +14,6 @@ import {
   LoadingState,
   PrimaryButton,
   ScreenContainer,
-  ScreenHeader,
   SecondaryButton,
 } from '@/components/ui';
 import { BookmarkButton } from '@/features/bookmarks/bookmark-button';
@@ -28,6 +28,9 @@ import { type OwnerStatus, mediaOwnerKey, useOfflineMedia } from '@/features/off
 import { isRecoverable, useRetryOnReconnect } from '@/features/offline/use-retry-on-reconnect';
 import { LEVEL_LABELS, firstParam } from '@/learning/levels';
 import { useRouteLevel } from '@/learning/use-route-level';
+import { CoverImage, lessonCoverUrl } from '@/learning/cover-image';
+import { LessonContents, MIN_SECTIONS_FOR_CONTENTS, lessonSections } from '@/learning/lesson-contents';
+import { LessonHeader } from '@/learning/lesson-header';
 import { LessonImage } from '@/learning/lesson-image';
 import { RichTextContent } from '@/learning/rich-text';
 import { HotspotImage } from '@/learning/hotspot-image';
@@ -174,10 +177,91 @@ export function LessonScreen() {
     },
   };
 
+  // Reading position (NOT completion, never stored): derived from the scroll state. Only the integer percent is state, and it only
+  // changes when the rounded value does, so the lesson body (memoised below) is not re-rendered while scrolling.
+  const reduceMotion = useReduceMotion();
+  const metrics = useRef({ content: 0, viewport: 0, offset: 0 });
+  const [percent, setPercent] = useState<number | null>(null);
+  const updatePercent = useCallback(() => {
+    const { content, viewport, offset } = metrics.current;
+    const scrollable = content - viewport;
+    if (viewport <= 0 || scrollable < 80) {
+      setPercent(null); // a short lesson fits on screen: no progress to show
+      return;
+    }
+    setPercent(Math.round(Math.min(1, Math.max(0, offset / scrollable)) * 100));
+  }, []);
+
+  const handleScroll = scrollEvents.onScroll;
+  const handleContentSize = scrollEvents.onContentSizeChange;
+  const trackedEvents = {
+    ...scrollEvents,
+    onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      metrics.current.offset = event.nativeEvent.contentOffset.y;
+      handleScroll(event);
+      updatePercent();
+    },
+    onContentSizeChange: (width: number, height: number) => {
+      metrics.current.content = height;
+      handleContentSize(width, height);
+      updatePercent();
+    },
+  };
+
+  // Lesson contents: only when the published lesson has at least two titled SECTION_INTRO blocks. Their positions are measured as they are
+  // laid out (so late-loading images and larger fonts stay accurate) and read when a section is chosen.
+  const sections = useMemo(() => (lesson.status === 'success' ? lessonSections(lesson.data.value.snapshot.blocks) : []), [lesson]);
+  const [contentsOpen, setContentsOpen] = useState(false);
+  const layoutY = useRef({ column: 0, body: 0, sections: {} as Record<string, number> });
+  const onBodyLayout = useCallback((y: number) => {
+    layoutY.current.body = y;
+  }, []);
+  const onSectionLayout = useCallback((blockId: string, y: number) => {
+    layoutY.current.sections[blockId] = y;
+  }, []);
+  const jumpToSection = (blockId: string) => {
+    const y = layoutY.current.sections[blockId];
+    setContentsOpen(false);
+    if (y === undefined) return;
+    restore.current = null; // the learner chose where to read: never pull them back to an older position
+    scrollRef.current?.scrollTo({ y: Math.max(0, layoutY.current.column + layoutY.current.body + y - 8), animated: !reduceMotion });
+  };
+
+  // Brings part of a block back into view after it changed shape (a new quiz question, a hotspot's detail panel). A block's own position is
+  // measured like a section's, and `localY` is measured inside the block. Nothing moves when the part is already on screen, and answering or
+  // an image loading never calls this.
+  const revealInBlock = useCallback(
+    (blockId: string, localY: number, height: number) => {
+      const blockY = layoutY.current.sections[blockId];
+      if (blockY === undefined) return;
+      const top = layoutY.current.column + layoutY.current.body + blockY + localY;
+      const bottom = top + height;
+      const { offset, viewport } = metrics.current;
+      const margin = 16;
+      let target: number | null = null;
+      if (top < offset) target = top - margin;
+      else if (bottom > offset + viewport) target = Math.min(top - margin, bottom - viewport + margin);
+      if (target === null) return;
+      restore.current = null; // the learner is interacting: never pull them back to an older position
+      scrollRef.current?.scrollTo({ y: Math.max(0, target), animated: !reduceMotion });
+    },
+    [reduceMotion],
+  );
+  const scrollToBlockTop = useCallback((blockId: string) => {
+    const blockY = layoutY.current.sections[blockId];
+    if (blockY === undefined) return;
+    const top = layoutY.current.column + layoutY.current.body + blockY;
+    if (metrics.current.offset <= top) return; // the top of the block is still on screen
+    restore.current = null;
+    requestAnimationFrame(() => scrollRef.current?.scrollTo({ y: Math.max(0, top - 8), animated: false }));
+  }, []);
+
   return (
-    <ScreenContainer scroll scrollRef={scrollRef} scrollEvents={scrollEvents}>
-      <ScreenHeader
-        title="Lesson"
+    <ScreenContainer>
+      <LessonHeader
+        title={snapshotLesson ? (snapshotLesson.shortTitle || snapshotLesson.title) : 'Lesson'}
+        percent={percent}
+        onContents={sections.length >= MIN_SECTIONS_FOR_CONTENTS ? () => setContentsOpen(true) : undefined}
         trailing={
           title ? (
             <BookmarkButton
@@ -188,7 +272,22 @@ export function LessonScreen() {
           ) : null
         }
       />
-      <View style={{ gap: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.xxl }}>
+      <ScrollView
+        ref={scrollRef}
+        {...trackedEvents}
+        onLayout={(event) => {
+          metrics.current.viewport = event.nativeEvent.layout.height;
+          updatePercent();
+        }}
+        style={{ flex: 1 }}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={{ paddingTop: spacing.md, paddingBottom: spacing.xxl }}>
+      <View
+        onLayout={(event) => {
+          layoutY.current.column = event.nativeEvent.layout.y;
+        }}
+        style={{ gap: spacing.xl }}>
         {lesson.status === 'loading' ? <LoadingState message="Loading lesson…" /> : null}
 
         {notFound ? (
@@ -213,96 +312,139 @@ export function LessonScreen() {
           </AppText>
         ) : null}
 
-        {lesson.status === 'success' ? <LessonBody lessonId={lessonId} contentHash={lesson.data.value.contentHash} lessonBlocks={lesson.data.value.snapshot.blocks} snapshotLesson={lesson.data.value.snapshot.lesson} level={level} /> : null}
+        {lesson.status === 'success' ? <LessonBody lessonId={lessonId} contentHash={lesson.data.value.contentHash} lessonBlocks={lesson.data.value.snapshot.blocks} snapshotLesson={lesson.data.value.snapshot.lesson} level={level} onBodyLayout={onBodyLayout} onSectionLayout={onSectionLayout} onRevealInBlock={revealInBlock} onBlockStep={scrollToBlockTop} /> : null}
 
         {lesson.status === 'success' ? <RelatedLessons lessonId={lessonId} level={level} contentHash={lesson.data.value.contentHash} /> : null}
 
         {lesson.status === 'success' ? (
-          <View style={{ gap: spacing.md }}>
+          <View style={{ gap: spacing.lg }}>
             <Divider />
+            {completed ? (
+              <AppText variant="bodySmall" color="success" align="center" style={{ fontWeight: '700' }}>
+                ✓ This lesson is marked complete
+              </AppText>
+            ) : null}
+            {/* Manual completion is unchanged. It is the dominant action only when there is no next lesson to continue to. */}
             {lessonRef ? (
-              <SecondaryButton
-                label={completed ? 'Completed. Tap to undo' : 'Mark lesson as complete'}
-                onPress={() => setCompleted(lessonRef, !completed)}
-              />
+              !next && !completed ? (
+                <PrimaryButton label="Mark lesson as complete" onPress={() => setCompleted(lessonRef, true)} />
+              ) : (
+                <SecondaryButton
+                  size="medium"
+                  label={completed ? 'Completed. Tap to undo' : 'Mark lesson as complete'}
+                  onPress={() => setCompleted(lessonRef, !completed)}
+                />
+              )
             ) : null}
             {next ? (
-              <PrimaryButton label="Continue" onPress={() => goTo(next.lessonId)} />
+              <View style={{ gap: spacing.sm }}>
+                <PrimaryButton label="Continue" onPress={() => goTo(next.lessonId)} />
+                <AppText variant="bodySmall" color="textSecondary" align="center">
+                  Next: {next.title}
+                </AppText>
+              </View>
             ) : navigation.status === 'success' ? (
               <AppText variant="bodySmall" color="textMuted" align="center">
                 You have reached the end of this course.
               </AppText>
             ) : null}
-            {next ? (
-              <AppText variant="caption" color="textMuted" align="center">
-                Next: {next.title}
-              </AppText>
-            ) : null}
-            {previous ? <SecondaryButton label="Previous lesson" onPress={() => goTo(previous.lessonId)} /> : null}
-            {courseId ? (
-              <SecondaryButton
-                label="Back to course"
-                onPress={() => router.replace({ pathname: '/course/[courseId]', params: { courseId, level } })}
-              />
+            {previous || courseId ? (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md }}>
+                {previous ? (
+                  <SecondaryButton size="small" label="Previous lesson" onPress={() => goTo(previous.lessonId)} style={{ flexGrow: 1, flexBasis: 140 }} />
+                ) : null}
+                {courseId ? (
+                  <SecondaryButton
+                    size="small"
+                    label="Back to course"
+                    onPress={() => router.replace({ pathname: '/course/[courseId]', params: { courseId, level } })}
+                    style={{ flexGrow: 1, flexBasis: 140 }}
+                  />
+                ) : null}
+              </View>
             ) : null}
           </View>
         ) : null}
       </View>
+      </ScrollView>
+
+      <LessonContents visible={contentsOpen} sections={sections} onSelect={jumpToSection} onClose={() => setContentsOpen(false)} />
     </ScreenContainer>
   );
 }
 
-function LessonBody({
+const LessonBody = memo(function LessonBody({
   lessonId,
   contentHash,
   lessonBlocks,
   snapshotLesson,
   level,
+  onBodyLayout,
+  onSectionLayout,
+  onRevealInBlock,
+  onBlockStep,
 }: {
   lessonId: string;
   /** Identifies the published version shown, so quiz answers never carry over to another publication. */
   contentHash: string;
   lessonBlocks: LessonSnapshotBlock[];
-  snapshotLesson: { title: string; subtitle: string | null; introduction: string | null; estimatedMinutes: number | null };
+  snapshotLesson: { title: string; subtitle: string | null; introduction: string | null; estimatedMinutes: number | null; coverMediaId: string | null };
   level: keyof typeof LEVEL_LABELS;
+  /** Where this body starts inside its column, and where each SECTION_INTRO block starts inside the body (for the contents sheet). */
+  onBodyLayout: (y: number) => void;
+  onSectionLayout: (blockId: string, y: number) => void;
+  /** Scrolls the lesson so part of a block (a hotspot's detail panel) is visible. Positions are inside the block. */
+  onRevealInBlock: (blockId: string, localY: number, height: number) => void;
+  /** Called when a quiz shows a different question or screen, so the lesson can bring its top back into view. */
+  onBlockStep: (blockId: string) => void;
 }) {
-  const { spacing } = useTheme();
+  const { spacing, colors } = useTheme();
   const ordered = [...lessonBlocks].sort((a, b) => a.ordinal - b.ordinal);
   const shown = ordered.filter((block) => SUPPORTED_BLOCKS.has(block.type));
   const skipped = ordered.length - shown.length;
+  // The lesson cover is shown only when no block already shows the same picture.
+  const showCover = !ordered.some((block) => blockMediaIds(block.content).includes(snapshotLesson.coverMediaId ?? ''));
   const introduction = snapshotLesson.introduction?.split(/\n\s*\n/).filter((part) => part.trim().length > 0) ?? [];
 
   return (
-    <View style={{ gap: spacing.xl }}>
-      <View style={{ gap: spacing.sm }}>
-        <AppText variant="label" color="primaryHighlight">
-          {LEVEL_LABELS[level]} level{snapshotLesson.estimatedMinutes ? ` · ${snapshotLesson.estimatedMinutes} min` : ''}
-        </AppText>
-        <AppText variant="title" accessibilityRole="header">
-          {snapshotLesson.title}
-        </AppText>
-        {snapshotLesson.subtitle ? (
-          <AppText variant="subtitle" color="primaryHighlight">
-            {snapshotLesson.subtitle}
-          </AppText>
+    <View style={{ gap: spacing.xl }} onLayout={(event) => onBodyLayout(event.nativeEvent.layout.y)}>
+      <View style={{ gap: spacing.lg }}>
+        {showCover && snapshotLesson.coverMediaId ? (
+          <CoverImage mediaId={snapshotLesson.coverMediaId} uri={lessonCoverUrl(lessonId, snapshotLesson.coverMediaId, level)} width="100%" height={200} />
         ) : null}
+        <View style={{ gap: spacing.sm }}>
+          <AppText variant="bodySmall" color="primaryHighlight" style={{ fontWeight: '600' }}>
+            {LEVEL_LABELS[level]} level{snapshotLesson.estimatedMinutes ? ` · ${snapshotLesson.estimatedMinutes} min read` : ''}
+          </AppText>
+          <AppText variant="title" accessibilityRole="header">
+            {snapshotLesson.title}
+          </AppText>
+          <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ width: 48, height: 2, backgroundColor: colors.primary }} />
+          {snapshotLesson.subtitle ? (
+            <AppText variant="subtitle" color="textSecondary">
+              {snapshotLesson.subtitle}
+            </AppText>
+          ) : null}
+        </View>
+        {introduction.length > 0 ? (
+          <View style={{ gap: spacing.md }}>
+            {introduction.map((paragraph, index) => (
+              <AppText key={index} variant="body" style={{ fontSize: 17, lineHeight: 28 }}>
+                {paragraph.trim()}
+              </AppText>
+            ))}
+          </View>
+        ) : null}
+        {shown.length > 0 ? <Divider /> : null}
       </View>
 
-      {introduction.length > 0 ? (
-        <View style={{ gap: spacing.md }}>
-          {introduction.map((paragraph, index) => (
-            <AppText key={index} variant="body" color="textSecondary">
-              {paragraph.trim()}
-            </AppText>
-          ))}
-        </View>
-      ) : null}
-
       {shown.map((block) =>
-        block.type === 'IMAGE' ? (
+        block.type === 'SECTION_INTRO' ? (
+          <View key={block.blockId} onLayout={(event) => onSectionLayout(block.blockId, event.nativeEvent.layout.y)}>
+            <SectionIntroBlock lessonId={lessonId} level={level} content={block.content} />
+          </View>
+        ) : block.type === 'IMAGE' ? (
           <LessonImage key={block.blockId} lessonId={lessonId} level={level} content={block.content} />
-        ) : block.type === 'SECTION_INTRO' ? (
-          <SectionIntroBlock key={block.blockId} lessonId={lessonId} level={level} content={block.content} />
         ) : block.type === 'PROPHECY_EQUIVALENCE' ? (
           <EquivalenceBlock key={block.blockId} content={block.content} />
         ) : block.type === 'PROPHECY_COMPARISON' ? (
@@ -324,7 +466,9 @@ function LessonBody({
         ) : block.type === 'SYMBOL_STUDY' ? (
           <SymbolStudyBlock key={block.blockId} lessonId={lessonId} level={level} content={block.content} />
         ) : block.type === 'MAP' ? (
-          <HotspotImage key={block.blockId} lessonId={lessonId} level={level} content={block.content} variant="map" />
+          <View key={block.blockId} onLayout={(event) => onSectionLayout(block.blockId, event.nativeEvent.layout.y)}>
+            <HotspotImage lessonId={lessonId} level={level} content={block.content} variant="map" onReveal={(y, height) => onRevealInBlock(block.blockId, y, height)} />
+          </View>
         ) : block.type === 'EXPLORE_DEEPER' ? (
           <ExploreDeeperBlock key={block.blockId} content={block.content} />
         ) : block.type === 'SCRIPTURE_CONNECTION' ? (
@@ -338,9 +482,13 @@ function LessonBody({
         ) : block.type === 'TIMELINE' ? (
           <TimelineContent key={block.blockId} lessonId={lessonId} level={level} content={block.content} />
         ) : block.type === 'INTERACTIVE_IMAGE' ? (
-          <HotspotImage key={block.blockId} lessonId={lessonId} level={level} content={block.content} />
+          <View key={block.blockId} onLayout={(event) => onSectionLayout(block.blockId, event.nativeEvent.layout.y)}>
+            <HotspotImage lessonId={lessonId} level={level} content={block.content} onReveal={(y, height) => onRevealInBlock(block.blockId, y, height)} />
+          </View>
         ) : block.type === 'QUIZ' ? (
-          <QuizContent key={`${block.blockId}:${contentHash}`} content={block.content} lessonId={lessonId} lessonTitle={snapshotLesson.title} level={level} blockId={block.blockId} contentHash={contentHash} />
+          <View key={`${block.blockId}:${contentHash}`} onLayout={(event) => onSectionLayout(block.blockId, event.nativeEvent.layout.y)}>
+            <QuizContent content={block.content} lessonId={lessonId} lessonTitle={snapshotLesson.title} level={level} blockId={block.blockId} contentHash={contentHash} onStepChange={() => onBlockStep(block.blockId)} />
+          </View>
         ) : block.type === 'SUMMARY' ? (
           <SummaryContent key={block.blockId} content={block.content} />
         ) : (
@@ -353,10 +501,22 @@ function LessonBody({
       ) : null}
 
       {skipped > 0 ? (
-        <AppText variant="caption" color="textMuted" accessibilityLiveRegion="polite">
+        <AppText variant="bodySmall" color="textMuted" accessibilityLiveRegion="polite">
           {skipped === 1 ? 'One part' : `${skipped} parts`} of this lesson cannot be shown in this version of the app yet.
         </AppText>
       ) : null}
     </View>
   );
+});
+
+/** Every media id a block refers to (its own image, a nested image, a poster), so the cover is not shown twice. */
+function blockMediaIds(content: Record<string, unknown>): string[] {
+  const ids: string[] = [];
+  const take = (value: unknown) => {
+    if (typeof value === 'string' && value.trim()) ids.push(value.trim());
+  };
+  take(content.mediaId);
+  take(content.posterMediaId);
+  if (typeof content.image === 'object' && content.image !== null) take((content.image as Record<string, unknown>).mediaId);
+  return ids;
 }

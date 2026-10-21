@@ -9,31 +9,39 @@ export type OptionRowProps = {
   description?: string;
   selected: boolean;
   onSelect: () => void;
+  /** Ignores presses (an answer that has been checked). The row stays readable and keeps its selected state. */
+  locked?: boolean;
+  /** After an answer is checked: marks this option as the correct one, or as the learner's incorrect choice. Shown in words, not colour alone. */
+  outcome?: 'correct' | 'incorrect';
 };
 
 /**
  * One choice in a radio-style list. The selected state is shown three ways (gold border, filled dot, bold weight of the
  * indicator) and announced to screen readers as "selected", so it never depends on colour alone.
  */
-export function OptionRow({ title, description, selected, onSelect }: OptionRowProps) {
+export function OptionRow({ title, description, selected, onSelect, locked = false, outcome }: OptionRowProps) {
   const { colors, layout, radius, spacing } = useTheme();
+  const outcomeText =
+    outcome === 'correct' ? (selected ? '✓ Correct. Your answer' : '✓ Correct answer') : outcome === 'incorrect' ? '✗ Not correct. Your answer' : null;
+  const emphasised = selected || outcome !== undefined;
   return (
     <Pressable
       accessibilityRole="radio"
-      accessibilityLabel={description ? `${title}. ${description}` : title}
+      accessibilityLabel={`${description ? `${title}. ${description}` : title}${outcomeText ? `. ${outcomeText.replace(/^[✓✗]\s*/, '')}` : ''}`}
       aria-checked={selected}
-      onPress={onSelect}
+      aria-disabled={locked}
+      onPress={locked ? undefined : onSelect}
       style={({ pressed }) => [
         styles.row,
         {
           minHeight: layout.touchTarget + spacing.md,
           // the selected border is 1px thicker; take it from the padding so the row does not shift
-          padding: selected ? spacing.lg - 1 : spacing.lg,
+          padding: emphasised ? spacing.lg - 1 : spacing.lg,
           gap: spacing.lg,
           borderRadius: radius.lg,
-          borderWidth: selected ? 2 : layout.hairline,
-          borderColor: selected ? colors.primary : colors.border,
-          backgroundColor: selected || pressed ? colors.surfaceElevated : colors.surface,
+          borderWidth: emphasised ? 2 : layout.hairline,
+          borderColor: outcome === 'correct' ? colors.success : outcome === 'incorrect' ? colors.error : selected ? colors.primary : colors.border,
+          backgroundColor: selected || (pressed && !locked) ? colors.surfaceElevated : colors.surface,
         },
       ]}>
       <View
@@ -50,6 +58,11 @@ export function OptionRow({ title, description, selected, onSelect }: OptionRowP
         {description ? (
           <AppText variant="bodySmall" color="textSecondary">
             {description}
+          </AppText>
+        ) : null}
+        {outcomeText ? (
+          <AppText variant="bodySmall" color={outcome === 'incorrect' ? 'error' : 'success'} style={{ fontWeight: '700' }}>
+            {outcomeText}
           </AppText>
         ) : null}
       </View>

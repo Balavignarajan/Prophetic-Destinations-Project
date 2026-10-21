@@ -1,7 +1,7 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { View } from 'react-native';
 
-import { AppText, OptionRow, PrimaryButton, SecondaryButton } from '@/components/ui';
+import { ActionRow, AppText, BlockFrame, BlockNotice, OptionRow, PrimaryButton, SecondaryButton } from '@/components/ui';
 import { useLearningProgress } from '@/features/learning/learning-provider';
 import type { ProgressLevel } from '@/features/learning/progress-model';
 import { useTheme } from '@/theme';
@@ -57,6 +57,75 @@ function readQuiz(content: Record<string, unknown>): { quizId: string; title: st
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'failed';
 
+type Step = 'question' | 'results' | 'review';
+
+/** "Question 2 of 5" with a segmented bar (a plain bar for long quizzes). Position within the quiz only: it says nothing about lesson completion. */
+function QuestionProgress({ label, current, total }: { label: string; current: number; total: number }) {
+  const { colors, radius, spacing } = useTheme();
+  const segmented = total <= 10;
+  return (
+    <View
+      accessible
+      accessibilityRole="progressbar"
+      accessibilityLabel={label}
+      accessibilityValue={{ min: 1, max: total, now: current }}
+      style={{ gap: spacing.sm }}>
+      <AppText variant="bodySmall" color="textSecondary" style={{ fontWeight: '600' }}>
+        {label}
+      </AppText>
+      {segmented ? (
+        <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+          {Array.from({ length: total }, (_, i) => (
+            <View
+              key={i}
+              style={{ flex: 1, height: 4, borderRadius: radius.pill, backgroundColor: i < current ? colors.primary : colors.border }}
+            />
+          ))}
+        </View>
+      ) : (
+        <View style={{ height: 4, borderRadius: radius.pill, backgroundColor: colors.border, overflow: 'hidden' }}>
+          <View style={{ width: `${(current / total) * 100}%`, height: '100%', backgroundColor: colors.primary }} />
+        </View>
+      )}
+    </View>
+  );
+}
+
+/** The result of one checked question: a labelled card (never colour alone), the correct answer when missed, and the CMS explanation if there is one. */
+function QuestionFeedback({ correct, answered, correctText, explanation }: { correct: boolean; answered: boolean; correctText: string | undefined; explanation: string | null }) {
+  const { colors, radius, spacing } = useTheme();
+  const accent = correct ? colors.success : colors.warning;
+  return (
+    <View
+      accessibilityLiveRegion="polite"
+      style={{
+        gap: spacing.sm,
+        padding: spacing.lg,
+        borderRadius: radius.md,
+        borderLeftWidth: 4,
+        borderLeftColor: accent,
+        backgroundColor: colors.surfaceElevated,
+      }}>
+      <AppText variant="body" color={correct ? 'success' : 'warning'} style={{ fontWeight: '700' }}>
+        {correct ? '✓ Correct' : answered ? '✗ Not quite' : 'Not answered'}
+      </AppText>
+      {!correct && correctText ? (
+        <AppText variant="body">
+          <AppText variant="body" color="textSecondary">
+            Correct answer:{' '}
+          </AppText>
+          {correctText}
+        </AppText>
+      ) : null}
+      {explanation ? (
+        <AppText variant="body" color="textSecondary" style={{ fontSize: 16, lineHeight: 25 }}>
+          {explanation}
+        </AppText>
+      ) : null}
+    </View>
+  );
+}
+
 export function QuizContent({
   content,
   lessonId,
@@ -64,6 +133,7 @@ export function QuizContent({
   level,
   blockId,
   contentHash,
+  onStepChange,
 }: {
   content: Record<string, unknown>;
   lessonId: string;
@@ -72,35 +142,48 @@ export function QuizContent({
   blockId: string;
   /** Identifies the published version of the lesson; a saved result is shown only for the same one. */
   contentHash: string;
+  /** Called when a different question, the results or the review comes into view (never when an answer is chosen). The lesson reader uses it to keep the quiz in view. */
+  onStepChange?: () => void;
 }) {
-  const { spacing, colors, radius } = useTheme();
+  const { spacing } = useTheme();
   const { ready, quizResultFor, recordQuizResult } = useLearningProgress();
   // The attempt being taken now. Separate from the saved result, which is only read from the progress store.
   const [mode, setMode] = useState<'saved' | 'attempt' | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [checked, setChecked] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>('idle');
+  // Local, presentation-only state of the guided flow. Checking ONE question only marks it here; the result is stored once, from `check`.
+  const [step, setStep] = useState<Step | null>(null);
+  const [index, setIndex] = useState(0);
+  const [checkedQuestions, setCheckedQuestions] = useState<Record<string, boolean>>({});
+  const [reviewIndex, setReviewIndex] = useState(0);
   const attemptToken = useRef(0);
+  const lastView = useRef({ step, index, reviewIndex });
+  useEffect(() => {
+    const previous = lastView.current;
+    if (previous.step === step && previous.index === index && previous.reviewIndex === reviewIndex) return;
+    lastView.current = { step, index, reviewIndex };
+    onStepChange?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, index, reviewIndex]);
   const quiz = readQuiz(content);
 
   if (!quiz) {
     return (
-      <View style={{ gap: spacing.xs, padding: spacing.lg, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderSubtle, backgroundColor: colors.surface }}>
-        <AppText variant="label" color="warning">
-          Quiz not available
-        </AppText>
-        <AppText variant="bodySmall" color="textSecondary" accessibilityLiveRegion="polite">
-          This lesson has a quiz that this version of the app cannot show, so no score is given. The rest of the lesson is not affected. Updating the app may fix this.
-        </AppText>
-      </View>
+      <BlockNotice
+        title="Quiz not available"
+        message="This lesson has a quiz that this version of the app cannot show, so no score is given. The rest of the lesson is not affected. Updating the app may fix this."
+      />
     );
   }
 
   const saved = ready ? quizResultFor({ lessonId, level, blockId, quizId: quiz.quizId, contentHash }) : null;
   // Until the learner starts a new attempt, a matching saved result is what is shown. Once they have, it is only mentioned as "previous".
   const view = mode ?? (saved ? 'saved' : 'attempt');
+  const showingSaved = view === 'saved' && saved !== null;
+  const total = quiz.questions.length;
   const score = quiz.questions.filter((q) => answers[q.id] === q.correctOptionId).length;
-  const unanswered = quiz.questions.filter((q) => !answers[q.id]).length;
+  const currentStep: Step = step ?? (showingSaved ? 'results' : 'question');
   const dateOf = (time: number) => {
     try {
       return new Date(time).toLocaleDateString(undefined, { dateStyle: 'medium' });
@@ -115,13 +198,19 @@ export function QuizContent({
     setAnswers({});
     setChecked(false);
     setSaveState('idle');
+    setStep('question');
+    setIndex(0);
+    setCheckedQuestions({});
+    setReviewIndex(0);
   };
 
+  // Stores the result exactly as before (one record for the whole quiz). It is only called from "View results".
   const check = () => {
     const token = (attemptToken.current += 1);
     setMode('attempt');
     setChecked(true);
     setSaveState('saving');
+    setStep('results');
     const finished = {
       lessonId,
       level,
@@ -130,7 +219,7 @@ export function QuizContent({
       contentHash,
       lessonTitle,
       score,
-      total: quiz.questions.length,
+      total,
       completedAt: Date.now(),
       answers: { ...answers },
     };
@@ -143,14 +232,83 @@ export function QuizContent({
       });
   };
 
-  const renderQuestion = (question: Question, index: number, chosenAnswers: Record<string, string>, interactive: boolean, feedback: boolean) => {
-    const chosen = chosenAnswers[question.id];
+  const header = (
+    <View style={{ gap: spacing.xs }}>
+      <AppText variant="heading" accessibilityRole="header">
+        {quiz.title || 'Quiz'}
+      </AppText>
+      {quiz.description && currentStep === 'question' && index === 0 ? (
+        <AppText variant="bodySmall" color="textSecondary">
+          {quiz.description}
+        </AppText>
+      ) : null}
+    </View>
+  );
+
+  // ------------------------------------------------------------------------------------------------ results
+  if (currentStep === 'results') {
+    const shown = showingSaved && saved ? { score: saved.score, total: saved.total, completedAt: saved.completedAt, answers: saved.answers } : { score, total, completedAt: 0, answers };
+    const canReview = Object.keys(shown.answers).length > 0 || !showingSaved;
+    return (
+      <BlockFrame variant="interactive">
+        {header}
+        <View accessibilityLiveRegion="polite" style={{ gap: spacing.sm, alignItems: 'center', paddingVertical: spacing.md }}>
+          <AppText variant="label" color="primaryHighlight" align="center">
+            {showingSaved ? 'Previous completed result' : 'Quiz complete'}
+          </AppText>
+          <AppText variant="title" color="primaryHighlight" align="center">
+            {shown.score} of {shown.total} correct
+          </AppText>
+          <AppText variant="body" color="textSecondary" align="center">
+            {showingSaved
+              ? `${dateOf(shown.completedAt) ? `Completed ${dateOf(shown.completedAt)}. ` : ''}Saved on this device.`
+              : "You've completed this knowledge check."}
+          </AppText>
+        </View>
+        {!showingSaved ? (
+          saveState === 'failed' ? (
+            <AppText variant="bodySmall" color="warning" accessibilityLiveRegion="polite">
+              This result could not be saved on this device, so it will not be here next time. Your score above is still correct.
+            </AppText>
+          ) : saveState === 'saved' ? (
+            <AppText variant="bodySmall" color="textMuted" accessibilityLiveRegion="polite">
+              Result saved on this device.
+            </AppText>
+          ) : (
+            <AppText variant="bodySmall" color="textMuted">
+              Saving result…
+            </AppText>
+          )
+        ) : null}
+        <View style={{ gap: spacing.md }}>
+          {canReview ? (
+            <PrimaryButton
+              label="Review answers"
+              onPress={() => {
+                setReviewIndex(0);
+                setStep('review');
+              }}
+            />
+          ) : null}
+          <SecondaryButton label={showingSaved ? 'Try the quiz again' : 'Try again'} onPress={startNewAttempt} />
+        </View>
+      </BlockFrame>
+    );
+  }
+
+  // ------------------------------------------------------------------------------------------------ review (read-only)
+  if (currentStep === 'review') {
+    const reviewAnswers = showingSaved && saved ? saved.answers : answers;
+    const question = quiz.questions[reviewIndex];
+    const chosen = reviewAnswers[question.id];
     const correct = chosen === question.correctOptionId;
     const correctText = question.options.find((o) => o.id === question.correctOptionId)?.text;
     return (
-      <View key={question.id} style={{ gap: spacing.sm }}>
-        <AppText variant="body" style={{ fontWeight: '700' }}>
-          {index + 1}. {question.prompt}
+      <BlockFrame variant="interactive">
+        {header}
+        <QuestionProgress label={`Review: question ${reviewIndex + 1} of ${total}`} current={reviewIndex + 1} total={total} />
+        <AppText variant="body" accessibilityRole="header" style={{ fontSize: 18, lineHeight: 27, fontWeight: '600' }}>
+          {question.prompt}
         </AppText>
         <View style={{ gap: spacing.sm }} accessibilityRole="radiogroup">
           {question.options.map((option) => (
@@ -158,116 +316,74 @@ export function QuizContent({
               key={option.id}
               title={option.text}
               selected={chosen === option.id}
-              onSelect={() => {
-                if (!interactive) return;
-                // Answering starts (or continues) a new attempt: a saved result that finishes loading later must not replace it.
-                setMode('attempt');
-                setAnswers((current) => ({ ...current, [question.id]: option.id }));
-              }}
+              locked
+              onSelect={() => undefined}
+              outcome={option.id === question.correctOptionId ? 'correct' : chosen === option.id ? 'incorrect' : undefined}
             />
           ))}
         </View>
-        {feedback ? (
-          <View style={{ gap: spacing.xs }} accessibilityLiveRegion="polite">
-            <AppText variant="label" color={correct ? 'success' : 'warning'}>
-              {correct ? 'Correct' : chosen ? 'Not quite' : 'Not answered'}
-            </AppText>
-            {!correct && correctText ? (
-              <AppText variant="bodySmall" color="textSecondary">
-                Correct answer: {correctText}
-              </AppText>
-            ) : null}
-            {question.explanation ? (
-              <AppText variant="bodySmall" color="textSecondary">
-                {question.explanation}
-              </AppText>
-            ) : null}
-          </View>
-        ) : null}
-      </View>
+        <QuestionFeedback correct={correct} answered={chosen !== undefined} correctText={correctText} explanation={question.explanation} />
+        <ActionRow equal>
+          <SecondaryButton size="medium" label="Previous" disabled={reviewIndex === 0} onPress={() => setReviewIndex(reviewIndex - 1)} />
+          <SecondaryButton size="medium" label="Next" disabled={reviewIndex === total - 1} onPress={() => setReviewIndex(reviewIndex + 1)} />
+        </ActionRow>
+        <PrimaryButton label="Back to results" onPress={() => setStep('results')} />
+      </BlockFrame>
     );
-  };
+  }
+
+  // ------------------------------------------------------------------------------------------------ one question at a time
+  const question = quiz.questions[Math.min(index, total - 1)];
+  const chosen = answers[question.id];
+  const isChecked = checkedQuestions[question.id] === true;
+  const isLast = index === total - 1;
+  const correct = chosen === question.correctOptionId;
+  const correctText = question.options.find((o) => o.id === question.correctOptionId)?.text;
 
   return (
-    <View
-      style={{
-        gap: spacing.lg,
-        padding: spacing.lg,
-        borderRadius: radius.md,
-        borderWidth: 1,
-        borderColor: colors.borderGold,
-        backgroundColor: colors.surface,
-      }}>
-      <View style={{ gap: spacing.xs }}>
-        <AppText variant="heading" accessibilityRole="header">
-          {quiz.title || 'Quiz'}
+    <BlockFrame variant="interactive">
+      {header}
+      {saved && !checked ? (
+        <AppText variant="bodySmall" color="textMuted">
+          Previous completed result: {saved.score} of {saved.total} correct{dateOf(saved.completedAt) ? ` (${dateOf(saved.completedAt)})` : ''}. It stays saved until you finish this new attempt.
         </AppText>
-        {quiz.description ? (
-          <AppText variant="bodySmall" color="textSecondary">
-            {quiz.description}
-          </AppText>
-        ) : null}
+      ) : null}
+      <QuestionProgress label={`Question ${index + 1} of ${total}`} current={index + 1} total={total} />
+      <AppText variant="body" accessibilityRole="header" style={{ fontSize: 18, lineHeight: 27, fontWeight: '600' }}>
+        {question.prompt}
+      </AppText>
+      <View style={{ gap: spacing.sm }} accessibilityRole="radiogroup">
+        {question.options.map((option) => (
+          <OptionRow
+            key={option.id}
+            title={option.text}
+            selected={chosen === option.id}
+            locked={isChecked}
+            outcome={isChecked ? (option.id === question.correctOptionId ? 'correct' : chosen === option.id ? 'incorrect' : undefined) : undefined}
+            onSelect={() => {
+              // Answering starts (or continues) a new attempt: a saved result that finishes loading later must not replace it.
+              setMode('attempt');
+              setAnswers((current) => ({ ...current, [question.id]: option.id }));
+            }}
+          />
+        ))}
       </View>
-
-      {view === 'saved' && saved ? (
-        <>
-          <View style={{ gap: spacing.xs }} accessibilityLiveRegion="polite">
-            <AppText variant="label" color="primaryHighlight">
-              Previous completed result
-            </AppText>
-            <AppText variant="body" style={{ fontWeight: '700' }}>
-              You got {saved.score} of {saved.total} correct
-              {dateOf(saved.completedAt) ? ` · ${dateOf(saved.completedAt)}` : ''}
-            </AppText>
-            <AppText variant="caption" color="textMuted">
-              Saved on this device. Your answers are shown below.
-            </AppText>
-          </View>
-          {quiz.questions.map((question, index) => renderQuestion(question, index, saved.answers, false, true))}
-          <SecondaryButton label="Try the quiz again" onPress={startNewAttempt} />
-        </>
-      ) : (
-        <>
-          {saved && !checked ? (
-            <AppText variant="caption" color="textMuted">
-              Previous completed result: {saved.score} of {saved.total} correct{dateOf(saved.completedAt) ? ` (${dateOf(saved.completedAt)})` : ''}. It stays saved until you check these new answers.
-            </AppText>
-          ) : null}
-
-          {quiz.questions.map((question, index) => renderQuestion(question, index, answers, !checked, checked))}
-
-          {checked ? (
-            <View style={{ gap: spacing.md }}>
-              <AppText variant="body" accessibilityLiveRegion="polite" style={{ fontWeight: '700' }}>
-                You got {score} of {quiz.questions.length} correct.
-              </AppText>
-              {saveState === 'failed' ? (
-                <AppText variant="bodySmall" color="warning" accessibilityLiveRegion="polite">
-                  This result could not be saved on this device, so it will not be here next time. Your score above is still correct.
-                </AppText>
-              ) : saveState === 'saved' ? (
-                <AppText variant="caption" color="textMuted" accessibilityLiveRegion="polite">
-                  Result saved on this device.
-                </AppText>
-              ) : (
-                <AppText variant="caption" color="textMuted">
-                  Saving result…
-                </AppText>
-              )}
-              <SecondaryButton label="Try the quiz again" onPress={startNewAttempt} />
-            </View>
-          ) : (
-            <View style={{ gap: spacing.sm }}>
-              {unanswered > 0 && unanswered < quiz.questions.length ? (
-                <AppText variant="caption" color="textMuted">
-                  {unanswered} {unanswered === 1 ? 'question is' : 'questions are'} not answered yet. You can still check your answers.
-                </AppText>
-              ) : null}
-              <PrimaryButton label="Check my answers" disabled={unanswered === quiz.questions.length} onPress={check} />
-            </View>
-          )}
-        </>
-      )}
-    </View>
+      {isChecked ? <QuestionFeedback correct={correct} answered={chosen !== undefined} correctText={correctText} explanation={question.explanation} /> : null}
+      <ActionRow>
+        {index > 0 ? <SecondaryButton size="medium" label="Previous" onPress={() => setIndex(index - 1)} /> : null}
+        {!isChecked ? (
+          <PrimaryButton
+            size="medium"
+            label="Check answer"
+            disabled={chosen === undefined}
+            onPress={() => setCheckedQuestions((current) => ({ ...current, [question.id]: true }))}
+          />
+        ) : isLast ? (
+          <PrimaryButton size="medium" label="View results" onPress={check} />
+        ) : (
+          <PrimaryButton size="medium" label="Next question" onPress={() => setIndex(index + 1)} />
+        )}
+      </ActionRow>
+    </BlockFrame>
   );
 }

@@ -245,7 +245,7 @@ export function BibleReaderScreen() {
           scrollToTarget();
         }}
         style={{ gap: spacing.md, paddingTop: spacing.sm, paddingBottom: spacing.xxl }}>
-        <AppText variant="caption" color="textMuted">
+        <AppText variant="bodySmall" color="textMuted">
           {chapter.translation}, {chapter.edition} (version {chapter.version})
         </AppText>
         {parsed.fromLesson ? <SecondaryButton label="Back to lesson" onPress={() => router.back()} /> : null}
@@ -255,7 +255,7 @@ export function BibleReaderScreen() {
           </View>
         ) : null}
         {comparison === 'same' ? (
-          <AppText variant="caption" color="textMuted" accessibilityLiveRegion="polite">
+          <AppText variant="bodySmall" color="textMuted" accessibilityLiveRegion="polite">
             Text identity confirmed: this is the same text the lesson passage was published with.
           </AppText>
         ) : null}
@@ -267,7 +267,7 @@ export function BibleReaderScreen() {
           </View>
         ) : null}
         {comparison === 'unknown' ? (
-          <AppText variant="caption" color="textMuted" accessibilityLiveRegion="polite">
+          <AppText variant="bodySmall" color="textMuted" accessibilityLiveRegion="polite">
             Text identity could not be confirmed. {unknownReason} The lesson keeps its own published passage.
           </AppText>
         ) : null}
@@ -288,7 +288,7 @@ export function BibleReaderScreen() {
             return (
               <View key={v.verse} onLayout={onVerseLayout(v.verse)} style={{ gap: 2 }}>
                 {marked && v.verse === range?.startVerse ? (
-                  <AppText variant="caption" color="primaryHighlight" style={{ fontWeight: '700' }}>
+                  <AppText variant="bodySmall" color="primaryHighlight" style={{ fontWeight: '700' }}>
                     Passage from the lesson: verse {range.startVerse}
                     {range.endVerse > range.startVerse ? ` to ${range.endVerse}` : ''}
                   </AppText>

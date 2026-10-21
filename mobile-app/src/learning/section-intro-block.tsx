@@ -1,6 +1,6 @@
 import { View } from 'react-native';
 
-import { AppText } from '@/components/ui';
+import { AppText, BlockNotice } from '@/components/ui';
 import { LessonImage } from '@/learning/lesson-image';
 import type { LearningLevel } from '@/learning/levels';
 import { useTheme } from '@/theme';
@@ -17,32 +17,26 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
 const asText = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
 
 export function SectionIntroBlock({ lessonId, level, content }: { lessonId: string; level: LearningLevel; content: Record<string, unknown> }) {
-  const { spacing, colors, radius } = useTheme();
+  const { spacing, colors } = useTheme();
   const title = asText(content.title);
   const imageOk = content.image === undefined || (isRecord(content.image) && Boolean(asText(content.image.mediaId)));
 
   if (!title || !imageOk) {
     return (
-      <View style={{ gap: spacing.xs, padding: spacing.lg, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderSubtle, backgroundColor: colors.surface }}>
-        <AppText variant="label" color="warning">
-          Section heading not available
-        </AppText>
-        <AppText variant="bodySmall" color="textSecondary" accessibilityLiveRegion="polite">
-          This section heading could not be shown. The rest of the lesson is not affected.
-        </AppText>
-      </View>
+      <BlockNotice title="Section heading not available" message="This section heading could not be shown. The rest of the lesson is not affected." />
     );
   }
   const subtitle = asText(content.subtitle);
   const image = isRecord(content.image) ? { mediaId: asText(content.image.mediaId), altText: asText(content.image.altText) } : null;
 
   return (
-    <View style={{ gap: spacing.md, paddingTop: spacing.md }} accessible={false}>
-      <AppText variant="title" accessibilityRole="header">
+    <View style={{ gap: spacing.md, paddingTop: spacing.xl }} accessible={false}>
+      <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ width: 40, height: 2, backgroundColor: colors.primary }} />
+      <AppText variant="sectionHeading" accessibilityRole="header">
         {title}
       </AppText>
       {subtitle ? (
-        <AppText variant="subtitle" color="primaryHighlight">
+        <AppText variant="subtitle" color="textSecondary">
           {subtitle}
         </AppText>
       ) : null}

@@ -1,6 +1,6 @@
-import { View } from 'react-native';
+import { Text, View } from 'react-native';
 
-import { AppText } from '@/components/ui';
+import { AppText, BlockFrame, BlockNotice } from '@/components/ui';
 import { LessonImage } from '@/learning/lesson-image';
 import type { LearningLevel } from '@/learning/levels';
 import { ScriptureLinks } from '@/learning/scripture-links';
@@ -24,14 +24,7 @@ const single = (value: unknown): unknown[] => (value === undefined || value === 
 function Unavailable({ what }: { what: string }) {
   const { spacing, colors, radius } = useTheme();
   return (
-    <View style={{ gap: spacing.xs, padding: spacing.lg, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderSubtle, backgroundColor: colors.surface }}>
-      <AppText variant="label" color="warning">
-        {what} not available
-      </AppText>
-      <AppText variant="bodySmall" color="textSecondary" accessibilityLiveRegion="polite">
-        This part of the lesson could not be shown. The rest of the lesson is not affected.
-      </AppText>
-    </View>
+    <BlockNotice title={`${what} not available`} message="This part of the lesson could not be shown. The rest of the lesson is not affected." />
   );
 }
 
@@ -39,7 +32,7 @@ function Part({ label, children }: { label: string; children: React.ReactNode })
   const { spacing } = useTheme();
   return (
     <View style={{ gap: spacing.xs }}>
-      <AppText variant="label" color="textSecondary" accessibilityRole="header">
+      <AppText variant="bodySmall" color="textMuted" accessibilityRole="header" style={{ fontWeight: '600' }}>
         {label}
       </AppText>
       {children}
@@ -47,14 +40,8 @@ function Part({ label, children }: { label: string; children: React.ReactNode })
   );
 }
 
-function Card({ children }: { children: React.ReactNode }) {
-  const { spacing, colors, radius } = useTheme();
-  return (
-    <View style={{ gap: spacing.md, padding: spacing.lg, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderGold, backgroundColor: colors.surface }}>{children}</View>
-  );
-}
-
 export function WordStudyBlock({ content }: { content: Record<string, unknown> }) {
+  const { colors, typography, fontFamilies } = useTheme();
   const english = asText(content.englishWord);
   const original = asText(content.originalWord);
   const transliteration = asText(content.transliteration);
@@ -64,26 +51,29 @@ export function WordStudyBlock({ content }: { content: Record<string, unknown> }
   const references = Array.isArray(content.references) ? content.references : [];
 
   return (
-    <Card>
+    <BlockFrame variant="interactive">
       <View style={{ gap: 4 }}>
-        <AppText variant="label" color="primaryHighlight">
+        <AppText variant="bodySmall" color="primaryHighlight" style={{ fontWeight: '700' }}>
           Word study
         </AppText>
         <AppText variant="heading" accessibilityRole="header">
           {english}
         </AppText>
-        <AppText variant="title" style={{ writingDirection: 'auto' }}>
-          {original}
-        </AppText>
-        {transliteration ? <AppText variant="body">{transliteration}</AppText> : null}
+        {/* The original word uses the device's own font (no custom face), so Greek and Hebrew letters always draw correctly. */}
+        <Text style={{ color: colors.textBright, fontSize: 34, lineHeight: 46, writingDirection: 'auto' }}>{original}</Text>
+        {transliteration ? (
+          <Text style={[typography.scripture, { color: colors.textSecondary, fontFamily: fontFamilies.serifItalic }]}>{transliteration}</Text>
+        ) : null}
         {strong ? (
-          <AppText variant="caption" color="textMuted">
+          <AppText variant="bodySmall" color="textMuted">
             Strong number: {strong}
           </AppText>
         ) : null}
       </View>
       <Part label="Definition">
-        <AppText variant="body">{definition}</AppText>
+        <AppText variant="body" style={{ fontSize: 17, lineHeight: 27 }}>
+          {definition}
+        </AppText>
       </Part>
       {content.verse !== undefined ? (
         <Part label="Verse">
@@ -95,11 +85,12 @@ export function WordStudyBlock({ content }: { content: Record<string, unknown> }
           <ScriptureLinks entries={references} />
         </Part>
       ) : null}
-    </Card>
+    </BlockFrame>
   );
 }
 
 export function SymbolStudyBlock({ lessonId, level, content }: { lessonId: string; level: LearningLevel; content: Record<string, unknown> }) {
+  const { colors } = useTheme();
   const symbol = asText(content.symbol);
   const meaning = asText(content.meaning);
   const explanation = asText(content.explanation);
@@ -108,12 +99,12 @@ export function SymbolStudyBlock({ lessonId, level, content }: { lessonId: strin
   const references = Array.isArray(content.references) ? content.references : [];
 
   return (
-    <Card>
+    <BlockFrame variant="interactive">
       <View style={{ gap: 4 }}>
-        <AppText variant="label" color="primaryHighlight">
+        <AppText variant="bodySmall" color="primaryHighlight" style={{ fontWeight: '700' }}>
           Symbol study
         </AppText>
-        <AppText variant="heading" accessibilityRole="header">
+        <AppText variant="sectionHeading" accessibilityRole="header">
           {symbol}
         </AppText>
       </View>
@@ -123,22 +114,30 @@ export function SymbolStudyBlock({ lessonId, level, content }: { lessonId: strin
           <ScriptureLinks entries={single(content.primaryPassage)} />
         </Part>
       ) : null}
-      <Part label="Meaning">
-        <AppText variant="body">{meaning}</AppText>
-      </Part>
+      {/* what the symbol means: the clearest line of the block, set apart with a gold rule */}
+      <View style={{ gap: 4, paddingLeft: 12, borderLeftWidth: 3, borderLeftColor: colors.primary }}>
+        <AppText variant="bodySmall" color="textMuted" accessibilityRole="header" style={{ fontWeight: '600' }}>
+          Meaning
+        </AppText>
+        <AppText variant="body" style={{ fontSize: 18, lineHeight: 27, fontWeight: '600' }}>
+          {meaning}
+        </AppText>
+      </View>
       {content.definitionPassage !== undefined ? (
         <Part label="Passage that defines it">
           <ScriptureLinks entries={single(content.definitionPassage)} />
         </Part>
       ) : null}
       <Part label="Explanation">
-        <AppText variant="body">{explanation}</AppText>
+        <AppText variant="body" style={{ fontSize: 17, lineHeight: 27 }}>
+          {explanation}
+        </AppText>
       </Part>
       {references.length > 0 ? (
         <Part label="Related references">
           <ScriptureLinks entries={references} />
         </Part>
       ) : null}
-    </Card>
+    </BlockFrame>
   );
 }

@@ -1,6 +1,6 @@
 import { View } from 'react-native';
 
-import { AppText } from '@/components/ui';
+import { AppText, BlockFrame, BlockNotice } from '@/components/ui';
 import { ScriptureLinks } from '@/learning/scripture-links';
 import { useTheme } from '@/theme';
 
@@ -29,20 +29,8 @@ const isText = (value: unknown): value is string => typeof value === 'string' &&
 function Incomplete({ what }: { what: string }) {
   const { spacing, colors, radius } = useTheme();
   return (
-    <View style={{ gap: spacing.xs, padding: spacing.lg, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderSubtle, backgroundColor: colors.surface }}>
-      <AppText variant="label" color="warning">
-        {what} is incomplete
-      </AppText>
-      <AppText variant="bodySmall" color="textSecondary" accessibilityLiveRegion="polite">
-        Part of this block could not be read, so none of it is shown rather than a shortened version. The rest of the lesson is not affected.
-      </AppText>
-    </View>
+    <BlockNotice title={`${what} is incomplete`} message="Part of this block could not be read, so none of it is shown rather than a shortened version. The rest of the lesson is not affected." />
   );
-}
-
-function Card({ children }: { children: React.ReactNode }) {
-  const { spacing, colors, radius } = useTheme();
-  return <View style={{ gap: spacing.sm, padding: spacing.lg, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderGold, backgroundColor: colors.surface }}>{children}</View>;
 }
 
 export function StudyActivityBlock({ content }: { content: Record<string, unknown> }) {
@@ -51,13 +39,15 @@ export function StudyActivityBlock({ content }: { content: Record<string, unknow
   if (!type || !isText(content.instruction) || !scriptureOk) return <Incomplete what="Study activity" />;
 
   return (
-    <Card>
-      <AppText variant="label" color="primaryHighlight" accessibilityRole="header">
+    <BlockFrame variant="callout" style={{ gap: 12 }}>
+      <AppText variant="bodySmall" color="primaryHighlight" accessibilityRole="header" style={{ fontWeight: '700' }}>
         Study activity: {type}
       </AppText>
-      <AppText variant="body">{content.instruction}</AppText>
+      <AppText variant="body" style={{ fontSize: 17, lineHeight: 27 }}>
+        {content.instruction}
+      </AppText>
       <ScriptureLinks entries={content.scripture} />
-    </Card>
+    </BlockFrame>
   );
 }
 
@@ -66,20 +56,22 @@ export function GuidedQuestionBlock({ content }: { content: Record<string, unkno
   if (!isText(content.question) || !passages || passages.length === 0 || !isText(content.explanation)) return <Incomplete what="Guided question" />;
 
   return (
-    <Card>
-      <AppText variant="label" color="primaryHighlight">
+    <BlockFrame variant="interactive">
+      <AppText variant="bodySmall" color="primaryHighlight" style={{ fontWeight: '700' }}>
         Guided question
       </AppText>
-      <AppText variant="heading" accessibilityRole="header">
+      <AppText variant="sectionHeading" accessibilityRole="header">
         {content.question}
       </AppText>
       <ScriptureLinks entries={passages} />
       <View style={{ gap: 2 }}>
-        <AppText variant="caption" color="textMuted">
+        <AppText variant="bodySmall" color="textMuted" style={{ fontWeight: '600' }}>
           Explanation
         </AppText>
-        <AppText variant="body">{content.explanation}</AppText>
+        <AppText variant="body" style={{ fontSize: 17, lineHeight: 27 }}>
+          {content.explanation}
+        </AppText>
       </View>
-    </Card>
+    </BlockFrame>
   );
 }

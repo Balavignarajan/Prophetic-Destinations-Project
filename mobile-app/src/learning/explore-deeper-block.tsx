@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 
-import { AppText } from '@/components/ui';
+import { AppText, BlockNotice, ChevronIcon } from '@/components/ui';
 import { ScriptureLinks } from '@/learning/scripture-links';
 import { useTheme } from '@/theme';
 
@@ -24,40 +24,44 @@ export function ExploreDeeperBlock({ content }: { content: Record<string, unknow
 
   if (!title || paragraphs.length === 0) {
     return (
-      <View style={{ gap: spacing.xs, padding: spacing.lg, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderSubtle, backgroundColor: colors.surface }}>
-        <AppText variant="label" color="warning">
-          Explore Deeper section not available
-        </AppText>
-        <AppText variant="bodySmall" color="textSecondary" accessibilityLiveRegion="polite">
-          This section could not be shown. The rest of the lesson is not affected.
-        </AppText>
-      </View>
+      <BlockNotice title="Explore Deeper section not available" message="This section could not be shown. The rest of the lesson is not affected." />
     );
   }
 
   return (
-    <View style={{ borderRadius: radius.md, borderWidth: 1, borderColor: open ? colors.borderGold : colors.borderSubtle, backgroundColor: colors.surface }}>
+    <View
+      style={{
+        borderRadius: radius.lg,
+        borderWidth: 1,
+        borderColor: open ? colors.borderGold : colors.borderSubtle,
+        backgroundColor: open ? colors.surfaceElevated : colors.surface,
+      }}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`Explore deeper: ${title}`}
         accessibilityHint={open ? 'Double tap to hide this section' : 'Double tap to show this section'}
         accessibilityState={{ expanded: open }}
         onPress={() => setOpen((v) => !v)}
-        style={{ minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.lg }}>
+        style={{ minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.lg }}>
         <View style={{ flex: 1, gap: spacing.xs }}>
-          <AppText variant="label" color="primaryHighlight">
+          <AppText variant="bodySmall" color="primaryHighlight" style={{ fontWeight: '700' }}>
             Explore deeper
           </AppText>
-          <AppText variant="body">{title}</AppText>
+          <AppText variant="body" style={{ fontWeight: '600' }}>
+            {title}
+          </AppText>
         </View>
-        <AppText variant="label" color="textSecondary" accessibilityElementsHidden importantForAccessibility="no">
-          {open ? 'Hide' : 'Show'}
-        </AppText>
+        {/* The chevron points down when closed and up when open; the state is also in the accessibility state above. */}
+        <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ width: 24, height: 24, alignItems: 'center', justifyContent: 'center' }}>
+          <View style={{ transform: [{ rotate: open ? '-90deg' : '90deg' }] }}>
+            <ChevronIcon direction="right" color="primaryHighlight" />
+          </View>
+        </View>
       </Pressable>
       {open ? (
         <View style={{ gap: spacing.md, paddingHorizontal: spacing.lg, paddingBottom: spacing.lg }}>
           {paragraphs.map((p, index) => (
-            <AppText key={index} variant="body">
+            <AppText key={index} variant="body" style={{ fontSize: 17, lineHeight: 28 }}>
               {p}
             </AppText>
           ))}

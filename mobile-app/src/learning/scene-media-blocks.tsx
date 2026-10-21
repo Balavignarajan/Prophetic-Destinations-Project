@@ -2,7 +2,7 @@ import { Image } from 'expo-image';
 import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 
-import { AppText } from '@/components/ui';
+import { AppText, BlockNotice } from '@/components/ui';
 import { useReduceMotion } from '@/accessibility/use-reduce-motion';
 import { reportBrokenAsset, useAssetUri } from '@/features/offline/offline-media';
 import { LessonImage, lessonImageUrl } from '@/learning/lesson-image';
@@ -27,22 +27,12 @@ import { useTheme } from '@/theme';
 const isText = (value: unknown): value is string => typeof value === 'string' && value.trim() !== '';
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 
-function Note({ title, message }: { title: string; message: string }) {
-  const { spacing, colors, radius } = useTheme();
-  return (
-    <View style={{ gap: spacing.xs, padding: spacing.lg, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderSubtle, backgroundColor: colors.surface }}>
-      <AppText variant="label" color="warning">
-        {title}
-      </AppText>
-      <AppText variant="bodySmall" color="textSecondary" accessibilityLiveRegion="polite">
-        {message}
-      </AppText>
-    </View>
-  );
+function Note({ title, message, variant }: { title: string; message: string; variant?: 'unsupported' }) {
+  return <BlockNotice title={title} message={message} variant={variant} />;
 }
 
 export function NarrativeSceneBlock({ lessonId, level, content }: { lessonId: string; level: LearningLevel; content: Record<string, unknown> }) {
-  const { spacing } = useTheme();
+  const { spacing, colors } = useTheme();
   const imageOk = content.image === undefined || (isRecord(content.image) && isText(content.image.mediaId));
   if (!isText(content.narrative) || !imageOk || (content.scripture !== undefined && !Array.isArray(content.scripture))) {
     return <Note title="Scene is incomplete" message="Part of this scene could not be read, so none of it is shown rather than a shortened version. The rest of the lesson is not affected." />;
@@ -50,14 +40,19 @@ export function NarrativeSceneBlock({ lessonId, level, content }: { lessonId: st
   const image = isRecord(content.image) ? { mediaId: String(content.image.mediaId).trim(), altText: typeof content.image.altText === 'string' ? content.image.altText : '' } : null;
 
   return (
-    <View style={{ gap: spacing.md }}>
+    <View style={{ gap: spacing.lg }}>
       {image ? <LessonImage lessonId={lessonId} level={level} content={image} /> : null}
-      {isText(content.title) ? (
-        <AppText variant="heading" accessibilityRole="header">
-          {content.title}
+      <View style={{ gap: spacing.md, paddingHorizontal: spacing.xs }}>
+        <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ width: 40, height: 2, backgroundColor: colors.primary }} />
+        {isText(content.title) ? (
+          <AppText variant="sectionHeading" accessibilityRole="header">
+            {content.title}
+          </AppText>
+        ) : null}
+        <AppText variant="body" style={{ fontSize: 17, lineHeight: 28 }}>
+          {content.narrative}
         </AppText>
-      ) : null}
-      <AppText variant="body">{content.narrative}</AppText>
+      </View>
       <ScriptureLinks entries={content.scripture} />
     </View>
   );
@@ -78,7 +73,7 @@ export function AnimatedImageBlock({ lessonId, level, content }: { lessonId: str
   const posterUri = useAssetUri(posterId, posterRemote);
 
   if (content.mediaType !== undefined && content.mediaType !== 'ANIMATED_IMAGE') {
-    return <Note title="Animation not supported" message="This kind of animation (video or Lottie) cannot be played in this version of the app. The rest of the lesson is not affected." />;
+    return <Note variant="unsupported" title="Animation not supported" message="This kind of animation (video or Lottie) cannot be played in this version of the app. The rest of the lesson is not affected." />;
   }
   if (content.mediaType !== 'ANIMATED_IMAGE' || !mediaId || !isText(content.altText) || (content.caption !== undefined && typeof content.caption !== 'string')) {
     return <Note title="Animation is incomplete" message="Part of this block could not be read, so it is not shown. The rest of the lesson is not affected." />;
@@ -88,15 +83,14 @@ export function AnimatedImageBlock({ lessonId, level, content }: { lessonId: str
 
   if (!uri || failed) {
     return (
-      <View style={{ gap: spacing.xs, padding: spacing.lg, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderSubtle, backgroundColor: colors.surface }}>
-        <AppText variant="bodySmall" color="textSecondary">
-          Animation: {alt}
-        </AppText>
-        <AppText variant="caption" color="textMuted">
-          This animation is not saved on this device yet, or could not be loaded. It is saved when you open the lesson with an internet connection.
-        </AppText>
+      <View style={{ gap: spacing.sm }}>
+        <BlockNotice
+          variant="offline"
+          title={`Animation: ${alt}`}
+          message="This animation is not saved on this device yet, or could not be loaded. It is saved when you open the lesson with an internet connection."
+        />
         {uri ? (
-          <Pressable accessibilityRole="button" accessibilityLabel="Try loading the animation again" onPress={() => setFailed(false)} style={{ alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center' }}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Try loading the animation again" onPress={() => setFailed(false)} style={{ alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.xs }}>
             <AppText variant="label" color="primaryHighlight">
               Try again
             </AppText>
@@ -111,7 +105,7 @@ export function AnimatedImageBlock({ lessonId, level, content }: { lessonId: str
 
   return (
     <View style={{ gap: spacing.sm }} accessible={false}>
-      <View style={{ borderRadius: radius.md, overflow: 'hidden', backgroundColor: colors.surface, aspectRatio: ratio, width: '100%' }}>
+      <View style={{ borderRadius: radius.lg, overflow: 'hidden', backgroundColor: colors.surface, aspectRatio: ratio, width: '100%' }}>
         <Image
           key={`${playing ? 'play' : 'still'}:${showPoster ? 'poster' : 'file'}`}
           source={{ uri: shownUri ?? undefined }}
@@ -151,7 +145,7 @@ export function AnimatedImageBlock({ lessonId, level, content }: { lessonId: str
         </AppText>
       </Pressable>
       {reduceMotion ? (
-        <AppText variant="caption" color="textMuted">
+        <AppText variant="bodySmall" color="textMuted">
           Your device is set to reduce motion. This animation plays only when you press Play.
         </AppText>
       ) : null}

@@ -1,8 +1,10 @@
 import { useState } from 'react';
-import { Image, type ImageLoadEventData, type NativeSyntheticEvent, Pressable, View } from 'react-native';
+import { ActivityIndicator, Image, Modal, type ImageLoadEventData, type NativeSyntheticEvent, Pressable, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { API_BASE_URL } from '@/config/api';
-import { AppText } from '@/components/ui';
+import { useReduceMotion } from '@/accessibility/use-reduce-motion';
+import { AppText, BlockNotice, IconButton } from '@/components/ui';
 import { reportBrokenAsset, useAssetUri } from '@/features/offline/offline-media';
 import type { LearningLevel } from '@/learning/levels';
 import { useTheme } from '@/theme';
@@ -27,7 +29,10 @@ export function lessonImageUrl(lessonId: string, mediaId: string, level: Learnin
 }
 
 export function LessonImage({ lessonId, level, content }: { lessonId: string; level: LearningLevel; content: Record<string, unknown> }) {
-  const { spacing, colors, radius } = useTheme();
+  const { spacing, colors, radius, layout } = useTheme();
+  const insets = useSafeAreaInsets();
+  const reduceMotion = useReduceMotion();
+  const [zoomed, setZoomed] = useState(false);
   const c = content as ImageContent;
   const mediaId = text(c.mediaId);
   const alt = text(c.altText);
@@ -51,22 +56,12 @@ export function LessonImage({ lessonId, level, content }: { lessonId: string; le
   return (
     <View style={{ gap: spacing.sm }} accessible={false}>
       {failed ? (
-        <View
-          style={{
-            borderRadius: radius.md,
-            borderWidth: 1,
-            borderColor: colors.borderSubtle,
-            backgroundColor: colors.surface,
-            padding: spacing.lg,
-            gap: spacing.sm,
-          }}
-        >
-          <AppText variant="bodySmall" color="textSecondary" accessibilityRole="text">
-            {alt ? `Image: ${alt}` : 'An image belongs here, but it could not be shown.'}
-          </AppText>
-          <AppText variant="caption" color="textMuted">
-            This image is not saved on this device yet. It is saved when you open the lesson with an internet connection.
-          </AppText>
+        <View style={{ gap: spacing.sm }}>
+          <BlockNotice
+            variant="offline"
+            title={alt ? `Image: ${alt}` : 'An image belongs here, but it could not be shown.'}
+            message="This image is not saved on this device yet. It is saved when you open the lesson with an internet connection."
+          />
           {uri ? (
             <Pressable
               accessibilityRole="button"
@@ -75,7 +70,7 @@ export function LessonImage({ lessonId, level, content }: { lessonId: string; le
                 setStatus('loading');
                 setAttempt((n) => n + 1);
               }}
-              style={{ alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center' }}
+              style={{ alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.xs }}
             >
               <AppText variant="label" color="primaryHighlight">
                 Try again
@@ -84,15 +79,17 @@ export function LessonImage({ lessonId, level, content }: { lessonId: string; le
           ) : null}
         </View>
       ) : (
-        <View style={{ borderRadius: radius.md, overflow: 'hidden', backgroundColor: colors.surface, aspectRatio: ratio, width: '100%' }}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Enlarge image: ${alt || caption || 'Lesson image'}`}
+          disabled={status !== 'ready'}
+          onPress={() => setZoomed(true)}
+          style={{ borderRadius: radius.lg, overflow: 'hidden', backgroundColor: status === 'ready' ? colors.surface : colors.surfaceElevated, aspectRatio: ratio, width: '100%' }}>
           <Image
             key={attempt}
             source={{ uri }}
             style={{ width: '100%', height: '100%' }}
             resizeMode="contain"
-            accessible
-            accessibilityRole="image"
-            accessibilityLabel={alt || caption || 'Lesson image'}
             onLoad={onLoad}
             onError={() => {
               // a saved copy that cannot be shown is dropped (it is downloaded again later) and the learner URL is tried instead
@@ -102,12 +99,10 @@ export function LessonImage({ lessonId, level, content }: { lessonId: string; le
           />
           {status === 'loading' ? (
             <View style={{ position: 'absolute', inset: 0, alignItems: 'center', justifyContent: 'center' }} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-              <AppText variant="caption" color="textMuted">
-                Loading image…
-              </AppText>
+              <ActivityIndicator color={colors.textMuted} />
             </View>
           ) : null}
-        </View>
+        </Pressable>
       )}
       {caption ? (
         <AppText variant="bodySmall" color="textSecondary">
@@ -115,10 +110,29 @@ export function LessonImage({ lessonId, level, content }: { lessonId: string; le
         </AppText>
       ) : null}
       {source ? (
-        <AppText variant="caption" color="textMuted">
+        <AppText variant="bodySmall" color="textMuted">
           Source: {source}
         </AppText>
       ) : null}
+
+      {/* Enlarged view: the same picture at its own aspect ratio. Android back and the close button both dismiss it. */}
+      <Modal visible={zoomed} transparent animationType={reduceMotion ? 'none' : 'fade'} onRequestClose={() => setZoomed(false)} statusBarTranslucent>
+        <View
+          accessibilityViewIsModal
+          style={{ flex: 1, backgroundColor: colors.background, paddingTop: insets.top + spacing.sm, paddingBottom: insets.bottom + spacing.lg }}>
+          <View style={{ alignItems: 'flex-end', paddingHorizontal: spacing.lg }}>
+            <IconButton accessibilityLabel="Close enlarged image" tone="ghost" onPress={() => setZoomed(false)}>
+              <AppText variant="heading" color="textPrimary">
+                ✕
+              </AppText>
+            </IconButton>
+          </View>
+          {/* tapping the picture also closes it; screen readers use the close button above, so this area is not announced as a second one */}
+          <Pressable accessible={false} onPress={() => setZoomed(false)} style={{ flex: 1, width: '100%', maxWidth: layout.maxContentWidth * 2, alignSelf: 'center', padding: spacing.lg }}>
+            {uri ? <Image source={{ uri }} resizeMode="contain" accessible accessibilityRole="image" accessibilityLabel={alt || caption || 'Lesson image'} style={{ flex: 1 }} /> : null}
+          </Pressable>
+        </View>
+      </Modal>
     </View>
   );
 }

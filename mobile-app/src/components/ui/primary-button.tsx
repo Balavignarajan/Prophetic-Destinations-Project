@@ -13,13 +13,15 @@ import { AppText } from './app-text';
 
 export type PrimaryButtonProps = Omit<PressableProps, 'style' | 'children'> & {
   label: string;
+  /** `large` (default, 56) is the original size; `medium` is 48 and `small` is 44, the smallest comfortable touch target. */
+  size?: 'small' | 'medium' | 'large';
   /** Shows a spinner and ignores presses while something is happening. */
   loading?: boolean;
   style?: StyleProp<ViewStyle>;
 };
 
 /** The gold call to action. Use it once per screen for the main action. */
-export function PrimaryButton({ label, loading = false, disabled, style, ...rest }: PrimaryButtonProps) {
+export function PrimaryButton({ label, size = 'large', loading = false, disabled, style, ...rest }: PrimaryButtonProps) {
   const { colors, layout, radius, shadows, spacing } = useTheme();
   const inactive = Boolean(disabled) || loading;
   return (
@@ -33,8 +35,8 @@ export function PrimaryButton({ label, loading = false, disabled, style, ...rest
       style={({ pressed }) => [
         styles.base,
         {
-          minHeight: layout.buttonHeight,
-          paddingHorizontal: spacing.xl,
+          minHeight: size === 'small' ? layout.minTouchTarget : size === 'medium' ? layout.touchTarget : layout.buttonHeight,
+          paddingHorizontal: size === 'small' ? spacing.lg : spacing.xl,
           borderRadius: radius.md,
           backgroundColor: disabled ? colors.disabled : pressed ? colors.primaryPressed : colors.primary,
         },

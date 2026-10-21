@@ -4,7 +4,7 @@ import { Alert, BackHandler, ScrollView, View } from 'react-native';
 
 import { ApiError, ConfigurationError, NetworkError, describeError } from '@/api/errors';
 import { useResource } from '@/api/use-resource';
-import { AppText, Card, ErrorState, LoadingState, PrimaryButton, ScreenContainer, ScreenHeader, SecondaryButton } from '@/components/ui';
+import { ActionRow, AppText, Card, ErrorState, LoadingState, PrimaryButton, ScreenContainer, ScreenHeader, SecondaryButton } from '@/components/ui';
 import { type AnswerMap, answeredCount, selectAnswer, toSubmittedAnswers, unansweredIndexes } from '@/features/assessment/answers';
 import { answerProblemCode, getActiveAssessment, isAssessmentUnavailable, isVersionNotFound, submitAssessment } from '@/features/assessment/assessment-api';
 import type { PublicAssessment, SubmissionResult } from '@/features/assessment/assessment-types';
@@ -49,6 +49,12 @@ export function AssessmentScreen() {
       cancelled = true;
     };
   }, []);
+
+  // A new question starts at its top, so a long previous question never leaves the next one scrolled out of sight.
+  const questionScroll = useRef<ScrollView>(null);
+  useEffect(() => {
+    questionScroll.current?.scrollTo({ y: 0, animated: false });
+  }, [index]);
 
   const data = assessment.status === 'success' ? assessment.data : null;
   // A different published version arriving (a reload) starts clean: answers belong to one exact version.
@@ -123,7 +129,7 @@ export function AssessmentScreen() {
       return (
         <ScreenContainer>
           <ScreenHeader title="Assessment" onBack={leave} />
-          <View style={{ flex: 1, justifyContent: 'center', gap: spacing.lg, padding: spacing.xl }}>
+          <View style={{ flex: 1, justifyContent: 'center', gap: spacing.lg, paddingVertical: spacing.xl }}>
             <AppText variant="heading" align="center" accessibilityRole="header">
               The assessment is not available right now
             </AppText>
@@ -146,7 +152,7 @@ export function AssessmentScreen() {
           message={offline ? 'The assessment needs an internet connection. You can choose your level yourself now and take the assessment later.' : friendly.message}
           onRetry={assessment.error instanceof ConfigurationError ? undefined : reloadAssessment}
         />
-        <View style={{ paddingHorizontal: spacing.xl, paddingBottom: spacing.xl }}>
+        <View style={{ paddingBottom: spacing.xl }}>
           <SecondaryButton label="Choose my level instead" onPress={chooseLevelInstead} />
         </View>
       </ScreenContainer>
@@ -183,20 +189,33 @@ export function AssessmentScreen() {
     return (
       <ScreenContainer scroll>
         <ScreenHeader title="Assessment" onBack={leave} />
-        <View style={{ gap: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.xxl }}>
-          <AppText variant="title" accessibilityRole="header">
-            {current.title}
-          </AppText>
-          {current.instructions ? <AppText variant="body">{current.instructions}</AppText> : null}
-          <Card variant="outlined" style={{ gap: spacing.xs }}>
-            <AppText variant="label">{total === 1 ? '1 question' : `${total} questions`}</AppText>
+        <View style={{ gap: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.xxl }}>
+          <View style={{ gap: spacing.sm }}>
+            <AppText variant="bodySmall" color="primaryHighlight" style={{ fontWeight: '700' }}>
+              Optional
+            </AppText>
+            <AppText variant="sectionHeading" accessibilityRole="header">
+              {current.title}
+            </AppText>
+            {current.instructions ? (
+              <AppText variant="body" color="textSecondary" style={{ fontSize: 17, lineHeight: 27 }}>
+                {current.instructions}
+              </AppText>
+            ) : null}
+          </View>
+          <Card variant="elevated" style={{ gap: spacing.sm }}>
+            <AppText variant="body" style={{ fontWeight: '600' }}>
+              {total === 1 ? '1 question' : `${total} questions`}
+            </AppText>
             <AppText variant="bodySmall" color="textSecondary">
-              This is optional and takes only a moment. It suggests a starting level; you stay free to choose any level, now or later.
+              This is optional. It suggests a starting level; you stay free to choose any level, now or later.
               {current.requireAllQuestions ? ' Every question needs an answer.' : ' You may skip questions you are unsure about.'}
             </AppText>
           </Card>
-          <PrimaryButton label="Start" onPress={() => setPhase('answering')} />
-          <SecondaryButton label="Skip and choose my level" onPress={chooseLevelInstead} />
+          <View style={{ gap: spacing.md }}>
+            <PrimaryButton label="Start" onPress={() => setPhase('answering')} />
+            <SecondaryButton label="Skip and choose my level" onPress={chooseLevelInstead} />
+          </View>
         </View>
       </ScreenContainer>
     );
@@ -247,7 +266,7 @@ export function AssessmentScreen() {
   return (
     <ScreenContainer>
       <ScreenHeader title={current.title} onBack={confirmLeave} />
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingTop: spacing.md, paddingBottom: spacing.xl, gap: spacing.lg }} keyboardShouldPersistTaps="handled">
+      <ScrollView ref={questionScroll} style={{ flex: 1 }} contentContainerStyle={{ paddingTop: spacing.md, paddingBottom: spacing.xl, gap: spacing.lg }} keyboardShouldPersistTaps="handled">
         <QuestionView
           question={question}
           index={index}
@@ -278,16 +297,16 @@ export function AssessmentScreen() {
       </ScrollView>
 
       <View style={{ gap: spacing.md, paddingTop: spacing.md, paddingBottom: spacing.lg }}>
-        <View style={{ flexDirection: 'row', gap: spacing.md }}>
-          <SecondaryButton label="Previous" disabled={index === 0 || submitting} onPress={() => goTo(index - 1)} style={{ flex: 1 }} />
+        <ActionRow>
+          <SecondaryButton size="medium" label="Previous" disabled={index === 0 || submitting} onPress={() => goTo(index - 1)} />
           {isLast ? (
-            <PrimaryButton label="See my result" loading={submitting} onPress={() => void submit()} style={{ flex: 1.4 }} />
+            <PrimaryButton size="medium" label="See my result" loading={submitting} onPress={() => void submit()} />
           ) : (
-            <PrimaryButton label="Next" disabled={(required && !answeredHere) || submitting} onPress={() => goTo(index + 1)} style={{ flex: 1.4 }} />
+            <PrimaryButton size="medium" label="Next" disabled={(required && !answeredHere) || submitting} onPress={() => goTo(index + 1)} />
           )}
-        </View>
+        </ActionRow>
         {isLast && problem && !problem.reload ? (
-          <AppText variant="caption" color="textMuted" align="center">
+          <AppText variant="bodySmall" color="textMuted" align="center">
             Your answers are kept. Press the button again to retry.
           </AppText>
         ) : null}

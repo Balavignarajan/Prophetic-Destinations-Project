@@ -38,13 +38,21 @@ function ratio(foreground: string, background: string): number {
 }
 
 type Token = keyof ColorTokens;
-type Pair = { foreground: Token; background: Token; min: number; note: string };
+type Pair = { foreground: Token; background: Token; min: number; note: string; /** Check this pairing in one theme only (the other theme is intentionally unchanged). */ only?: ThemeName };
 
 /** Pairings that must hold in every theme. */
 const sharedPairs: Pair[] = [
   { foreground: 'textPrimary', background: 'background', min: 4.5, note: 'body text on the page' },
   { foreground: 'textPrimary', background: 'surface', min: 4.5, note: 'text on a card' },
   { foreground: 'textPrimary', background: 'surfaceElevated', min: 4.5, note: 'text on an elevated card' },
+  { foreground: 'textBright', background: 'background', min: 4.5, note: 'bright text on the page' },
+  { foreground: 'textBright', background: 'surface', min: 4.5, note: 'bright text on a card' },
+  { foreground: 'textBright', background: 'surfaceElevated', min: 4.5, note: 'bright text on an elevated card' },
+  { foreground: 'textMuted', background: 'inputBackground', min: 4.5, note: 'muted text / placeholder on an input' },
+  { foreground: 'textPrimary', background: 'inputBackground', min: 4.5, note: 'text typed into an input' },
+  { foreground: 'disabledText', background: 'disabled', min: 3, note: 'disabled control label (exempt from AA; kept legible)', only: 'dark' },
+  { foreground: 'primary', background: 'surface', min: 3, note: 'gold fill / icon on a card (non-text)' },
+  { foreground: 'primary', background: 'surfaceElevated', min: 3, note: 'selected-state gold border on an elevated card (non-text)' },
   { foreground: 'textSecondary', background: 'background', min: 4.5, note: 'secondary text on the page' },
   { foreground: 'textSecondary', background: 'surface', min: 4.5, note: 'secondary text on a card' },
   { foreground: 'textSecondary', background: 'surfaceElevated', min: 4.5, note: 'secondary text on an elevated card' },
@@ -68,6 +76,35 @@ const sharedPairs: Pair[] = [
 
 let failures = 0;
 
+// ---------- approved dark palette (exact values) ----------
+console.log('Approved dark palette:');
+const expectedDark: [string, string, string][] = [
+  ['background', colorSchemes.dark.background, '#07090F'],
+  ['surface', colorSchemes.dark.surface, '#131825'],
+  ['surfaceElevated', colorSchemes.dark.surfaceElevated, '#1A2235'],
+  ['inputBackground (secondary bg)', colorSchemes.dark.inputBackground, '#0D1117'],
+  ['primary', colorSchemes.dark.primary, '#D4AF37'],
+  ['primaryHighlight (bright gold)', colorSchemes.dark.primaryHighlight, '#F5C842'],
+  ['palette.goldDark', palette.goldDark, '#8B6914'],
+  ['textPrimary', colorSchemes.dark.textPrimary, '#E8E0D0'],
+  ['textBright', colorSchemes.dark.textBright, '#F0E8D0'],
+  ['textMuted', colorSchemes.dark.textMuted, '#8A9BB0'],
+  ['materialGold (Babylon)', colorSchemes.dark.materialGold, '#D4AF37'],
+  ['materialSilver (Medo-Persia)', colorSchemes.dark.materialSilver, '#C0C8D8'],
+  ['materialBronze (Greece)', colorSchemes.dark.materialBronze, '#B87333'],
+  ['materialIron (Rome)', colorSchemes.dark.materialIron, '#9CA3AF'],
+  ['materialClay (Divided Kingdoms)', colorSchemes.dark.materialClay, '#A0826D'],
+  ['materialStone (Stone Kingdom)', colorSchemes.dark.materialStone, '#A5B4C8'],
+  ['metallic stop 1', palette.metalDark, '#B8860B'],
+  ['metallic stop 2', palette.metalBright, '#FFD700'],
+  ['metallic stop 3', palette.metalMid, '#DAA520'],
+];
+for (const [name, actual, expected] of expectedDark) {
+  const ok = actual.toLowerCase() === expected.toLowerCase();
+  if (!ok) failures += 1;
+  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${name}: ${actual}${ok ? '' : ` (expected ${expected})`}`);
+}
+
 // ---------- 1. token parity ----------
 console.log('Token parity:');
 const darkKeys = Object.keys(colorSchemes.dark).sort();
@@ -86,6 +123,7 @@ for (const name of Object.keys(colorSchemes) as ThemeName[]) {
   console.log(`
 Contrast (WCAG), ${name} theme:`);
   for (const pair of sharedPairs) {
+    if (pair.only && pair.only !== name) continue;
     // `scrim` and `textOnImage` sit over a photograph, so they are measured against the photograph's darkest value (black).
     const fg = colors[pair.foreground];
     const bg = pair.background === 'scrim' ? palette.black : colors[pair.background];
@@ -93,6 +131,17 @@ Contrast (WCAG), ${name} theme:`);
     const ok = value >= pair.min;
     if (!ok) failures += 1;
     console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${value.toFixed(2).padStart(5)}:1 (needs ${pair.min})  ${String(pair.foreground)} on ${String(pair.background)}  - ${pair.note}`);
+  }
+}
+
+// Kingdom metals are illustration fills: they must stand out from the dark page and cards (non-text, 3:1).
+console.log('\nKingdom colours on the dark theme (non-text):');
+for (const key of ['materialGold', 'materialSilver', 'materialBronze', 'materialIron', 'materialClay', 'materialStone'] as const) {
+  for (const bg of ['background', 'surface'] as const) {
+    const value = ratio(colorSchemes.dark[key], colorSchemes.dark[bg]);
+    const ok = value >= 3;
+    if (!ok) failures += 1;
+    console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${value.toFixed(2).padStart(5)}:1 (needs 3)  ${key} on ${bg}`);
   }
 }
 

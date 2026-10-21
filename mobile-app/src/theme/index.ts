@@ -6,5 +6,5 @@ export { layout, spacing } from './spacing';
 export { createTheme, themes } from './theme';
 export type { Theme } from './theme';
 export { ThemeProvider, resolveThemeName, useTheme, useThemePreference } from './theme-provider';
-export { fontFamilies, typography } from './typography';
+export { fontFamilies, resolveFontFace, typography } from './typography';
 export type { TypographyVariant } from './typography';

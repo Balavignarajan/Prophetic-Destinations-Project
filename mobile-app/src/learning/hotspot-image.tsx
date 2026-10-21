@@ -1,7 +1,7 @@
-import { useState } from 'react';
-import { Image, type ImageLoadEventData, type NativeSyntheticEvent, Pressable, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Image, type ImageLoadEventData, type NativeSyntheticEvent, Pressable, View } from 'react-native';
 
-import { AppText } from '@/components/ui';
+import { AppText, BlockNotice } from '@/components/ui';
 import { reportBrokenAsset, useAssetUri } from '@/features/offline/offline-media';
 import { lessonImageUrl } from '@/learning/lesson-image';
 import { ScriptureLinks } from '@/learning/scripture-links';
@@ -45,7 +45,20 @@ function readHotspots(content: Record<string, unknown>): Hotspot[] {
 const HIT = 44;
 const DOT = 30;
 
-export function HotspotImage({ lessonId, level, content, variant = 'interactive' }: { lessonId: string; level: LearningLevel; content: Record<string, unknown>; variant?: 'interactive' | 'map' }) {
+export function HotspotImage({
+  lessonId,
+  level,
+  content,
+  variant = 'interactive',
+  onReveal,
+}: {
+  lessonId: string;
+  level: LearningLevel;
+  content: Record<string, unknown>;
+  variant?: 'interactive' | 'map';
+  /** Asks the lesson reader to scroll so the detail panel (at `localY`, `height`, measured inside this block) is on screen. Only called when an item is chosen. */
+  onReveal?: (localY: number, height: number) => void;
+}) {
   const { spacing, colors, radius } = useTheme();
   const isMap = variant === 'map';
   const noun = isMap ? 'Marker' : 'Hotspot';
@@ -69,26 +82,51 @@ export function HotspotImage({ lessonId, level, content, variant = 'interactive'
   };
 
   const imageFailed = !uri || status === 'failed';
-  const toggle = (id: string) => setSelected((current) => (current === id ? null : id));
+  const panelBox = useRef<{ y: number; height: number } | null>(null);
+  const revealPending = useRef(false);
+  const toggle = (id: string) => {
+    const selecting = selected !== id;
+    setSelected(selecting ? id : null);
+    if (!selecting) {
+      revealPending.current = false;
+    } else if (!imageFailed) {
+      if (panelBox.current) {
+        // The panel is already showing another item: bring the new text into view if it is not.
+        const box = panelBox.current;
+        requestAnimationFrame(() => onReveal?.(box.y, box.height));
+      } else {
+        revealPending.current = true; // the panel is about to appear: reveal it once it has been laid out
+      }
+    }
+  };
+  // The picture and the list share ONE selection. With the picture shown, the chosen item opens in a detail panel under it; when the picture
+  // cannot be shown, every explanation is read straight from the list, as before.
+  const active = imageFailed ? null : (hotspots.find((h) => h.id === selected) ?? null);
+  const activeIndex = active ? hotspots.indexOf(active) : -1;
+  const hasMarkers = hotspots.some((h) => h.x !== null && h.y !== null);
+  const hasActive = active !== null;
+  useEffect(() => {
+    if (!hasActive) {
+      panelBox.current = null;
+      revealPending.current = false;
+    }
+  }, [hasActive]);
 
   return (
     <View style={{ gap: spacing.md }} accessible={false}>
       {title ? (
-        <AppText variant="heading" accessibilityRole="header">
+        <AppText variant="sectionHeading" accessibilityRole="header">
           {title}
         </AppText>
       ) : null}
       {imageFailed ? (
-        <View style={{ borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderSubtle, backgroundColor: colors.surface, padding: spacing.lg, gap: spacing.xs }}>
-          <AppText variant="bodySmall" color="textSecondary">
-            {alt ? `${isMap ? 'Map or diagram' : 'Image'}: ${alt}` : `${isMap ? 'A map or diagram' : 'An image'} belongs here, but it could not be shown.`}
-          </AppText>
-          <AppText variant="caption" color="textMuted">
-            {hotspots.length > 0 ? `The ${noun.toLowerCase()}s are listed below. ` : ''}The image is shown when it is saved on this device or you are online.
-          </AppText>
-        </View>
+        <BlockNotice
+          variant="offline"
+          title={alt ? `${isMap ? 'Map or diagram' : 'Image'}: ${alt}` : `${isMap ? 'A map or diagram' : 'An image'} belongs here, but it could not be shown.`}
+          message={`${hotspots.length > 0 ? `The ${noun.toLowerCase()}s are listed below. ` : ''}The image is shown when it is saved on this device or you are online.`}
+        />
       ) : (
-        <View style={{ width: '100%', aspectRatio: ratio, borderRadius: radius.md, overflow: 'hidden', backgroundColor: colors.surface }}>
+        <View style={{ width: '100%', aspectRatio: ratio, borderRadius: radius.lg, overflow: 'hidden', backgroundColor: status === 'ready' ? colors.surface : colors.surfaceElevated }}>
           <Image
             source={{ uri }}
             style={{ width: '100%', height: '100%' }}
@@ -103,13 +141,16 @@ export function HotspotImage({ lessonId, level, content, variant = 'interactive'
             }}
           />
           {status === 'ready'
-            ? hotspots.map((h, index) =>
-                h.x === null || h.y === null ? null : (
+            ? hotspots.map((h, index) => {
+                if (h.x === null || h.y === null) return null;
+                const isSelected = selected === h.id;
+                const dot = isSelected ? DOT + 4 : DOT;
+                return (
                   <Pressable
                     key={h.id}
                     accessibilityRole="button"
                     accessibilityLabel={`${noun} ${index + 1}: ${h.label || 'no label'}`}
-                    accessibilityState={{ selected: selected === h.id }}
+                    accessibilityState={{ selected: isSelected }}
                     onPress={() => toggle(h.id)}
                     style={{
                       position: 'absolute',
@@ -122,34 +163,79 @@ export function HotspotImage({ lessonId, level, content, variant = 'interactive'
                       alignItems: 'center',
                       justifyContent: 'center',
                     }}>
-                    <View
-                      style={{
-                        width: DOT,
-                        height: DOT,
-                        borderRadius: DOT / 2,
-                        borderWidth: 2,
-                        borderColor: colors.textPrimary,
-                        backgroundColor: selected === h.id ? colors.primaryHighlight : colors.primary,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}>
-                      <AppText variant="caption" color="onPrimary" style={{ fontWeight: '700' }} allowFontScaling={false}>
-                        {index + 1}
-                      </AppText>
+                    {/* a dark halo keeps the marker visible on any picture; the selected marker is larger, brighter and ringed */}
+                    <View style={{ width: DOT + 10, height: DOT + 10, borderRadius: (DOT + 10) / 2, backgroundColor: colors.scrim, alignItems: 'center', justifyContent: 'center' }}>
+                      <View
+                        style={{
+                          width: dot,
+                          height: dot,
+                          borderRadius: dot / 2,
+                          borderWidth: isSelected ? 3 : 2,
+                          borderColor: isSelected ? colors.textOnImage : colors.borderGold,
+                          backgroundColor: isSelected ? colors.primaryHighlight : colors.primary,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}>
+                        <AppText variant="caption" color="onPrimary" style={{ fontWeight: '700' }} allowFontScaling={false}>
+                          {index + 1}
+                        </AppText>
+                      </View>
                     </View>
                   </Pressable>
-                ),
-              )
+                );
+              })
             : null}
           {status === 'loading' ? (
             <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' }} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-              <AppText variant="caption" color="textMuted">
-                Loading image…
-              </AppText>
+              <ActivityIndicator color={colors.textMuted} />
             </View>
           ) : null}
         </View>
       )}
+
+      {!imageFailed && hasMarkers ? (
+        <AppText variant="bodySmall" color="textMuted">
+          Tap a numbered {noun.toLowerCase()} on the image, or choose one from the list.
+        </AppText>
+      ) : null}
+
+      {active ? (
+        <View
+          accessibilityLiveRegion="polite"
+          onLayout={(event) => {
+            const { y, height } = event.nativeEvent.layout;
+            panelBox.current = { y, height };
+            if (revealPending.current) {
+              revealPending.current = false;
+              onReveal?.(y, height);
+            }
+          }}
+          style={{ gap: spacing.sm, padding: spacing.lg, borderRadius: radius.lg, borderLeftWidth: 3, borderLeftColor: colors.primary, backgroundColor: colors.surfaceElevated }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md }}>
+            <AppText variant="bodySmall" color="primaryHighlight" style={{ fontWeight: '700' }}>
+              {noun} {activeIndex + 1} of {hotspots.length}
+            </AppText>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Close ${noun.toLowerCase()} details`}
+              onPress={() => setSelected(null)}
+              style={{ minHeight: 44, minWidth: 44, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.sm }}>
+              <AppText variant="bodySmall" color="textSecondary" style={{ fontWeight: '600' }}>
+                Close ✕
+              </AppText>
+            </Pressable>
+          </View>
+          <AppText variant="heading" accessibilityRole="header">
+            {active.label || noun}
+          </AppText>
+          {active.explanation ? (
+            <AppText variant="body" color="textSecondary" style={{ fontSize: 16, lineHeight: 25 }}>
+              {active.explanation}
+            </AppText>
+          ) : null}
+          <ScriptureLinks entries={active.scripture} />
+        </View>
+      ) : null}
 
       {hotspots.length > 0 ? (
         <View style={{ gap: spacing.sm }}>
@@ -158,23 +244,32 @@ export function HotspotImage({ lessonId, level, content, variant = 'interactive'
             return (
               <View
                 key={h.id}
-                style={{ borderRadius: radius.md, borderWidth: 1, borderColor: open ? colors.borderGold : colors.borderSubtle, backgroundColor: colors.surface }}>
+                style={{
+                  borderRadius: radius.lg,
+                  borderWidth: 1,
+                  borderColor: open ? colors.borderGold : colors.borderSubtle,
+                  backgroundColor: selected === h.id ? colors.surfaceElevated : colors.surface,
+                }}>
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={`${noun} ${index + 1}: ${h.label || 'no label'}`}
-                  accessibilityState={{ expanded: open }}
+                  accessibilityState={{ expanded: open, selected: selected === h.id }}
                   onPress={() => toggle(h.id)}
-                  style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.md, minHeight: 48 }}>
-                  <AppText variant="label" color="primaryHighlight" style={{ minWidth: 24 }}>
-                    {index + 1}.
-                  </AppText>
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.md, minHeight: 52 }}>
+                  <View style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: colors.borderGold, alignItems: 'center', justifyContent: 'center' }}>
+                    <AppText variant="caption" color="primaryHighlight" style={{ fontWeight: '700' }} allowFontScaling={false}>
+                      {index + 1}
+                    </AppText>
+                  </View>
                   <View style={{ flex: 1 }}>
-                    <AppText variant="body">{h.label || noun}</AppText>
+                    <AppText variant="body" style={{ fontWeight: selected === h.id ? '700' : '500' }}>
+                      {h.label || noun}
+                    </AppText>
                   </View>
                 </Pressable>
-                {open && (h.explanation || h.scripture) ? (
+                {imageFailed && (h.explanation || h.scripture) ? (
                   <View style={{ paddingHorizontal: spacing.md, paddingBottom: spacing.md, gap: spacing.sm }} accessibilityLiveRegion="polite">
-                    <AppText variant="bodySmall" color="textSecondary">
+                    <AppText variant="body" color="textSecondary" style={{ fontSize: 16, lineHeight: 25 }}>
                       {h.explanation}
                     </AppText>
                     <ScriptureLinks entries={h.scripture} />
@@ -192,7 +287,7 @@ export function HotspotImage({ lessonId, level, content, variant = 'interactive'
         </AppText>
       ) : null}
       {source ? (
-        <AppText variant="caption" color="textMuted">
+        <AppText variant="bodySmall" color="textMuted">
           Source: {source}
         </AppText>
       ) : null}

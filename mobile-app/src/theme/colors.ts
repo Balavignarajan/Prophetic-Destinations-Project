@@ -16,27 +16,45 @@
 
 export const palette = {
   // --- manager-provided base colours ---
-  antiqueGold: '#A3801F',
-  deepBlack: '#07090F',
-  charcoal: '#131211',
+  antiqueGold: '#A3801F', // light theme primary
+  deepBlack: '#07090F', // text on gold, scrims
 
-  // --- dark theme: supporting values ---
-  goldHighlight: '#C9A23A',
+  // --- dark theme: manager-approved cinematic palette (exact values) ---
+  navyBlack: '#07090F', // primary background
+  navyDeep: '#0D1117', // secondary background
+  navyCard: '#131825', // card surface
+  navyRaised: '#1A2235', // raised surface
+  gold: '#D4AF37', // primary gold
+  goldBright: '#F5C842', // bright gold
+  goldDark: '#8B6914', // dark gold
+  textWarm: '#E8E0D0', // primary text
+  textBright: '#F0E8D0', // bright text
+  textMutedBlue: '#8A9BB0', // muted text
+  // metallic gradient stops
+  metalDark: '#B8860B',
+  metalBright: '#FFD700',
+  metalMid: '#DAA520',
+  // kingdoms (dark theme statue / timeline materials)
+  kingdomBabylon: '#D4AF37',
+  kingdomMedoPersia: '#C0C8D8',
+  kingdomGreece: '#B87333',
+  kingdomRome: '#9CA3AF',
+  kingdomClay: '#A0826D',
+  kingdomStone: '#A5B4C8',
+
+  // --- dark theme: supporting values (not part of the approved list; derived to sit with the navy surfaces) ---
   goldPressed: '#B8922A',
-  charcoalRaised: '#1C1A17',
-  inkInput: '#0E0F14',
-  ivory: '#F3EDE0',
-  parchment: '#CBC3B2',
-  stone: '#9C9484',
-  umber: '#3A3224',
-  umberSoft: '#26221B',
+  textSoftBlue: '#B4BFCE', // secondary text, between primary and muted
+  navyLine: '#2A344B',
+  navyLineSoft: '#1F283B',
+  navyDisabled: '#222B3F',
+  navyDisabledInk: '#7585A0',
   green: '#5FAE7A',
   amber: '#D98A3D',
   red: '#E0726A',
-  disabledFill: '#25221E',
-  disabledInk: '#7A7366',
 
-  // --- light theme: supporting values (warm ivory and parchment, near-black text, deepened gold for text) ---
+  // --- light theme: supporting values (unchanged: warm ivory and parchment, near-black text, deepened gold for text) ---
+  ivory: '#F3EDE0', // text over photographs in the light theme
   paper: '#F5EFE0',
   paperSurface: '#FBF7EB',
   paperRaised: '#FFFBF2',
@@ -97,6 +115,8 @@ export interface ColorTokens {
 
   // text
   textPrimary: string;
+  /** Brightest text: titles that need extra emphasis on dark surfaces. In the light theme it equals `textPrimary`. */
+  textBright: string;
   textSecondary: string;
   textMuted: string;
   /** Text and icons over a PHOTOGRAPH (always light: pictures are dark in both themes). */
@@ -141,45 +161,46 @@ export interface ColorTokens {
 export type ColorToken = keyof ColorTokens;
 
 export const darkColors: ColorTokens = {
-  background: palette.deepBlack,
-  surface: palette.charcoal,
-  surfaceElevated: palette.charcoalRaised,
-  inputBackground: palette.inkInput,
+  background: palette.navyBlack,
+  surface: palette.navyCard,
+  surfaceElevated: palette.navyRaised,
+  inputBackground: palette.navyDeep,
 
-  primary: palette.antiqueGold,
+  primary: palette.gold,
   primaryPressed: palette.goldPressed,
-  primaryHighlight: palette.goldHighlight,
-  onPrimary: palette.deepBlack,
+  primaryHighlight: palette.goldBright,
+  onPrimary: palette.navyBlack,
 
-  textPrimary: palette.ivory,
-  textSecondary: palette.parchment,
-  textMuted: palette.stone,
-  textOnImage: palette.ivory,
+  textPrimary: palette.textWarm,
+  textBright: palette.textBright,
+  textSecondary: palette.textSoftBlue,
+  textMuted: palette.textMutedBlue,
+  textOnImage: palette.textBright,
 
-  border: palette.umber,
-  borderSubtle: palette.umberSoft,
-  borderGold: withAlpha(palette.antiqueGold, 0.55),
-  borderFocused: palette.antiqueGold,
-  inputBorder: palette.umber,
-  divider: palette.umberSoft,
+  border: palette.navyLine,
+  borderSubtle: palette.navyLineSoft,
+  borderGold: withAlpha(palette.gold, 0.55),
+  borderFocused: palette.gold,
+  inputBorder: palette.navyLine,
+  divider: palette.navyLineSoft,
 
   success: palette.green,
   warning: palette.amber,
   error: palette.red,
 
-  overlay: withAlpha(palette.deepBlack, 0.72),
+  overlay: withAlpha(palette.navyBlack, 0.72),
   scrim: withAlpha(palette.deepBlack, 0.45),
   shadow: palette.black,
 
-  disabled: palette.disabledFill,
-  disabledText: palette.disabledInk,
+  disabled: palette.navyDisabled,
+  disabledText: palette.navyDisabledInk,
 
-  materialGold: palette.materialGold,
-  materialSilver: palette.materialSilver,
-  materialBronze: palette.materialBronze,
-  materialIron: palette.materialIron,
-  materialClay: palette.materialClay,
-  materialStone: palette.materialStone,
+  materialGold: palette.kingdomBabylon,
+  materialSilver: palette.kingdomMedoPersia,
+  materialBronze: palette.kingdomGreece,
+  materialIron: palette.kingdomRome,
+  materialClay: palette.kingdomClay,
+  materialStone: palette.kingdomStone,
 
   transparent: palette.clear,
 };
@@ -196,6 +217,7 @@ export const lightColors: ColorTokens = {
   onPrimary: palette.deepBlack,
 
   textPrimary: palette.ink,
+  textBright: palette.ink,
   textSecondary: palette.inkSoft,
   textMuted: palette.inkMuted,
   textOnImage: palette.ivory,
@@ -243,6 +265,8 @@ export interface GradientTokens {
   heroScrimTop: readonly [string, string];
   /** A soft gold glow behind a title. */
   goldGlow: readonly [string, string];
+  /** Polished-gold metallic sweep (dark gold, bright gold, goldenrod). Same in both themes; use sparingly (emphasis, not every surface). */
+  metallicGold: readonly [string, string, string];
 }
 
 export function createGradients(name: ThemeName): GradientTokens {
@@ -254,6 +278,7 @@ export function createGradients(name: ThemeName): GradientTokens {
         ? [withAlpha(page, 0), withAlpha(page, 0.6), page]
         : [withAlpha(page, 0), withAlpha(page, 0.8), page],
     heroScrimTop: [withAlpha(palette.deepBlack, name === 'dark' ? 0.75 : 0.55), withAlpha(palette.deepBlack, 0)],
+    metallicGold: [palette.metalDark, palette.metalBright, palette.metalMid],
     goldGlow: [withAlpha(c.primary, name === 'dark' ? 0.28 : 0.22), withAlpha(c.primary, 0)],
   };
 }
