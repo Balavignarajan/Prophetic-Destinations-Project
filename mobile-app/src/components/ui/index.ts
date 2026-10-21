@@ -15,6 +15,7 @@ export { EmptyState } from './empty-state';
 export { ErrorState } from './error-state';
 export { CheckStroke, CrossStroke, FeedbackMark, FeedbackReveal } from './feedback-reveal';
 export { GoldGlow } from './gold-glow';
+export { GlowingButton } from './glowing-button';
 export { IconButton } from './icon-button';
 export { LoadingState } from './loading-state';
 export { PrimaryButton } from './primary-button';

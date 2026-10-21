@@ -19,4 +19,16 @@ export const appImages = {
     alt: 'Placeholder illustration of a columned royal hall',
     isPlaceholder: true,
   },
+  /**
+   * The Welcome screen's cover: a portrait (1080 x 1920) illustration of an ancient stone gateway hall lit by warm golden light, with a dark
+   * lower half so the text and buttons stay readable. It is drawn by code, not photographed or painted, and is an atmospheric impression, not a
+   * depiction of a real place (scripts/generate-welcome-cover.py regenerates it; `python scripts/generate-welcome-cover.py out.jpg`).
+   * To use approved artwork instead, save it as assets/images/welcome/welcome-cover.jpg (about 1200 x 2133, under roughly 400 KB, bright
+   * subject in the upper third) and nothing else needs editing.
+   */
+  welcome: {
+    source: require('@/assets/images/welcome/welcome-cover.jpg') as number,
+    alt: 'Illustration of an ancient stone gateway hall lit by warm golden light',
+    isPlaceholder: false,
+  },
 } as const satisfies Record<string, AppImage>;
