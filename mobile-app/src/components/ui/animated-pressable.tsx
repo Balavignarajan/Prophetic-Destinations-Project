@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Animated, Pressable, type GestureResponderEvent } from 'react-native';
 
 import { useReduceMotion } from '@/accessibility/use-reduce-motion';
@@ -15,13 +15,15 @@ type PressHandler = (event: GestureResponderEvent) => void;
  * (or when `disabled`) there is no scale at all.
  *
  * Use it with `AnimatedPressable` and put `scaleStyle` LAST in the style array. Pass the control's own `onPressIn` / `onPressOut` here so they
- * still run.
+ * still run. `trackPressed: false` skips the `pressed` state, for a control that draws its pressed look with animated values instead, so a
+ * press does not re-render it at all.
  */
 export function usePressMotion({
   scaleTo,
   pressMs = motion.duration.buttonPress,
   releaseMs = motion.duration.buttonRelease,
   disabled = false,
+  trackPressed = true,
   onPressIn,
   onPressOut,
 }: {
@@ -29,11 +31,12 @@ export function usePressMotion({
   pressMs?: number;
   releaseMs?: number;
   disabled?: boolean;
+  trackPressed?: boolean;
   onPressIn?: PressHandler | null;
   onPressOut?: PressHandler | null;
 }) {
   const reduce = useReduceMotion();
-  const scale = useRef(new Animated.Value(1)).current;
+  const [scale] = useState(() => new Animated.Value(1));
   const [pressed, setPressed] = useState(false);
 
   const run = useCallback(
@@ -45,18 +48,21 @@ export function usePressMotion({
   );
   useEffect(() => () => scale.stopAnimation(), [scale]);
 
+  // one stable style object, so a re-render never asks the native side to rebuild the animation
+  const scaleStyle = useMemo(() => ({ transform: [{ scale }] }), [scale]);
+
   return {
     pressed: pressed && !disabled,
-    scaleStyle: { transform: [{ scale }] },
+    scaleStyle,
     onPressIn: (event: GestureResponderEvent) => {
       if (!disabled) {
-        setPressed(true);
+        if (trackPressed) setPressed(true);
         if (!reduce) run(scaleTo, pressMs);
       }
       onPressIn?.(event);
     },
     onPressOut: (event: GestureResponderEvent) => {
-      setPressed(false);
+      if (trackPressed) setPressed(false);
       if (reduce) scale.setValue(1);
       else run(1, releaseMs);
       onPressOut?.(event);
