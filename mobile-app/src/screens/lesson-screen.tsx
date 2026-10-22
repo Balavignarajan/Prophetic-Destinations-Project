@@ -294,19 +294,36 @@ export function LessonScreen() {
   const sections = useMemo(() => (lesson.status === 'success' ? lessonSections(lesson.data.value.snapshot.blocks) : []), [lesson]);
   const [contentsOpen, setContentsOpen] = useState(false);
 
-  // The "lesson complete" moment belongs to the learner's own tap on "Mark lesson as complete" (completion is synchronous, so the lesson is
-  // complete the instant it runs). It is remembered per lesson and level, so it is never shown for a lesson that was already complete when
-  // opened, after moving to another lesson, or after "undo"; and it is only drawn while the lesson really is complete.
+  // Completion is ONLY ever the learner's own tap on "Mark lesson as complete": nothing here (scrolling, reaching the end, time, the quiz, opening a block)
+  // completes a lesson, and opening a completed lesson writes nothing. The "lesson complete" moment belongs to that tap. It is remembered per lesson and
+  // level, so it is never shown for a lesson that was already complete when opened, after moving to another lesson, or after "undo"; and it is only drawn
+  // while the lesson really is complete.
+  //
+  // While the tap is being saved the lesson is NOT shown as complete ("Saving..."), and repeated taps are ignored. If the progress cannot be stored the
+  // mark is taken back, so the lesson never looks complete when it is not saved; the standard "couldn't be saved" notice stays for a retry. The state is
+  // tied to the lesson and level it was started for, so it can never show on another lesson.
   const [celebratedKey, setCelebratedKey] = useState<string | null>(null);
-  const celebrate = completed && celebratedKey === restoreKey;
-  const markComplete = () => {
-    if (!lessonRef || completed || progressUnavailable) return;
-    setCompleted(lessonRef, true);
-    setCelebratedKey(restoreKey);
+  const [completion, setCompletion] = useState<{ key: string; state: 'saving' | 'failed' } | null>(null);
+  const completionState = completion && completion.key === restoreKey ? completion.state : null;
+  const savingCompletion = completionState === 'saving';
+  const shownCompleted = completed && !savingCompletion;
+  const celebrate = shownCompleted && celebratedKey === restoreKey;
+  const markComplete = async () => {
+    if (!lessonRef || completed || progressUnavailable || savingCompletion) return;
+    const key = restoreKey;
+    setCompletion({ key, state: 'saving' });
+    const stored = await setCompleted(lessonRef, true);
+    if (!stored) {
+      void setCompleted(lessonRef, false);
+      setCompletion((current) => (current?.key === key ? { key, state: 'failed' } : current));
+      return;
+    }
+    setCompletion((current) => (current?.key === key ? null : current));
+    setCelebratedKey(key);
   };
   const undoComplete = () => {
-    if (!lessonRef || progressUnavailable) return;
-    setCompleted(lessonRef, false);
+    if (!lessonRef || progressUnavailable || savingCompletion) return;
+    void setCompleted(lessonRef, false);
     setCelebratedKey(null);
   };
   const layoutY = useRef({ column: 0, body: 0, sections: {} as Record<string, number> });
@@ -422,21 +439,26 @@ export function LessonScreen() {
               <Card variant="elevated" style={{ borderColor: colors.borderGold }}>
                 <CompletionMark title="Lesson complete" message="This lesson is marked complete." />
               </Card>
-            ) : completed ? (
+            ) : shownCompleted ? (
               <AppText variant="bodySmall" color="success" align="center" style={{ fontWeight: '700' }}>
                 ✓ This lesson is marked complete
               </AppText>
             ) : null}
+            {completionState === 'failed' ? (
+              <AppText variant="bodySmall" color="warning" align="center" accessibilityLiveRegion="polite">
+                Your progress couldn't be saved, so this lesson is not marked complete. Please try again.
+              </AppText>
+            ) : null}
             {/* Manual completion is unchanged. It is the dominant action only when there is no next lesson to continue to. */}
             {lessonRef ? (
-              !next && !completed ? (
-                <PrimaryButton label="Mark lesson as complete" disabled={progressUnavailable} onPress={markComplete} />
+              !next && !shownCompleted ? (
+                <PrimaryButton label={savingCompletion ? 'Saving…' : 'Mark lesson as complete'} loading={savingCompletion} disabled={progressUnavailable} onPress={() => void markComplete()} />
               ) : (
                 <SecondaryButton
                   size="medium"
-                  label={completed ? 'Completed. Tap to undo' : 'Mark lesson as complete'}
-                  disabled={progressUnavailable}
-                  onPress={completed ? undoComplete : markComplete}
+                  label={savingCompletion ? 'Saving…' : shownCompleted ? 'Completed. Tap to undo' : 'Mark lesson as complete'}
+                  disabled={progressUnavailable || savingCompletion}
+                  onPress={shownCompleted ? undoComplete : () => void markComplete()}
                 />
               )
             ) : null}
@@ -574,7 +596,7 @@ const LessonBody = memo(function LessonBody({
             <HotspotImage lessonId={lessonId} level={level} content={block.content} variant="map" onReveal={(y, height) => onRevealInBlock(block.blockId, y, height)} />
           </View>
         ) : block.type === 'EXPLORE_DEEPER' ? (
-          <ExploreDeeperBlock key={block.blockId} content={block.content} />
+          <ExploreDeeperBlock key={block.blockId} lessonId={lessonId} level={level} content={block.content} />
         ) : block.type === 'SCRIPTURE_CONNECTION' ? (
           <ScriptureConnectionBlock key={block.blockId} content={block.content} />
         ) : block.type === 'CALLOUT' ? (

@@ -48,7 +48,13 @@ export interface MediaUsageDetail {
  * an IMAGE, INTERACTIVE_IMAGE or MAP block's content.mediaId, a TIMELINE event's mediaId, a HISTORICAL_EVIDENCE, SECTION_INTRO, SYMBOL_STUDY or NARRATIVE_SCENE image's mediaId, and a MEDIA_ANIMATION block's mediaId or posterMediaId.
  */
 const PUBLISHED_BLOCK_REFERENCE =
-  '((@.type == "IMAGE" || @.type == "INTERACTIVE_IMAGE" || @.type == "MAP") && @.content.mediaId == $id) || (@.type == "TIMELINE" && exists(@.content.events[*] ? (@.mediaId == $id))) || ((@.type == "HISTORICAL_EVIDENCE" || @.type == "SECTION_INTRO" || @.type == "SYMBOL_STUDY" || @.type == "NARRATIVE_SCENE") && @.content.image.mediaId == $id) || (@.type == "MEDIA_ANIMATION" && (@.content.mediaId == $id || @.content.posterMediaId == $id))';
+  '((@.type == "IMAGE" || @.type == "INTERACTIVE_IMAGE" || @.type == "MAP") && @.content.mediaId == $id) || (@.type == "TIMELINE" && exists(@.content.events[*] ? (@.mediaId == $id))) || ((@.type == "HISTORICAL_EVIDENCE" || @.type == "SECTION_INTRO" || @.type == "SYMBOL_STUDY" || @.type == "NARRATIVE_SCENE") && @.content.image.mediaId == $id) || (@.type == "MEDIA_ANIMATION" && (@.content.mediaId == $id || @.content.posterMediaId == $id)) || (@.type == "EXPLORE_DEEPER" && exists(@.content.blocks[*] ? (' +
+  // an Explore Deeper section can hold an IMAGE, or a SYMBOL_STUDY / HISTORICAL_EVIDENCE with an image (the nested block types that reference media)
+  '(@.type == "IMAGE" && @.content.mediaId == $id) || ((@.type == "SYMBOL_STUDY" || @.type == "HISTORICAL_EVIDENCE") && @.content.image.mediaId == $id))))';
+
+/** The same match inside the WORKING content of an Explore Deeper block (`shared_content.blocks[*]`), for the draft usage count and list. */
+const NESTED_DRAFT_REFERENCE =
+  '(@.type == "IMAGE" && @.content.mediaId == $id) || ((@.type == "SYMBOL_STUDY" || @.type == "HISTORICAL_EVIDENCE") && @.content.image.mediaId == $id)';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -82,12 +88,16 @@ export class MediaUsageRepository {
          SELECT "lesson_id" FROM "lesson_blocks"
            WHERE "type" = 'MEDIA_ANIMATION' AND ("shared_content"->>'mediaId' = $1 OR "shared_content"->>'posterMediaId' = $1)
          UNION ALL
+         SELECT "lesson_id" FROM "lesson_blocks"
+           WHERE "type" = 'EXPLORE_DEEPER'
+             AND jsonb_path_exists("shared_content", ('$.blocks[*] ? (' || $2::text || ')')::jsonpath, jsonb_build_object('id', $1::text))
+         UNION ALL
          SELECT "lesson_id" FROM "lesson_block_levels"
            WHERE "content"->>'mediaId' = $1
          UNION ALL
          SELECT "id" FROM "lessons" WHERE "cover_media_id"::text = $1
        ) AS refs`,
-      [id],
+      [id, NESTED_DRAFT_REFERENCE],
     );
     // Snapshots are immutable JSON. References are matched structurally and exactly: an IMAGE, INTERACTIVE_IMAGE or MAP block's content.mediaId, a TIMELINE event's mediaId, a HISTORICAL_EVIDENCE, SECTION_INTRO or SYMBOL_STUDY image's mediaId or the
     // snapshot's lesson.coverMediaId (snapshots written before covers existed simply have no such field).
@@ -147,6 +157,10 @@ export class MediaUsageRepository {
          SELECT "lesson_id", "type" FROM "lesson_blocks"
            WHERE "type" = 'MEDIA_ANIMATION' AND ("shared_content"->>'mediaId' = $1 OR "shared_content"->>'posterMediaId' = $1)
          UNION ALL
+         SELECT "lesson_id", "type" FROM "lesson_blocks"
+           WHERE "type" = 'EXPLORE_DEEPER'
+             AND jsonb_path_exists("shared_content", ('$.blocks[*] ? (' || $3::text || ')')::jsonpath, jsonb_build_object('id', $1::text))
+         UNION ALL
          SELECT "lesson_id", 'LEVEL_VARIANT' FROM "lesson_block_levels" WHERE "content"->>'mediaId' = $1
          UNION ALL
          SELECT "id", 'COVER' FROM "lessons" WHERE "cover_media_id"::text = $1
@@ -160,7 +174,7 @@ export class MediaUsageRepository {
         GROUP BY l."id", c."title", m."title"
         ORDER BY c."title", l."title", l."id"
         LIMIT $2`,
-      [id, cap],
+      [id, cap, NESTED_DRAFT_REFERENCE],
     );
     const workingCourses: { id: string; title: string }[] = await this.assets.query(
       `SELECT "id", "title" FROM "courses" WHERE "cover_media_id"::text = $1 ORDER BY "title", "id" LIMIT $2`,

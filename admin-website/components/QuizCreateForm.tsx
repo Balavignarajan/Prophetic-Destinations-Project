@@ -2,9 +2,11 @@
 
 import React, { useState } from 'react';
 import { api } from '../lib/api';
+import { questionPayload } from '../lib/quiz-question';
 import type { QuizQuestion } from '../lib/types';
 import { friendlyError } from '../lib/ui-messages';
 import QuestionLevelsField from './QuestionLevelsField';
+import { OptionFeedbackInput, QuestionScriptureField } from './QuizQuestionExtras';
 
 /**
  * The ONE quiz creation form: used by the Quizzes section ("Create Draft Quiz") and by the lesson editor (Add content, Quiz, Create new quiz), so both create
@@ -54,7 +56,7 @@ export default function QuizCreateForm({ onCreated, onCancel, submitLabel, dirty
   dirtyRef.current = Boolean(
     title.trim() ||
       description.trim() ||
-      questions.some((q) => q.prompt.trim() || (q.explanation ?? '').trim() || q.levels !== undefined || q.options.some((o) => o.text.trim())),
+      questions.some((q) => q.prompt.trim() || (q.explanation ?? '').trim() || q.levels !== undefined || (q.scripture?.length ?? 0) > 0 || q.options.some((o) => o.text.trim() || (o.feedback ?? '').trim())),
   );
 
   const setQuestion = (index: number, change: (q: QuizQuestion) => QuizQuestion) => setQuestions((list) => list.map((q, i) => (i === index ? change(q) : q)));
@@ -78,12 +80,7 @@ export default function QuizCreateForm({ onCreated, onCancel, submitLabel, dirty
         body: JSON.stringify({
           title: title.trim(),
           description: description.trim() || null,
-          questions: questions.map((q) => ({
-            levels: q.levels ?? null,
-            prompt: q.prompt.trim(),
-            explanation: q.explanation?.trim() || null,
-            options: q.options.map((o) => ({ text: o.text.trim(), correct: o.correct })),
-          })),
+          questions: questions.map(questionPayload),
         }),
       });
       dirtyRef.current = false;
@@ -141,6 +138,8 @@ export default function QuizCreateForm({ onCreated, onCancel, submitLabel, dirty
 
             <QuestionLevelsField idPrefix={`${idPrefix}-q${qIndex}`} questionLabel={`Question ${qIndex + 1}`} value={q.levels} onChange={(levels) => setQuestion(qIndex, (x) => ({ ...x, levels }))} disabled={creating} />
 
+            <QuestionScriptureField idPrefix={`${idPrefix}-q${qIndex}`} questionLabel={`Question ${qIndex + 1}`} value={q.scripture} onChange={(scripture) => setQuestion(qIndex, (x) => ({ ...x, scripture }))} disabled={creating} />
+
             <div className="space-y-2 pt-1">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-semibold text-slate-500 uppercase">Options (select the single correct option)</span>
@@ -151,7 +150,8 @@ export default function QuizCreateForm({ onCreated, onCancel, submitLabel, dirty
                 )}
               </div>
               {q.options.map((opt, oIndex) => (
-                <div key={oIndex} className="flex items-center gap-2">
+                <div key={oIndex} className="space-y-1">
+                <div className="flex items-center gap-2">
                   <input
                     type="radio"
                     name={`${idPrefix}-correct-${qIndex}`}
@@ -189,6 +189,16 @@ export default function QuizCreateForm({ onCreated, onCancel, submitLabel, dirty
                       &times;
                     </button>
                   )}
+                </div>
+                <div className="pl-6">
+                  <OptionFeedbackInput
+                    id={`${idPrefix}-q${qIndex}-o${oIndex}-fb`}
+                    label={`Option ${oIndex + 1} feedback (optional), question ${qIndex + 1}`}
+                    value={opt.feedback}
+                    disabled={creating}
+                    onChange={(feedback) => setQuestion(qIndex, (x) => ({ ...x, options: x.options.map((o, i) => (i === oIndex ? { ...o, feedback } : o)) }))}
+                  />
+                </div>
                 </div>
               ))}
             </div>

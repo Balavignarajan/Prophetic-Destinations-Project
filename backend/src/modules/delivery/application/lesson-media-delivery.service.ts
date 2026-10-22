@@ -11,7 +11,7 @@ export type LessonMediaRepresentation =
   | { kind: 'NOT_MODIFIED'; etag: string }
   | { kind: 'OK'; etag: string; content: MediaContent };
 
-/** The image ids an active published snapshot actually uses: IMAGE, INTERACTIVE_IMAGE and MAP blocks and TIMELINE event images and HISTORICAL_EVIDENCE, SECTION_INTRO, SYMBOL_STUDY and NARRATIVE_SCENE images and MEDIA_ANIMATION assets and posters only, nothing else in the snapshot is trusted as a reference. */
+/** The image ids an active published snapshot actually uses: IMAGE, INTERACTIVE_IMAGE and MAP blocks and TIMELINE event images and HISTORICAL_EVIDENCE, SECTION_INTRO, SYMBOL_STUDY and NARRATIVE_SCENE images and MEDIA_ANIMATION assets and posters, and the images of the blocks nested inside an EXPLORE_DEEPER block, only; nothing else in the snapshot is trusted as a reference. */
 export function publishedImageIds(snapshot: Record<string, unknown>): Set<string> {
   const ids = new Set<string>();
   // The lesson's published cover (absent in snapshots written before covers existed).
@@ -39,6 +39,24 @@ export function publishedImageIds(snapshot: Record<string, unknown>): Set<string
       for (const event of Array.isArray(events) ? events : []) {
         const eventMedia = typeof event === 'object' && event !== null ? (event as { mediaId?: unknown }).mediaId : undefined;
         if (typeof eventMedia === 'string') ids.add(eventMedia);
+      }
+      continue;
+    }
+    if (type === 'EXPLORE_DEEPER' && typeof content === 'object' && content !== null) {
+      // One level of nested blocks, and only the nested types that carry an image: an IMAGE, or a SYMBOL_STUDY / HISTORICAL_EVIDENCE with an image.
+      const nested = (content as { blocks?: unknown }).blocks;
+      for (const child of Array.isArray(nested) ? nested : []) {
+        if (typeof child !== 'object' || child === null) continue;
+        const { type: childType, content: childContent } = child as { type?: unknown; content?: unknown };
+        if (typeof childContent !== 'object' || childContent === null) continue;
+        if (childType === 'IMAGE') {
+          const childMedia = (childContent as { mediaId?: unknown }).mediaId;
+          if (typeof childMedia === 'string') ids.add(childMedia);
+        } else if (childType === 'SYMBOL_STUDY' || childType === 'HISTORICAL_EVIDENCE') {
+          const image = (childContent as { image?: unknown }).image;
+          const childImage = typeof image === 'object' && image !== null ? (image as { mediaId?: unknown }).mediaId : undefined;
+          if (typeof childImage === 'string') ids.add(childImage);
+        }
       }
       continue;
     }

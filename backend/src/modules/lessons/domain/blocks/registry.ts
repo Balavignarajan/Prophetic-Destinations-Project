@@ -20,7 +20,15 @@ import {
   validateSectionIntroShape,
 } from './section-callout.js';
 import { evidenceMediaId, validateHistoricalEvidenceComplete, validateHistoricalEvidenceShape } from './historical-evidence.js';
-import { mapMediaId, validateExploreDeeperComplete, validateExploreDeeperShape, validateMapComplete, validateMapShape } from './map-explore.js';
+import {
+  type NestedLookup,
+  exploreDeeperReferences,
+  mapMediaId,
+  validateExploreDeeperComplete,
+  validateExploreDeeperShape,
+  validateMapComplete,
+  validateMapShape,
+} from './map-explore.js';
 import { symbolStudyMediaId, validateSymbolStudyComplete, validateSymbolStudyShape, validateWordStudyComplete, validateWordStudyShape } from './word-symbol.js';
 import { validateCalculationComplete, validateCalculationShape, validateComparisonComplete, validateComparisonShape, validateEquivalenceComplete, validateEquivalenceShape } from './prophecy.js';
 import { validateDiscoveryComplete, validateDiscoveryShape, validateReflectionComplete, validateReflectionShape } from './reflection-discovery.js';
@@ -163,13 +171,42 @@ const MAP: BlockTypeDefinition = {
   },
 };
 
+/**
+ * The block types an Explore Deeper section may hold, with the SAME definitions the lesson uses for them (so a nested block is validated, completed and
+ * checked for media exactly like a top-level one). Anything else is refused by the Explore Deeper rules themselves (EXPLORE_DEEPER_NESTED_TYPES).
+ * Looked up when called, so the order of the definitions in this file does not matter.
+ */
+const nestedRules: NestedLookup = (type) => {
+  switch (type) {
+    case 'RICH_TEXT':
+      return RICH_TEXT;
+    case 'CALLOUT':
+      return CALLOUT;
+    case 'SCRIPTURE_PASSAGE':
+      return SCRIPTURE_PASSAGE;
+    case 'SCRIPTURE_CONNECTION':
+      return SCRIPTURE_CONNECTION;
+    case 'IMAGE':
+      return IMAGE;
+    case 'WORD_STUDY':
+      return WORD_STUDY;
+    case 'SYMBOL_STUDY':
+      return SYMBOL_STUDY;
+    case 'HISTORICAL_EVIDENCE':
+      return HISTORICAL_EVIDENCE;
+    default:
+      return undefined;
+  }
+};
+
 const EXPLORE_DEEPER: BlockTypeDefinition = {
   type: 'EXPLORE_DEEPER',
-  // Which levels see it is the block's ordinary visibility; how children or levels would differ is undecided (D11, D3), so no variants.
+  // Which levels see it is the block's ordinary visibility, and nested blocks appear with it (D11, D3 stay open for anything finer), so no variants.
   variants: 'UNCONFIRMED',
-  validateShape: validateExploreDeeperShape,
-  validateComplete: validateExploreDeeperComplete,
-  extractReferences: () => [], // title, text and Scripture references only: no media, no quiz
+  validateShape: (content) => validateExploreDeeperShape(content, nestedRules),
+  validateComplete: (content) => validateExploreDeeperComplete(content, nestedRules),
+  // Title, text and Scripture references have none; the images of nested blocks are media references like any other.
+  extractReferences: (content) => exploreDeeperReferences(content, nestedRules),
 };
 
 const WORD_STUDY: BlockTypeDefinition = {

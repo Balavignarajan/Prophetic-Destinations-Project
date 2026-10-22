@@ -9,7 +9,8 @@ import { useTheme } from '@/theme';
  *   { heading?, takeaways: string[] (the KEY IDEAS), keyScripture?: frozen passages, prophecyTakeaways?: string[], applicationTakeaways?: string[] }
  * Older summaries are just { heading?, takeaways } and show exactly as before, under the label "Key ideas". Each section has its own label; a
  * section with nothing valid in it is left out, and the sections that do have content are always shown. Lists are numbered in the published order.
- * Key Scripture is the FROZEN passages of the snapshot (shown through ScriptureLinks, from the lesson itself, offline). A malformed passage shows
+ * Key Scripture is the FROZEN passages of the snapshot (shown through ScriptureLinks inline, in the reading flow, from the lesson itself, offline: it is what
+ * the summary is asking the learner to keep, so it is not behind a tap). A malformed passage shows
  * the "not available" card for that passage only. Text is shown strictly as text and wraps (long text and large system fonts are expected);
  * entries that are not text are ignored. Nothing is added to the content: without a heading the title is the plain word "Summary".
  */
@@ -67,7 +68,7 @@ export function SummaryContent({ content }: { content: Record<string, unknown> }
       ) : null}
       {keyScripture.length > 0 ? (
         <Section label="Key Scripture">
-          <ScriptureLinks entries={keyScripture} />
+          <ScriptureLinks entries={keyScripture} presentation="inline" />
         </Section>
       ) : null}
       {prophecy.length > 0 ? (

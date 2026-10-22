@@ -1,17 +1,19 @@
 'use client';
 
 import React, { useState } from 'react';
-import { exploreReadiness, readExplore } from '../lib/explore-deeper';
+import { exploreReadiness, nestedLabel, readExplore } from '../lib/explore-deeper';
+import NestedBlockView from './NestedBlockView';
 import ScriptureEntriesView from './ScriptureEntriesView';
 
 /**
  * An Explore Deeper block as the author or previewer sees it: a titled button that opens and closes the section (expanded state announced).
  * The editing list shows it open so the author sees the content; the learner preview starts closed, as learners will first see it.
+ * Blocks nested inside the section, if any, are shown in their order with the lesson's own views for those block types.
  */
 export default function ExploreDeeperView({ content, defaultOpen = true }: { content: unknown; defaultOpen?: boolean }) {
   const block = readExplore(content);
   const [open, setOpen] = useState(defaultOpen);
-  if (!block.title.trim() && !block.intro.trim() && !(Array.isArray(block.scriptureRaw) && block.scriptureRaw.length > 0)) {
+  if (!block.title.trim() && !block.intro.trim() && block.blocks.length === 0 && !(Array.isArray(block.scriptureRaw) && block.scriptureRaw.length > 0)) {
     return <span className="text-slate-600 italic font-sans text-xs">(No Explore Deeper content yet)</span>;
   }
   const missing = exploreReadiness(block);
@@ -32,6 +34,11 @@ export default function ExploreDeeperView({ content, defaultOpen = true }: { con
       {open && (
         <div className="px-3 pb-3 space-y-2">
           {block.intro.trim() && <p className="text-sm text-slate-800 whitespace-pre-line break-words">{block.intro}</p>}
+          {block.blocks.map((nested, index) => (
+            <div key={nested.id} className="rounded-md border border-slate-200 bg-slate-50/60 p-2.5" role="group" aria-label={`Nested block ${index + 1}: ${nestedLabel(nested.type)}`}>
+              <NestedBlockView type={nested.type} content={nested.content} />
+            </div>
+          ))}
           <ScriptureEntriesView entries={block.scriptureRaw} />
         </div>
       )}

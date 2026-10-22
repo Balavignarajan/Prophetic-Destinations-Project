@@ -4,7 +4,7 @@ import { Pressable, View } from 'react-native';
 
 import { AppText, BlockNotice, Reveal } from '@/components/ui';
 import { useReduceMotion } from '@/accessibility/use-reduce-motion';
-import { reportBrokenAsset, useAssetUri } from '@/features/offline/offline-media';
+import { offlineMediaEnabled, reportBrokenAsset, useAssetUri } from '@/features/offline/offline-media';
 import { LessonImage, lessonImageUrl } from '@/learning/lesson-image';
 import type { LearningLevel } from '@/learning/levels';
 import { ScriptureLinks } from '@/learning/scripture-links';
@@ -50,11 +50,18 @@ export function NarrativeSceneBlock({ lessonId, level, content }: { lessonId: st
             {content.title}
           </AppText>
         ) : null}
-        <AppText variant="body" style={{ fontSize: 17, lineHeight: 28 }}>
-          {content.narrative}
-        </AppText>
+        {/* The author's text, a blank line starting a new paragraph (as the lesson introduction does), so a longer scene reads as paragraphs, not one block. */}
+        {content.narrative
+          .split(/\n\s*\n/)
+          .map((paragraph) => paragraph.trim())
+          .filter((paragraph) => paragraph.length > 0)
+          .map((paragraph, index) => (
+            <AppText key={index} variant="body" style={{ fontSize: 17, lineHeight: 28 }}>
+              {paragraph}
+            </AppText>
+          ))}
       </Reveal>
-      <ScriptureLinks entries={content.scripture} />
+      <ScriptureLinks entries={content.scripture} presentation="standalone" />
     </View>
   );
 }
@@ -74,7 +81,9 @@ export function AnimatedImageBlock({ lessonId, level, content }: { lessonId: str
   const posterUri = useAssetUri(posterId, posterRemote);
 
   if (content.mediaType !== undefined && content.mediaType !== 'ANIMATED_IMAGE') {
-    return <Note variant="unsupported" title="Animation not supported" message="This kind of animation (video or Lottie) cannot be played in this version of the app. The rest of the lesson is not affected." />;
+    // Said plainly and without pretending: this version has no video or Lottie player, so nothing is shown in its place and nothing is downloaded.
+    const kind = content.mediaType === 'VIDEO' ? 'video' : content.mediaType === 'LOTTIE' ? 'Lottie animation' : 'kind of animation';
+    return <Note variant="unsupported" title="Animation not supported" message={`This ${kind} cannot be played in this version of the app yet. The rest of the lesson is not affected.`} />;
   }
   if (content.mediaType !== 'ANIMATED_IMAGE' || !mediaId || !isText(content.altText) || (content.caption !== undefined && typeof content.caption !== 'string')) {
     return <Note title="Animation is incomplete" message="Part of this block could not be read, so it is not shown. The rest of the lesson is not affected." />;
@@ -88,7 +97,11 @@ export function AnimatedImageBlock({ lessonId, level, content }: { lessonId: str
         <BlockNotice
           variant="offline"
           title={`Animation: ${alt}`}
-          message="This animation is not saved on this device yet, or could not be loaded. It is saved when you open the lesson with an internet connection."
+          message={
+            offlineMediaEnabled
+              ? 'This animation is not saved on this device yet, or could not be loaded. It is saved when you open the lesson with an internet connection.'
+              : 'This animation could not be loaded. Check your internet connection and try again. The web version does not keep animations for offline use.'
+          }
         />
         {uri ? (
           <Pressable accessibilityRole="button" accessibilityLabel="Try loading the animation again" onPress={() => setFailed(false)} style={{ alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.xs }}>

@@ -22,6 +22,11 @@ import { useTheme } from '@/theme';
  * lesson, so Back returns to this same, still-mounted lesson (reading position, quiz attempt and progress untouched). It never changes the frozen
  * passage. If the app has no Bible text bundled, the action is disabled and says why, and the frozen passage stays fully readable; with a malformed
  * reference there is no action at all.
+ *
+ * PRESENTATION: `embedded` draws the same passage without its own card, for use INSIDE another block (a hotspot panel, a word study, a summary):
+ * the same reference, text and translation, set off by the gold rule alone, so a passage inside a block is not a box inside a box.
+ * A passage that names its reference but carries NO verse text (`verses` absent or empty) is shown by `ScriptureReference`: just the reference, never an
+ * empty quotation and never a claim that the Bible is installed. Anything else that is malformed keeps showing the "not available" message.
  */
 type Verse = { verse: number; text: string };
 
@@ -56,7 +61,25 @@ function readPassage(content: Record<string, unknown>) {
   };
 }
 
-export function ScripturePassage({ content }: { content: Record<string, unknown> }) {
+/** A passage that names its reference but has no verse text to show (`verses` absent or empty). Null for anything else, including a malformed passage. */
+function readReferenceOnly(content: Record<string, unknown>) {
+  const display = asText(content.display);
+  const withoutText = content.verses === undefined || (Array.isArray(content.verses) && content.verses.length === 0);
+  if (!display || !withoutText) return null;
+  const source = isRecord(content.source) ? content.source : null;
+  return {
+    display,
+    reference: referenceFromFrozen(content.reference),
+    published: source
+      ? { id: asText(source.id) || undefined, version: asText(source.version) || undefined, translation: asText(source.translation) || undefined, edition: asText(source.edition) || undefined, fingerprint: asText(source.fingerprint) || undefined }
+      : undefined,
+  };
+}
+
+/** True when `ScriptureReference` (rather than the passage card) is the right way to show this frozen passage. */
+export const isReferenceOnly = (content: Record<string, unknown>) => readPassage(content) === null && readReferenceOnly(content) !== null;
+
+export function ScripturePassage({ content, embedded = false }: { content: Record<string, unknown>; embedded?: boolean }) {
   const { spacing, colors, typography, fontFamilies } = useTheme();
   const router = useRouter();
   const passage = readPassage(content);
@@ -69,40 +92,49 @@ export function ScripturePassage({ content }: { content: Record<string, unknown>
   }
 
   const multiple = passage.verses.length > 1;
+  const body = (
+    <>
+      <AppText variant="label" color="primaryHighlight" accessibilityRole="header">
+        {passage.display}
+      </AppText>
+      <Text
+        style={[typography.scripture, { color: colors.textBright, fontSize: 20, lineHeight: 32 }]}
+        accessibilityLabel={`${passage.display}. ${passage.verses.map((v) => `Verse ${v.verse}. ${v.text}`).join(' ')}`}>
+        {passage.verses.map((v, index) => (
+          <Text key={v.verse}>
+            {multiple ? <Text style={{ color: colors.primaryHighlight, fontFamily: fontFamilies.sansSemiBold, fontSize: 13 }}>{v.verse} </Text> : null}
+            {v.text}
+            {index < passage.verses.length - 1 ? ' ' : ''}
+          </Text>
+        ))}
+      </Text>
+      <AppText variant="caption" color="textMuted">
+        {passage.translation}
+        {passage.edition ? `, ${passage.edition}` : ''}
+      </AppText>
+      {/* Only offered when the Bible text is in the app; when it is not, the passage simply stands on its own. */}
+      {passage.reference && bible.available ? (
+        <SecondaryButton
+          size="small"
+          label={`Open ${passage.display} in the Bible`}
+          style={{ alignSelf: 'flex-start' }}
+          onPress={() => passage.reference && router.push(bibleReadHref(passage.reference, passage.published))}
+        />
+      ) : null}
+    </>
+  );
   return (
     <View style={{ gap: spacing.lg }}>
-      {/* Scripture: a calm surface with a single antique-gold rule on its leading edge. The text is exactly the published passage. */}
-      <BlockFrame
-        variant="scripture"
-        style={{ borderWidth: 0, borderLeftWidth: 3, borderLeftColor: colors.primary, gap: spacing.md, paddingVertical: spacing.lg, paddingHorizontal: spacing.xl }}>
-        <AppText variant="label" color="primaryHighlight" accessibilityRole="header">
-          {passage.display}
-        </AppText>
-        <Text
-          style={[typography.scripture, { color: colors.textBright, fontSize: 20, lineHeight: 32 }]}
-          accessibilityLabel={`${passage.display}. ${passage.verses.map((v) => `Verse ${v.verse}. ${v.text}`).join(' ')}`}>
-          {passage.verses.map((v, index) => (
-            <Text key={v.verse}>
-              {multiple ? <Text style={{ color: colors.primaryHighlight, fontFamily: fontFamilies.sansSemiBold, fontSize: 13 }}>{v.verse} </Text> : null}
-              {v.text}
-              {index < passage.verses.length - 1 ? ' ' : ''}
-            </Text>
-          ))}
-        </Text>
-        <AppText variant="caption" color="textMuted">
-          {passage.translation}
-          {passage.edition ? `, ${passage.edition}` : ''}
-        </AppText>
-        {/* Only offered when the Bible text is in the app; when it is not, the passage simply stands on its own. */}
-        {passage.reference && bible.available ? (
-          <SecondaryButton
-            size="small"
-            label={`Open ${passage.display} in the Bible`}
-            style={{ alignSelf: 'flex-start' }}
-            onPress={() => passage.reference && router.push(bibleReadHref(passage.reference, passage.published))}
-          />
-        ) : null}
-      </BlockFrame>
+      {/* Scripture: a calm surface with a single antique-gold rule on its leading edge (alone, when it sits inside another block). The text is exactly the published passage. */}
+      {embedded ? (
+        <View style={{ gap: spacing.md, paddingLeft: spacing.lg, borderLeftWidth: 3, borderLeftColor: colors.primary }}>{body}</View>
+      ) : (
+        <BlockFrame
+          variant="scripture"
+          style={{ borderWidth: 0, borderLeftWidth: 3, borderLeftColor: colors.primary, gap: spacing.md, paddingVertical: spacing.lg, paddingHorizontal: spacing.xl }}>
+          {body}
+        </BlockFrame>
+      )}
       {passage.commentary ? (
         <View style={{ gap: spacing.xs, paddingHorizontal: spacing.xs }}>
           <AppText variant="bodySmall" color="textMuted" style={{ fontWeight: '600' }}>
@@ -112,6 +144,34 @@ export function ScripturePassage({ content }: { content: Record<string, unknown>
             {passage.commentary}
           </AppText>
         </View>
+      ) : null}
+    </View>
+  );
+}
+
+/**
+ * A frozen passage that has a reference but no verse text: the reference alone, set off by the gold rule like a passage, with "Open in the Bible" only when
+ * the Bible text is really in the app. Nothing is quoted, nothing is looked up and nothing is suggested about the text.
+ */
+export function ScriptureReference({ content }: { content: Record<string, unknown> }) {
+  const { spacing, colors } = useTheme();
+  const router = useRouter();
+  const bible = getScriptureAvailability();
+  const named = readReferenceOnly(content);
+  if (!named) return null;
+  const { display, reference, published } = named;
+  return (
+    <View style={{ gap: spacing.sm, paddingLeft: spacing.lg, borderLeftWidth: 3, borderLeftColor: colors.borderGold }}>
+      <AppText variant="label" color="primaryHighlight" accessibilityLabel={`Scripture reference: ${display}`}>
+        {display}
+      </AppText>
+      {reference && bible.available ? (
+        <SecondaryButton
+          size="small"
+          label={`Open ${display} in the Bible`}
+          style={{ alignSelf: 'flex-start' }}
+          onPress={() => router.push(bibleReadHref(reference, published))}
+        />
       ) : null}
     </View>
   );

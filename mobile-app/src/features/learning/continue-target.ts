@@ -86,8 +86,12 @@ function ensureChecked(entry: ResumeEntry): void {
   void verify(entry);
 }
 
-/** The lesson "Continue learning" should open, or null when there is nothing to continue. Waits for the saved progress to be known. */
-export function useContinueTarget(): ResumeEntry | null {
+/**
+ * The lesson "Continue learning" should open, or null when there is nothing to continue. Waits for the saved progress to be known.
+ * `verifyAll` also checks every other unfinished lesson that is looked at (not only the one that will be offered), for a screen that LISTS them, such as Progress,
+ * so it can say which ones are no longer available (see `useIsUnavailable`).
+ */
+export function useContinueTarget({ verifyAll = false }: { verifyAll?: boolean } = {}): ResumeEntry | null {
   const { progress, status } = useLearningProgress();
   const seen = useSyncExternalStore(subscribe, getVersion, getVersion);
   const candidates = useMemo(() => (status === 'ready' ? unfinishedLessons(progress).slice(0, MAX_CANDIDATES) : []), [progress, status]);
@@ -98,10 +102,19 @@ export function useContinueTarget(): ResumeEntry | null {
   const check = useCallback(() => {
     for (const entry of candidates) {
       ensureChecked(entry);
-      if (known.get(keyOf(entry))?.available !== false) break;
+      if (!verifyAll && known.get(keyOf(entry))?.available !== false) break;
     }
-  }, [candidates, seen]);
+  }, [candidates, seen, verifyAll]);
   useFocusEffect(check);
 
   return resume;
+}
+
+/**
+ * Whether a lesson is KNOWN to be no longer published (the backend has said so, in this session). Anything not checked yet, or not answered (offline), is not
+ * reported as unavailable. Re-renders when that becomes known. The saved progress is never changed by this.
+ */
+export function useIsUnavailable(): (lesson: { lessonId: string; level: LearningLevel }) => boolean {
+  const seen = useSyncExternalStore(subscribe, getVersion, getVersion);
+  return useCallback((lesson) => known.get(keyOf(lesson))?.available === false, [seen]);
 }

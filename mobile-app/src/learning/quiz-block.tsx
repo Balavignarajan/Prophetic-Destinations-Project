@@ -15,14 +15,17 @@ import {
 } from '@/components/ui';
 import { useLearningProgress } from '@/features/learning/learning-provider';
 import type { ProgressLevel } from '@/features/learning/progress-model';
+import { ScriptureLinks } from '@/learning/scripture-links';
 import { useTheme } from '@/theme';
 
 /**
  * Renders a published QUIZ block. The lesson snapshot carries the quiz as it was when the lesson was published
  * (backend/src/modules/lessons/application/quiz-embed.service.ts):
  *   { quizId, quizVersion, quiz: { title, description, questions: [{ id, type: 'SINGLE_CHOICE', prompt, explanation,
- *                                                                   correctOptionId, options: [{ id, text }] }] } }
- * so a quiz works with no connection. Because the snapshot is public, the correct answers are on the device and are not secret;
+ *                                                                   correctOptionId, scripture?, options: [{ id, text, feedback? }] }] } }
+ * so a quiz works with no connection. `scripture` (the question's frozen passages) and an option's `feedback` are optional and only shown AFTER the
+ * learner has checked the answer (and in the review): before that nothing on screen says which option is right. The feedback shown is the one of the
+ * option the learner chose, next to (never instead of) the general explanation, and it is left out when it only repeats it. Because the snapshot is public, the correct answers are on the device and are not secret;
  * that is the cost of offline feedback. Answers are checked on the device. No accounts, no pass mark, no attempt limit, and a quiz never
  * blocks completing the lesson.
  *
@@ -37,8 +40,8 @@ import { useTheme } from '@/theme';
  * Only SINGLE_CHOICE questions are supported. The publisher refuses a quiz with anything else, but if one still reaches the app the WHOLE quiz is
  * shown as unavailable (no partial quiz, no score, nothing saved).
  */
-type Option = { id: string; text: string };
-type Question = { id: string; prompt: string; explanation: string | null; correctOptionId: string; options: Option[] };
+type Option = { id: string; text: string; feedback: string | null };
+type Question = { id: string; prompt: string; explanation: string | null; correctOptionId: string; options: Option[]; scripture: unknown[] };
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const asText = (value: unknown) => (typeof value === 'string' ? value : '');
@@ -57,11 +60,20 @@ function readQuiz(content: Record<string, unknown>): { quizId: string; title: st
   const questions: Question[] = [];
   for (const raw of quiz.questions) {
     if (!isRecord(raw) || raw.type !== 'SINGLE_CHOICE' || !Array.isArray(raw.options)) return null;
-    const options = raw.options.filter(isRecord).map((o) => ({ id: asText(o.id), text: asText(o.text) }));
+    // `feedback` (per option) and `scripture` (per question) are OPTIONAL additions: older snapshots have neither, and a value that is not usable is
+    // simply left out, so it can never make the quiz unavailable.
+    const options = raw.options.filter(isRecord).map((o) => ({ id: asText(o.id), text: asText(o.text), feedback: asText(o.feedback).trim() || null }));
     const correct = asText(raw.correctOptionId);
     if (!asText(raw.id) || !asText(raw.prompt) || options.length < 2 || options.length !== raw.options.length) return null;
     if (options.some((o) => !o.id || !o.text) || !options.some((o) => o.id === correct)) return null;
-    questions.push({ id: asText(raw.id), prompt: asText(raw.prompt), explanation: asText(raw.explanation) || null, correctOptionId: correct, options });
+    questions.push({
+      id: asText(raw.id),
+      prompt: asText(raw.prompt),
+      explanation: asText(raw.explanation) || null,
+      correctOptionId: correct,
+      options,
+      scripture: Array.isArray(raw.scripture) ? raw.scripture : [],
+    });
   }
   return { quizId, title: asText(quiz.title), description: asText(quiz.description), questions };
 }
@@ -112,16 +124,24 @@ function QuestionFeedback({
   answered,
   correctText,
   explanation,
+  optionFeedback,
+  scripture,
   animate,
 }: {
   correct: boolean;
   answered: boolean;
   correctText: string | undefined;
   explanation: string | null;
+  /** The author's feedback for the option the learner chose, when there is one. */
+  optionFeedback: string | null;
+  /** The question's frozen Scripture passages (a supporting reference), shown only here, after the answer has been checked. */
+  scripture: unknown[];
   animate: boolean;
 }) {
   const { colors, radius, spacing } = useTheme();
   const accent = correct ? colors.success : colors.warning;
+  // The same sentence twice helps nobody: feedback that only repeats the general explanation is shown once.
+  const feedback = optionFeedback && optionFeedback.trim() !== (explanation ?? '').trim() ? optionFeedback : null;
   return (
     <FeedbackReveal
       animate={animate}
@@ -149,11 +169,31 @@ function QuestionFeedback({
           {correctText}
         </AppText>
       ) : null}
-      {explanation ? (
-        <AppText variant="body" color="textSecondary" style={{ fontSize: 16, lineHeight: 25 }}>
-          {explanation}
-        </AppText>
+      {feedback ? (
+        <View style={{ gap: 2 }}>
+          {explanation ? (
+            <AppText variant="caption" color="textMuted" style={{ fontWeight: '600' }}>
+              About your answer
+            </AppText>
+          ) : null}
+          <AppText variant="body" color="textSecondary" style={{ fontSize: 16, lineHeight: 25 }}>
+            {feedback}
+          </AppText>
+        </View>
       ) : null}
+      {explanation ? (
+        <View style={{ gap: 2 }}>
+          {feedback ? (
+            <AppText variant="caption" color="textMuted" style={{ fontWeight: '600' }}>
+              Explanation
+            </AppText>
+          ) : null}
+          <AppText variant="body" color="textSecondary" style={{ fontSize: 16, lineHeight: 25 }}>
+            {explanation}
+          </AppText>
+        </View>
+      ) : null}
+      <ScriptureLinks entries={scripture} presentation="inline" />
     </FeedbackReveal>
   );
 }
@@ -178,7 +218,7 @@ export function QuizContent({
   onStepChange?: () => void;
 }) {
   const { spacing } = useTheme();
-  const { ready, quizResultFor, recordQuizResult } = useLearningProgress();
+  const { ready, saveFailed, quizResultFor, recordQuizResult } = useLearningProgress();
   // The attempt being taken now. Separate from the saved result, which is only read from the progress store.
   const [mode, setMode] = useState<'saved' | 'attempt' | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -298,7 +338,8 @@ export function QuizContent({
           total={shown.total}
           note={
             showingSaved
-              ? `${dateOf(shown.completedAt) ? `Completed ${dateOf(shown.completedAt)}. ` : ''}Saved on this device.`
+              ? // A result held in memory after a failed write is not "saved": it is said plainly until a later write succeeds.
+                `${dateOf(shown.completedAt) ? `Completed ${dateOf(shown.completedAt)}. ` : ''}${saveFailed ? 'Not saved on this device yet.' : 'Saved on this device.'}`
               : "You've completed this knowledge check."
           }
           animate={justFinished && !showingSaved}
@@ -361,7 +402,16 @@ export function QuizContent({
             />
           ))}
         </View>
-        <QuestionFeedback key={question.id} correct={correct} answered={chosen !== undefined} correctText={correctText} explanation={question.explanation} animate={false} />
+        <QuestionFeedback
+          key={question.id}
+          correct={correct}
+          answered={chosen !== undefined}
+          correctText={correctText}
+          explanation={question.explanation}
+          optionFeedback={question.options.find((o) => o.id === chosen)?.feedback ?? null}
+          scripture={question.scripture}
+          animate={false}
+        />
         <ActionRow equal>
           <SecondaryButton size="medium" label="Previous" disabled={reviewIndex === 0} onPress={() => setReviewIndex(reviewIndex - 1)} />
           <SecondaryButton size="medium" label="Next" disabled={reviewIndex === total - 1} onPress={() => setReviewIndex(reviewIndex + 1)} />
@@ -414,6 +464,8 @@ export function QuizContent({
           answered={chosen !== undefined}
           correctText={correctText}
           explanation={question.explanation}
+          optionFeedback={question.options.find((o) => o.id === chosen)?.feedback ?? null}
+          scripture={question.scripture}
           animate={fresh === question.id}
         />
       ) : null}

@@ -40,8 +40,8 @@ type LearningContextValue = {
    * was also stored on this device (false: the storage failed, the saved progress is unavailable, or the progress was reset in the meantime).
    */
   recordQuizResult: (result: QuizResult) => Promise<boolean>;
-  /** The explicit "mark complete / undo" action. */
-  setCompleted: (lesson: LessonRef, completed: boolean) => void;
+  /** The explicit "mark complete / undo" action. Resolves to whether the change was stored (see ProgressSession.setCompleted). */
+  setCompleted: (lesson: LessonRef, completed: boolean) => Promise<boolean>;
   /**
    * Forgets the resume point, all completion marks, saved positions and saved quiz results. The only thing that ever removes saved progress, and
    * only on the learner's own confirmed request. Resolves to whether the saved progress is really gone.
@@ -61,7 +61,7 @@ const LearningContext = createContext<LearningContextValue>({
   savePosition: () => undefined,
   positionOf: () => null,
   isCompleted: () => false,
-  setCompleted: () => undefined,
+  setCompleted: () => Promise.resolve(false),
   quizResultFor: () => null,
   recordQuizResult: () => Promise.resolve(false),
   reset: () => Promise.resolve(false),

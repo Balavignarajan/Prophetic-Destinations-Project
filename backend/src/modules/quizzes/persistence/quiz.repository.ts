@@ -7,6 +7,7 @@ import type {
   QuizStatus,
   QuizWithQuestions,
   QuestionInput,
+  QuestionScriptureEntry,
   QuestionType,
   StoredQuestion,
 } from '../domain/quiz-rules.js';
@@ -68,12 +69,14 @@ export class QuizRepository {
       explanation: string | null;
       correctOptionId: string;
       levels: string[] | null;
+      scripture: QuestionScriptureEntry[] | null;
     }[] = [];
     const optionRows: {
       id: string;
       questionId: string;
       position: number;
       text: string;
+      feedback: string | null;
     }[] = [];
     questions.forEach((question, qIndex) => {
       const questionId = randomUUID();
@@ -86,6 +89,7 @@ export class QuizRepository {
           questionId,
           position: oIndex + 1,
           text: option.text,
+          feedback: option.feedback ?? null,
         });
       });
       questionRows.push({
@@ -95,17 +99,19 @@ export class QuizRepository {
         explanation: question.explanation ?? null,
         correctOptionId,
         levels: question.levels ?? null,
+        scripture: question.scripture ?? null,
       });
     });
 
     // The questions point at their correct option through a DEFERRED foreign key, so they go in first.
     await manager.query(
       // levels travel as one text per question ('' = every level, otherwise comma-separated) because Postgres cannot unnest a jagged array.
-      `INSERT INTO "quiz_questions" ("id", "quiz_id", "position", "prompt", "explanation", "correct_option_id", "levels")
+      `INSERT INTO "quiz_questions" ("id", "quiz_id", "position", "prompt", "explanation", "correct_option_id", "levels", "scripture")
        SELECT v.id, $1, v.position, v.prompt, v.explanation, v.correct,
-              CASE WHEN v.levels = '' THEN NULL ELSE string_to_array(v.levels, ',') END
-         FROM unnest($2::uuid[], $3::int[], $4::text[], $5::text[], $6::uuid[], $7::text[])
-              AS v(id, position, prompt, explanation, correct, levels)`,
+              CASE WHEN v.levels = '' THEN NULL ELSE string_to_array(v.levels, ',') END,
+              CASE WHEN v.scripture = '' THEN NULL ELSE v.scripture::jsonb END
+         FROM unnest($2::uuid[], $3::int[], $4::text[], $5::text[], $6::uuid[], $7::text[], $8::text[])
+              AS v(id, position, prompt, explanation, correct, levels, scripture)`,
       [
         quizId,
         questionRows.map((q) => q.id),
@@ -114,16 +120,19 @@ export class QuizRepository {
         questionRows.map((q) => q.explanation),
         questionRows.map((q) => q.correctOptionId),
         questionRows.map((q) => (q.levels ? q.levels.join(',') : '')),
+        // the Scripture list travels as JSON text per question ('' = none), like the levels
+        questionRows.map((q) => (q.scripture && q.scripture.length > 0 ? JSON.stringify(q.scripture) : '')),
       ],
     );
     await manager.query(
-      `INSERT INTO "quiz_options" ("id", "question_id", "position", "text")
-       SELECT * FROM unnest($1::uuid[], $2::uuid[], $3::int[], $4::text[])`,
+      `INSERT INTO "quiz_options" ("id", "question_id", "position", "text", "feedback")
+       SELECT * FROM unnest($1::uuid[], $2::uuid[], $3::int[], $4::text[], $5::text[])`,
       [
         optionRows.map((o) => o.id),
         optionRows.map((o) => o.questionId),
         optionRows.map((o) => o.position),
         optionRows.map((o) => o.text),
+        optionRows.map((o) => o.feedback),
       ],
     );
   }
@@ -202,8 +211,9 @@ export class QuizRepository {
       explanation: string | null;
       correct_option_id: string;
       levels: string[] | null;
+      scripture: QuestionScriptureEntry[] | null;
     }[] = await this.db(manager).query(
-      `SELECT "id", "position", "type", "prompt", "explanation", "correct_option_id", "levels"
+      `SELECT "id", "position", "type", "prompt", "explanation", "correct_option_id", "levels", "scripture"
          FROM "quiz_questions" WHERE "quiz_id" = $1 ORDER BY "position"`,
       [quizId],
     );
@@ -213,8 +223,9 @@ export class QuizRepository {
       question_id: string;
       position: number;
       text: string;
+      feedback: string | null;
     }[] = await this.db(manager).query(
-      `SELECT "id", "question_id", "position", "text" FROM "quiz_options"
+      `SELECT "id", "question_id", "position", "text", "feedback" FROM "quiz_options"
           WHERE "question_id" = ANY($1::uuid[]) ORDER BY "question_id", "position"`,
       [questions.map((q) => q.id)],
     );
@@ -226,9 +237,10 @@ export class QuizRepository {
       explanation: q.explanation,
       correctOptionId: q.correct_option_id,
       levels: q.levels ?? null,
+      scripture: q.scripture ?? null,
       options: options
         .filter((o) => o.question_id === q.id)
-        .map((o) => ({ id: o.id, position: o.position, text: o.text })),
+        .map((o) => ({ id: o.id, position: o.position, text: o.text, feedback: o.feedback ?? null })),
     }));
   }
 

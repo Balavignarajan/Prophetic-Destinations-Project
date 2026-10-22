@@ -17,7 +17,22 @@ export const QUIZ_LIMITS = {
   optionsMin: 2,
   optionsMax: 6,
   optionTextMax: 300,
+  /** Optional feedback shown for ONE answer option after the learner has checked their answer. */
+  optionFeedbackMax: 500,
+  /** Optional Scripture passages attached to a question (the shared reference model, see QuestionScriptureEntry). */
+  scriptureMax: 3,
 } as const;
+
+/**
+ * An optional Scripture reference of a question, in the SAME structured model every other block uses (scripture-refs.ts: one chapter, an explicit verse
+ * range; never Bible text). Stored as a list of { reference } entries, up to scriptureMax. At lesson publication each entry is verified against the
+ * installed Scripture text and frozen into the snapshot as the usual passage ({ reference, display, source, verses }); if no text is installed it is frozen
+ * as the reference alone (see ScriptureEmbedService). A question's Scripture is a SUPPORTING reference: learners see it with the feedback after they check
+ * their answer.
+ */
+export interface QuestionScriptureEntry {
+  reference: { bookId: string; chapter: number; startVerse: number; endVerse: number };
+}
 
 /** The three learning levels, in canonical order (the same identifiers as everywhere else). */
 export const QUESTION_LEVELS = ['BEGINNER', 'INTERMEDIATE', 'ADVANCED'] as const;
@@ -45,7 +60,10 @@ export interface QuestionInput {
   levels?: string[] | null;
   prompt: string;
   explanation?: string | null;
-  options: { text: string; correct: boolean }[];
+  /** Optional Scripture reference(s) for the question; null or absent = none. */
+  scripture?: QuestionScriptureEntry[] | null;
+  /** Each option may carry optional feedback shown after the answer is checked. */
+  options: { text: string; correct: boolean; feedback?: string | null }[];
 }
 
 export interface QuizInput {
@@ -64,7 +82,9 @@ export interface StoredQuestion {
   correctOptionId: string;
   /** Levels the question is shown at; null = every level. */
   levels: string[] | null;
-  options: { id: string; position: number; text: string }[];
+  /** Optional Scripture reference(s); null or absent = none. */
+  scripture?: QuestionScriptureEntry[] | null;
+  options: { id: string; position: number; text: string; feedback?: string | null }[];
 }
 
 export type QuizStatus = 'DRAFT' | 'PUBLISHED';
@@ -87,6 +107,22 @@ export interface QuizWithQuestions extends Quiz {
 
 const clean = (text: string) => text.trim().replace(/\s+/g, ' ');
 
+/** The Scripture entries as stored: only the known reference fields, and none when there are none. */
+function normalizeScripture(entries: QuestionScriptureEntry[] | null | undefined): QuestionScriptureEntry[] | null {
+  if (!entries || entries.length === 0) return null;
+  return entries.map((entry) => ({
+    reference: {
+      bookId: String(entry.reference.bookId).trim(),
+      chapter: entry.reference.chapter,
+      startVerse: entry.reference.startVerse,
+      endVerse: entry.reference.endVerse,
+    },
+  }));
+}
+
+const BOOK_ID = /^[1-3]?[A-Za-z]+$/;
+const whole = (value: unknown, max: number) => typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= max;
+
 /** Trims text fields and turns blank optional ones into null (so equal content is stored equally). */
 export function normalizeQuiz(input: QuizInput): QuizInput {
   const optional = (value: string | null | undefined) => {
@@ -100,9 +136,11 @@ export function normalizeQuiz(input: QuizInput): QuizInput {
       levels: normalizeQuestionLevels(question.levels),
       prompt: question.prompt.trim(),
       explanation: optional(question.explanation),
+      scripture: normalizeScripture(question.scripture),
       options: question.options.map((option) => ({
         text: clean(option.text),
         correct: option.correct === true,
+        feedback: optional(option.feedback),
       })),
     })),
   };
@@ -142,7 +180,20 @@ export function checkQuizContent(quiz: QuizInput): string[] {
       if (question.levels.length === 0) problems.push(`${at}: choose at least one level for the question`);
       else if (question.levels.some((level) => !(QUESTION_LEVELS as readonly string[]).includes(level))) problems.push(`${at}: unknown level`);
     }
+    const scripture = question.scripture ?? [];
+    if (scripture.length > L.scriptureMax) problems.push(`${at}: at most ${L.scriptureMax} Scripture passages are allowed`);
+    scripture.forEach((entry, k) => {
+      const r = entry?.reference;
+      const n = `${at}, Scripture passage ${k + 1}`;
+      if (!r || typeof r.bookId !== 'string' || r.bookId.length > 10 || !BOOK_ID.test(r.bookId)) problems.push(`${n}: the book must be a book id such as "John"`);
+      else if (!whole(r.chapter, 150)) problems.push(`${n}: the chapter must be a whole number from 1 to 150`);
+      else if (!whole(r.startVerse, 176) || !whole(r.endVerse, 176)) problems.push(`${n}: verses must be whole numbers from 1 to 176`);
+      else if (r.endVerse < r.startVerse) problems.push(`${n}: the last verse comes before the first verse`);
+    });
     const options = question.options;
+    if (options.some((option) => (option.feedback?.length ?? 0) > L.optionFeedbackMax)) {
+      problems.push(`${at}: an option's feedback must be at most ${L.optionFeedbackMax} characters`);
+    }
     if (options.length < L.optionsMin || options.length > L.optionsMax) {
       problems.push(
         `${at}: it needs between ${L.optionsMin} and ${L.optionsMax} options`,

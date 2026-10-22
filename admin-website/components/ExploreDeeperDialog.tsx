@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useRef, useState } from 'react';
-import { EMPTY_EXPLORE, EXPLORE_LIMITS, type ExploreContent, buildExplore } from '../lib/explore-deeper';
+import { EMPTY_EXPLORE, EXPLORE_LIMITS, type ExploreContent, buildExplore, newNestedId } from '../lib/explore-deeper';
 import type { LearningLevel } from '../lib/types';
+import { type NestedDialogState, NestedBlockDialogs, NestedBlocksList } from './ExploreNestedBlocks';
 import ScriptureRefList from './ScriptureRefList';
 import { Modal } from './ui';
 
@@ -26,17 +27,22 @@ const LEVEL_NAMES: Record<string, string> = { BEGINNER: 'Beginner', INTERMEDIATE
 interface BodyProps extends Omit<Props, 'isOpen' | 'onClose'> {
   requestClose: () => void;
   dirtyRef: React.MutableRefObject<boolean>;
+  /** True while the dialog of a nested block is open over this one: closing this dialog (Escape) must not happen then. */
+  nestedOpenRef: React.MutableRefObject<boolean>;
 }
 
-function Body({ mode, lessonLevels, initial, saving, error, onSave, requestClose, dirtyRef }: BodyProps) {
+function Body({ mode, lessonLevels, initial, saving, error, onSave, requestClose, dirtyRef, nestedOpenRef }: BodyProps) {
   const start = initial ?? EMPTY_EXPLORE;
   const [draft, setDraft] = useState<ExploreContent>(start);
   const [levels, setLevels] = useState<LearningLevel[]>(lessonLevels);
+  const [nestedDialog, setNestedDialog] = useState<NestedDialogState | null>(null);
+  nestedOpenRef.current = nestedDialog !== null;
   const patch = (changes: Partial<ExploreContent>) => setDraft((d) => ({ ...d, ...changes }));
   dirtyRef.current = JSON.stringify(buildExplore(draft)) !== JSON.stringify(buildExplore(start));
   const canSave = !saving && (mode === 'edit' || levels.length > 0);
 
   return (
+    <>
     <form
       onSubmit={(e) => {
         e.preventDefault();
@@ -70,9 +76,15 @@ function Body({ mode, lessonLevels, initial, saving, error, onSave, requestClose
           onChange={(scripture) => patch({ scripture })}
           disabled={saving}
         />
+        <NestedBlocksList
+          blocks={draft.blocks}
+          onChange={(blocks) => patch({ blocks })}
+          onOpen={setNestedDialog}
+          disabled={saving}
+        />
         <p className={HELP}>
-          Which levels see this section is set with the block&rsquo;s level visibility after you add it. It is not limited to any level by default. Nested
-          or linked study content is not available yet.
+          Which levels see this section is set with the block&rsquo;s level visibility after you add it. It is not limited to any level by default. Anything
+          inside the section is shown at the same levels as the section.
         </p>
       </fieldset>
       {mode === 'create' && (
@@ -99,21 +111,39 @@ function Body({ mode, lessonLevels, initial, saving, error, onSave, requestClose
         </button>
       </div>
     </form>
+    {/* Outside the form on purpose: saving a nested block must never submit the section itself. */}
+    <NestedBlockDialogs
+      dialog={nestedDialog}
+      blocks={draft.blocks}
+      onClose={() => setNestedDialog(null)}
+      onSave={(state, content) => {
+        setDraft((d) => ({
+          ...d,
+          blocks:
+            state.index === null
+              ? [...d.blocks, { id: newNestedId(), type: state.type, content }]
+              : d.blocks.map((b, i) => (i === state.index ? { ...b, content } : b)),
+        }));
+        setNestedDialog(null);
+      }}
+    />
+    </>
   );
 }
 
 /** Adds or edits an Explore Deeper block without leaving the lesson. The form starts fresh each time it opens. */
 export default function ExploreDeeperDialog({ isOpen, onClose, ...rest }: Props) {
   const dirtyRef = useRef(false);
+  const nestedOpenRef = useRef(false);
   const requestClose = () => {
-    if (rest.saving) return;
+    if (rest.saving || nestedOpenRef.current) return;
     if (dirtyRef.current && !window.confirm('Discard your unsaved changes?')) return;
     dirtyRef.current = false;
     onClose();
   };
   return (
     <Modal isOpen={isOpen} onClose={requestClose} title={rest.mode === 'create' ? 'Add an Explore Deeper section' : 'Edit Explore Deeper section'} description="An optional section learners open when they want to study further." maxWidth="xl">
-      <Body {...rest} requestClose={requestClose} dirtyRef={dirtyRef} />
+      <Body {...rest} requestClose={requestClose} dirtyRef={dirtyRef} nestedOpenRef={nestedOpenRef} />
     </Modal>
   );
 }

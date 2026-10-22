@@ -3,10 +3,8 @@ import { View } from 'react-native';
 
 import { useResource } from '@/api/use-resource';
 import { AppText, Card, ChevronIcon, EmptyState, PageHeading, ScreenContainer, ScreenSection } from '@/components/ui';
-import { useLearningProgress } from '@/features/learning/learning-provider';
-import { useContinueTarget } from '@/features/learning/continue-target';
-import { completedLessons, quizResultsList, summarise, unfinishedLessons } from '@/features/learning/progress-model';
-import { ProgressStatusNotice, isProgressUnavailable } from '@/features/learning/progress-notice';
+import { ProgressStatusNotice } from '@/features/learning/progress-notice';
+import { levelProgressLine, useProgressOverview } from '@/features/learning/progress-overview';
 import { loadCourseList } from '@/features/offline/offline-api';
 import { ContinueCard } from '@/learning/continue-card';
 import { LEVEL_LABELS } from '@/learning/levels';
@@ -25,24 +23,17 @@ export function ProgressScreen() {
   const router = useRouter();
   const { spacing } = useTheme();
   const { level, ready } = useLearningLevel();
-  const { progress, status } = useLearningProgress();
-  // When the saved progress could not be read, the empty progress is not "nothing yet": neither the empty state nor zero counts are shown.
-  const progressUnavailable = isProgressUnavailable(status);
   const [courses] = useResource(ready ? `courses:${level}` : null, (signal) => loadCourseList(level, signal));
   const courseList = courses.status === 'success' ? courses.data.value.courses : [];
   const total = courses.status === 'success' ? courseList.reduce((sum, course) => sum + course.lessonCount, 0) : null;
-  const summary = summarise(progress, level, total);
-  const unfinished = unfinishedLessons(progress);
-  // The lesson to continue: the most recent unfinished one that is still published. The list below keeps every unfinished lesson (the history).
-  const resume = useContinueTarget();
-  const others = resume ? unfinished.filter((entry) => entry.lessonId !== resume.lessonId || entry.level !== resume.level) : unfinished;
-  const done = completedLessons(progress);
-  const quizzes = quizResultsList(progress.quizResults);
-  const hasAnything = unfinished.length + done.length + quizzes.length > 0;
+  // The same figures Home shows, from one place. When the saved progress could not be read, the empty progress is not "nothing yet": neither the empty
+  // state nor zero counts are shown. The lesson to continue is the most recent unfinished one that is still published; the list below keeps every
+  // unfinished lesson (the history) and says which ones are no longer available. `verifyAll` asks the server about each of them.
+  const { unavailable: progressUnavailable, summary, resume, others, done, quizzes, hasAnything, isUnavailable } = useProgressOverview(level, total, { verifyAll: true });
   // The course name is only known when the resumed lesson is at the level whose course list is loaded.
   const resumeCourse = resume && resume.level === level && resume.courseId ? courseList.find((course) => course.courseId === resume.courseId) : undefined;
   const open = (lessonId: string, lessonLevel: string) => router.push({ pathname: '/lesson/[lessonId]', params: { lessonId, level: lessonLevel } });
-  const levelLine = `${LEVEL_LABELS[level]} level: ${summary.completedAtLevel} completed${summary.remainingAtLevel !== null ? ` · ${summary.remainingAtLevel} remaining of ${total} available` : ''}`;
+  const levelLine = levelProgressLine(level, summary, total);
 
   return (
     <ScreenContainer scroll>
@@ -82,15 +73,19 @@ export function ProgressScreen() {
 
         {others.length > 0 ? (
           <ScreenSection title={resume ? 'Also in progress' : 'In progress'}>
-            {others.map((lesson) => (
-              <LessonEntry
-                key={`${lesson.lessonId}:${lesson.level}`}
-                title={lesson.title}
-                meta={`${LEVEL_LABELS[lesson.level]} level${dateOf(lesson.at) ? ` · Last visited ${dateOf(lesson.at)}` : ''}`}
-                onPress={() => open(lesson.lessonId, lesson.level)}
-                accessibilityLabel={`Continue ${lesson.title}, ${LEVEL_LABELS[lesson.level]} level`}
-              />
-            ))}
+            {others.map((lesson) => {
+              // Your place in a lesson that is no longer published is kept (and shown), but it is not described as somewhere to continue.
+              const gone = isUnavailable(lesson);
+              return (
+                <LessonEntry
+                  key={`${lesson.lessonId}:${lesson.level}`}
+                  title={lesson.title}
+                  meta={`${LEVEL_LABELS[lesson.level]} level${gone ? ' · No longer available' : dateOf(lesson.at) ? ` · Last visited ${dateOf(lesson.at)}` : ''}`}
+                  onPress={() => open(lesson.lessonId, lesson.level)}
+                  accessibilityLabel={gone ? `${lesson.title}, ${LEVEL_LABELS[lesson.level]} level, no longer available. Open for details.` : `Continue ${lesson.title}, ${LEVEL_LABELS[lesson.level]} level`}
+                />
+              );
+            })}
           </ScreenSection>
         ) : null}
 

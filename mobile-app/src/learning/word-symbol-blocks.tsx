@@ -3,7 +3,7 @@ import { Text, View } from 'react-native';
 import { AccentRule, AppText, BlockFrame, BlockNotice, Reveal } from '@/components/ui';
 import { LessonImage } from '@/learning/lesson-image';
 import type { LearningLevel } from '@/learning/levels';
-import { ScriptureLinks } from '@/learning/scripture-links';
+import { ScriptureLinks, withoutPassages } from '@/learning/scripture-links';
 import { useTheme } from '@/theme';
 import { motion } from '@/theme/motion';
 
@@ -12,8 +12,9 @@ import { motion } from '@/theme/motion';
  *   WORD_STUDY:   { englishWord, originalWord, transliteration, strongNumber?, definition, verse, references? }
  *   SYMBOL_STUDY: { symbol, image?: { mediaId, altText }, primaryPassage, meaning, definitionPassage?, explanation, references? }
  * Scripture fields are the FROZEN passages of the snapshot (a single passage for verse / primary passage / defining passage, a list for references),
- * shown through ScriptureLinks from the lesson itself, offline. They sit under their own labels, apart from the AUTHOR's text, which is labelled
- * as such (definition, meaning, explanation). The original-language word is shown exactly as stored with automatic text direction, so Greek and
+ * shown through ScriptureLinks from the lesson itself, offline. The passages the study is ABOUT (the verse, the primary passage and the passage that
+ * defines the symbol) are shown inline, in normal reading flow; the supporting references stay expandable and leave out a passage already shown above.
+ * They sit under their own labels, apart from the AUTHOR's text, which is labelled as such (definition, meaning, explanation). The original-language word is shown exactly as stored with automatic text direction, so Greek and
  * Hebrew read correctly. Nothing is added or looked up. A malformed passage shows the "not available" card for that passage only; if the block's
  * essential text is missing the block shows a short "not available" note and the rest of the lesson is unaffected. Long text and large fonts wrap.
  */
@@ -49,7 +50,7 @@ export function WordStudyBlock({ content }: { content: Record<string, unknown> }
   const strong = asText(content.strongNumber);
   const definition = asText(content.definition);
   if (!english || !original || !definition) return <Unavailable what="Word study" />;
-  const references = Array.isArray(content.references) ? content.references : [];
+  const references = withoutPassages(content.references, single(content.verse));
 
   return (
     <Reveal offset={motion.offset.subtle}>
@@ -80,7 +81,7 @@ export function WordStudyBlock({ content }: { content: Record<string, unknown> }
       </Part>
       {content.verse !== undefined ? (
         <Part label="Verse">
-          <ScriptureLinks entries={single(content.verse)} />
+          <ScriptureLinks entries={single(content.verse)} presentation="inline" />
         </Part>
       ) : null}
       {references.length > 0 ? (
@@ -100,7 +101,7 @@ export function SymbolStudyBlock({ lessonId, level, content }: { lessonId: strin
   const explanation = asText(content.explanation);
   if (!symbol || !meaning || !explanation) return <Unavailable what="Symbol study" />;
   const image = isRecord(content.image) && asText(content.image.mediaId) ? { mediaId: asText(content.image.mediaId), altText: asText(content.image.altText) } : null;
-  const references = Array.isArray(content.references) ? content.references : [];
+  const references = withoutPassages(content.references, [...single(content.primaryPassage), ...single(content.definitionPassage)]);
 
   return (
     <Reveal offset={motion.offset.subtle}>
@@ -117,7 +118,7 @@ export function SymbolStudyBlock({ lessonId, level, content }: { lessonId: strin
       {image ? <LessonImage lessonId={lessonId} level={level} content={image} /> : null}
       {content.primaryPassage !== undefined ? (
         <Part label="Primary passage">
-          <ScriptureLinks entries={single(content.primaryPassage)} />
+          <ScriptureLinks entries={single(content.primaryPassage)} presentation="inline" />
         </Part>
       ) : null}
       {/* what the symbol means: the clearest line of the block, set apart with a gold rule */}
@@ -131,7 +132,7 @@ export function SymbolStudyBlock({ lessonId, level, content }: { lessonId: strin
       </View>
       {content.definitionPassage !== undefined ? (
         <Part label="Passage that defines it">
-          <ScriptureLinks entries={single(content.definitionPassage)} />
+          <ScriptureLinks entries={single(content.definitionPassage)} presentation="inline" />
         </Part>
       ) : null}
       <Part label="Explanation">

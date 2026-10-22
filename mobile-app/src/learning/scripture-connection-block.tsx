@@ -7,9 +7,9 @@ import { useTheme } from '@/theme';
 /**
  * Renders a published SCRIPTURE_CONNECTION block (backend/src/modules/lessons/domain/blocks/scripture-connection.ts; PROPOSED schema):
  *   { title?, connections: [{ id, label?, scripture: FROZEN passages [{ reference, display, source, verses }], explanation }] }
- * The connections are shown in exactly the published order, numbered, each with its optional label, its passages as tappable references
- * (ScriptureLinks: the frozen text opens in the Scripture card, from the lesson itself, offline) and the author's explanation under its own
- * "Explanation" label, so Scripture and commentary are never confused. Nothing is suggested or inferred about how passages relate.
+ * The connections are shown in exactly the published order, numbered, each with its optional label, its passages (ScriptureLinks, inline: the
+ * frozen text is simply there, from the lesson itself, offline, because the connection IS between these passages; a passage with no verse text
+ * is shown as its reference) and the author's explanation under its own "Explanation" label, so Scripture and commentary are never confused. Nothing is suggested or inferred about how passages relate.
  * A malformed passage shows the "not available" card for that passage only; a connection without a readable explanation or passage still shows
  * what it has. If no connection has anything readable, only a short "not available" message is shown. Text wraps for long text and large fonts.
  */
@@ -42,7 +42,7 @@ export function ScriptureConnectionBlock({ content }: { content: Record<string, 
           <AppText variant="label" color="primaryHighlight" accessibilityRole="header">
             {connection.label ? `${index + 1}. ${connection.label}` : `Connection ${index + 1}`}
           </AppText>
-          <ScriptureLinks entries={connection.scripture} />
+          <ScriptureLinks entries={connection.scripture} presentation="inline" />
           {connection.explanation ? (
             <View style={{ gap: spacing.xs }}>
               <AppText variant="bodySmall" color="textMuted" style={{ fontWeight: '600' }}>

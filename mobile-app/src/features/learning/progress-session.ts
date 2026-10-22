@@ -60,7 +60,11 @@ export type ProgressSession = {
   retrySave: () => Promise<boolean>;
   recordOpened: (lesson: LessonRef) => void;
   savePosition: (lesson: LessonRef, offset: number) => void;
-  setCompleted: (lesson: LessonRef, completed: boolean) => void;
+  /**
+   * Marks a lesson complete (or takes the mark back). Resolves to whether the change is stored: true also when nothing needed to change; false when it could not
+   * be stored, when the saved progress is unavailable, or when progress was reset meanwhile. The change is applied in memory at once either way.
+   */
+  setCompleted: (lesson: LessonRef, completed: boolean) => Promise<boolean>;
   /** Resolves to whether the result was stored on this device (false: it could not be stored, or progress was reset or unavailable meanwhile). */
   recordQuizResult: (result: QuizResult) => Promise<boolean>;
   /** The learner's explicit "erase my progress". Resolves to whether the saved progress is gone. */
@@ -328,7 +332,7 @@ export function createProgressSession(io: SessionIo, empty: SessionProgress): Pr
 
     setCompleted: (lesson, completed) => {
       const now = Date.now();
-      void submit((current) => {
+      return submit((current) => {
         const key = lessonKey(lesson.lessonId, lesson.level);
         const done = key in current.completed;
         if (completed === done) return current;

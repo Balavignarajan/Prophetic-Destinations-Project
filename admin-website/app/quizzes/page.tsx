@@ -7,9 +7,13 @@ import { QuizSummary, AdminQuiz, QuizQuestion } from '../../lib/types';
 import { LoadingSpinner, StatusBadge, EmptyState, Modal, ConfirmDialog } from '../../components/ui';
 import QuestionLevelsField, { levelsText, questionLevelSet } from '../../components/QuestionLevelsField';
 import QuizCreateForm from '../../components/QuizCreateForm';
+import { OptionFeedbackInput, QuestionScriptureField } from '../../components/QuizQuestionExtras';
+import { questionPayload } from '../../lib/quiz-question';
+import { describeReference, useScriptureInfo } from '../../lib/scripture-info';
 
 export default function QuizzesPage() {
   const { user } = useAuth();
+  const scriptureInfo = useScriptureInfo();
   const [quizzes, setQuizzes] = useState<QuizSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -152,15 +156,7 @@ export default function QuizzesPage() {
             title: editTitle.trim(),
             description: editDescription.trim() || null,
             version: activeQuiz.version,
-            questions: editQuestions.map((q) => ({
-              levels: q.levels ?? null,
-              prompt: q.prompt.trim(),
-              explanation: q.explanation?.trim() || null,
-              options: q.options.map((o) => ({
-                text: o.text.trim(),
-                correct: o.correct,
-              })),
-            })),
+            questions: editQuestions.map(questionPayload),
           }),
         }
       );
@@ -235,16 +231,8 @@ export default function QuizzesPage() {
         body: JSON.stringify({
           title: `${quiz.title} (Copy)`,
           description: quiz.description,
-          questions: quiz.questions.map((q) => ({
-            // a copy keeps every question's level setting (null = every level)
-            levels: q.levels ?? null,
-            prompt: q.prompt,
-            explanation: q.explanation,
-            options: q.options.map((o) => ({
-              text: o.text,
-              correct: o.correct,
-            })),
-          })),
+          // a copy keeps every question's level setting (null = every level), its Scripture reference and each option's feedback
+          questions: quiz.questions.map(questionPayload),
         }),
       });
       fetchQuizzes();
@@ -495,7 +483,10 @@ export default function QuizzesPage() {
                                 : 'bg-white text-slate-700 border-slate-200'
                             }`}
                           >
-                            <span>{opt.text}</span>
+                            <span className="min-w-0">
+                              {opt.text}
+                              {opt.feedback && <span className="block mt-0.5 text-[11px] font-normal italic text-slate-600">Feedback: {opt.feedback}</span>}
+                            </span>
                             {opt.correct && (
                               <span className="text-[10px] uppercase font-bold text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-full">
                                 Correct Answer
@@ -510,6 +501,12 @@ export default function QuizzesPage() {
                           <strong className="not-italic font-semibold text-slate-600">Explanation:</strong>{' '}
                           {q.explanation}
                         </div>
+                      )}
+                      {q.scripture && q.scripture.length > 0 && (
+                        <p className="pl-7 text-xs text-slate-700">
+                          <strong className="font-semibold text-slate-700">Scripture:</strong>{' '}
+                          {q.scripture.map((s) => describeReference(s.reference, scriptureInfo.bookNames)).join('; ')}
+                        </p>
                       )}
                     </div>
                   ))
@@ -674,6 +671,18 @@ export default function QuizzesPage() {
                   disabled={updating}
                 />
 
+                <QuestionScriptureField
+                  idPrefix={`edit-q${qIndex}`}
+                  questionLabel={`Question ${qIndex + 1}`}
+                  value={q.scripture}
+                  onChange={(scripture) => {
+                    const updated = [...editQuestions];
+                    updated[qIndex] = { ...updated[qIndex], scripture };
+                    setEditQuestions(updated);
+                  }}
+                  disabled={updating}
+                />
+
                 <div className="space-y-2 pt-1">
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-semibold text-slate-500 uppercase">
@@ -699,7 +708,8 @@ export default function QuizzesPage() {
                   </div>
 
                   {q.options.map((opt, oIndex) => (
-                    <div key={oIndex} className="flex items-center gap-2">
+                    <div key={oIndex} className="space-y-1">
+                    <div className="flex items-center gap-2">
                       <input
                         type="radio"
                         name={`edit-correct-opt-${qIndex}`}
@@ -742,6 +752,20 @@ export default function QuizzesPage() {
                           &times;
                         </button>
                       )}
+                    </div>
+                    <div className="pl-6">
+                      <OptionFeedbackInput
+                        id={`edit-q${qIndex}-o${oIndex}-fb`}
+                        label={`Option ${oIndex + 1} feedback (optional), question ${qIndex + 1}`}
+                        value={opt.feedback}
+                        disabled={updating}
+                        onChange={(feedback) => {
+                          const updated = [...editQuestions];
+                          updated[qIndex].options[oIndex].feedback = feedback;
+                          setEditQuestions(updated);
+                        }}
+                      />
+                    </div>
                     </div>
                   ))}
                 </div>

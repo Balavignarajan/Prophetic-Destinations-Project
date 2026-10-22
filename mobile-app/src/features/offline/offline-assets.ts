@@ -23,7 +23,7 @@ const isText = (value: unknown): value is string => typeof value === 'string' &&
 
 /**
  * The images a piece of PUBLISHED content needs, each with the learner route that serves it. Only what the delivered content
- * actually names: a lesson's IMAGE, INTERACTIVE_IMAGE, MAP, SYMBOL_STUDY, NARRATIVE_SCENE visuals, MEDIA_ANIMATION files and posters and TIMELINE-event images and cover; a course's cover and the covers of the lessons it lists; the covers of the
+ * actually names: a lesson's IMAGE, INTERACTIVE_IMAGE, MAP, SYMBOL_STUDY, NARRATIVE_SCENE visuals, MEDIA_ANIMATION files and posters and TIMELINE-event images, the images of blocks nested inside an EXPLORE_DEEPER block, and cover; a course's cover and the covers of the lessons it lists; the covers of the
  * courses in the catalog list. (Lesson images and lesson covers use the same learner route.)
  */
 export function assetsOf(kind: CacheKind, id: string, level: LearningLevel, data: unknown): AssetRef[] | null {
@@ -51,6 +51,24 @@ export function assetsOf(kind: CacheKind, id: string, level: LearningLevel, data
       const events = (block.content as { events?: unknown } | null)?.events;
       for (const event of Array.isArray(events) ? events : []) {
         const mediaId = typeof event === 'object' && event !== null ? (event as { mediaId?: unknown }).mediaId : undefined;
+        if (isText(mediaId)) out.push({ mediaId, url: lessonCoverUrl(id, mediaId, level) });
+      }
+    }
+    // Blocks nested inside an Explore Deeper section: one level, and only the nested types that carry an image (an IMAGE, or a SYMBOL_STUDY /
+    // HISTORICAL_EVIDENCE with an image). They are part of the lesson snapshot, so their pictures are saved with the lesson like any other.
+    for (const block of lesson.snapshot?.blocks ?? []) {
+      if (block.type !== 'EXPLORE_DEEPER') continue;
+      const nested = (block.content as { blocks?: unknown } | null)?.blocks;
+      for (const child of Array.isArray(nested) ? nested : []) {
+        if (typeof child !== 'object' || child === null) continue;
+        const { type, content } = child as { type?: unknown; content?: unknown };
+        if (typeof content !== 'object' || content === null) continue;
+        let mediaId: unknown;
+        if (type === 'IMAGE') mediaId = (content as { mediaId?: unknown }).mediaId;
+        else if (type === 'SYMBOL_STUDY' || type === 'HISTORICAL_EVIDENCE') {
+          const image = (content as { image?: unknown }).image;
+          mediaId = typeof image === 'object' && image !== null ? (image as { mediaId?: unknown }).mediaId : undefined;
+        }
         if (isText(mediaId)) out.push({ mediaId, url: lessonCoverUrl(id, mediaId, level) });
       }
     }

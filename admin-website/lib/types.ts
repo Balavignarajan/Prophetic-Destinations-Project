@@ -163,6 +163,13 @@ export interface QuizOption {
   id: string;
   text: string;
   correct: boolean;
+  /** Optional feedback for this option, shown to learners after they check their answer. null or absent = none. */
+  feedback?: string | null;
+}
+
+/** A question's optional Scripture reference: the shared structured reference (one chapter, an explicit verse range), never Bible text. */
+export interface QuizScriptureEntry {
+  reference: { bookId: string; chapter: number; startVerse: number; endVerse: number };
 }
 
 export interface QuizQuestion {
@@ -172,6 +179,8 @@ export interface QuizQuestion {
   explanation: string | null;
   /** Levels the question is shown at; null or absent = every level (the default of questions created before this setting existed). */
   levels?: string[] | null;
+  /** Optional Scripture reference(s) of the question (at most 3), shown with the feedback after the answer is checked. null or absent = none. */
+  scripture?: QuizScriptureEntry[] | null;
   options: QuizOption[];
 }
 

@@ -22,6 +22,8 @@ interface Props {
   emptyMessage?: string;
   /** How many passages the list may hold (default 5); 1 makes it a single-reference field. */
   max?: number;
+  /** Whether a saved passage offers "Refresh" (re-verify against the current text on the next save). Off where passages carry no text stamp (quiz questions). */
+  allowRefresh?: boolean;
 }
 
 /**
@@ -29,7 +31,7 @@ interface Props {
  * only when the server has the Scripture text to verify against; existing references are always kept and shown, also when it does not.
  * "Refresh" asks the server to re-verify a reference against the CURRENT text on the next save; it is never done silently.
  */
-export default function ScriptureRefList({ itemLabel, idPrefix, entries, onChange, disabled = false, title, emptyMessage, max = MAX }: Props) {
+export default function ScriptureRefList({ itemLabel, idPrefix, entries, onChange, disabled = false, title, emptyMessage, max = MAX, allowRefresh = true }: Props) {
   const info = useScriptureInfo();
   const [adding, setAdding] = useState(false);
   const [candidate, setCandidate] = useState<ScriptureRefValue | null>(null);
@@ -61,7 +63,7 @@ export default function ScriptureRefList({ itemLabel, idPrefix, entries, onChang
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-sm font-medium text-slate-900">{text}</span>
                   <span className="flex gap-2">
-                    {info.available && (
+                    {info.available && allowRefresh && (
                       <button type="button" className={BTN} disabled={disabled || entry.refresh} aria-label={`Refresh ${text} for ${itemLabel}`} onClick={() => onChange(entries.map((e, i) => (i === index ? { ...e, refresh: true } : e)))}>
                         Refresh
                       </button>

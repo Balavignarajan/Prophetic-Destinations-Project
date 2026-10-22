@@ -21,6 +21,8 @@ import { NATIVE_DRIVER, motion } from '@/theme/motion';
  * when there is one, otherwise from the learner media route.
  * With `variant="map"` the same renderer shows a published MAP block (backend map-explore.ts): the same content plus an optional `title`, the
  * markers are optional (a map may be just the image, with its description and caption as the text equivalent), and the wording says "marker".
+ * A hotspot's Scripture (frozen passages) is shown in its panel as part of the explanation, not behind a second tap: opening the hotspot is the choice.
+ * (In the list that replaces the panels when the image cannot be shown, the passages stay expandable to keep that list short.)
  */
 type Hotspot = { id: string; x: number | null; y: number | null; label: string; explanation: string; scripture: unknown };
 
@@ -303,7 +305,7 @@ export function HotspotImage({
               {active.explanation}
             </AppText>
           ) : null}
-          <ScriptureLinks entries={active.scripture} />
+          <ScriptureLinks entries={active.scripture} presentation="inline" />
         </Reveal>
       ) : null}
 

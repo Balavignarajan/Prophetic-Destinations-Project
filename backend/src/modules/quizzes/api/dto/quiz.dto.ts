@@ -4,6 +4,7 @@ import {
   IsArray,
   ArrayUnique,
   IsBoolean,
+  IsDefined,
   IsIn,
   IsInt,
   IsOptional,
@@ -38,6 +39,42 @@ export class OptionDto {
 
   @IsBoolean()
   correct: boolean;
+
+  /** Optional feedback for this option, shown after the learner checks their answer. Absent or blank = none. */
+  @IsOptional()
+  @Trim()
+  @IsString()
+  @MaxLength(QUIZ_LIMITS.optionFeedbackMax * 2)
+  feedback?: string | null;
+}
+
+/** One structured Scripture reference: the shared reference model (one chapter, an explicit verse range). Never Bible text. */
+export class ScriptureReferenceDto {
+  @IsString()
+  @MaxLength(10)
+  bookId: string;
+
+  @IsInt()
+  @Min(1)
+  @Max(150)
+  chapter: number;
+
+  @IsInt()
+  @Min(1)
+  @Max(176)
+  startVerse: number;
+
+  @IsInt()
+  @Min(1)
+  @Max(176)
+  endVerse: number;
+}
+
+export class ScriptureEntryDto {
+  @IsDefined()
+  @ValidateNested()
+  @Type(() => ScriptureReferenceDto)
+  reference: ScriptureReferenceDto;
 }
 
 export class QuestionDto {
@@ -58,6 +95,14 @@ export class QuestionDto {
   @IsString()
   @MaxLength(QUIZ_LIMITS.explanationMax * 2)
   explanation?: string | null;
+
+  /** Optional Scripture reference(s) for the question (at most QUIZ_LIMITS.scriptureMax). Absent or null = none. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(QUIZ_LIMITS.scriptureMax * 2)
+  @ValidateNested({ each: true })
+  @Type(() => ScriptureEntryDto)
+  scripture?: ScriptureEntryDto[] | null;
 
   @IsArray()
   @ArrayMaxSize(QUIZ_LIMITS.optionsMax * 2)
@@ -144,7 +189,9 @@ export class AdminQuizResponseDto {
     explanation: string | null;
     /** Levels the question is shown at, or null = every level. */
     levels: string[] | null;
-    options: { id: string; text: string; correct: boolean }[];
+    /** Optional Scripture reference(s), or null. */
+    scripture: { reference: { bookId: string; chapter: number; startVerse: number; endVerse: number } }[] | null;
+    options: { id: string; text: string; correct: boolean; feedback: string | null }[];
   }[];
 
   static from(quiz: QuizWithQuestions): AdminQuizResponseDto {
@@ -164,10 +211,12 @@ export class AdminQuizResponseDto {
         prompt: question.prompt,
         explanation: question.explanation,
         levels: question.levels,
+        scripture: question.scripture ?? null,
         options: question.options.map((option) => ({
           id: option.id,
           text: option.text,
           correct: option.id === question.correctOptionId,
+          feedback: option.feedback ?? null,
         })),
       })),
     };

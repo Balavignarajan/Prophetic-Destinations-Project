@@ -3,22 +3,26 @@ import { Animated, Pressable, View } from 'react-native';
 
 import { useReduceMotion } from '@/accessibility/use-reduce-motion';
 import { AppText, BlockNotice, Reveal, TurnChevron } from '@/components/ui';
+import type { LearningLevel } from '@/learning/levels';
+import { NestedBlocks } from '@/learning/nested-blocks';
 import { ScriptureLinks } from '@/learning/scripture-links';
 import { useTheme } from '@/theme';
 import { motion } from '@/theme/motion';
 
 /**
  * Renders a published EXPLORE_DEEPER block (backend/src/modules/lessons/domain/blocks/map-explore.ts; PROPOSED schema):
- *   { title, intro, scripture?: FROZEN passages [{ reference, display, source, verses }] }
+ *   { title, intro, scripture?: FROZEN passages [{ reference, display, source, verses }], blocks?: [{ id, type, content }] }
  * An optional deeper-study section: a button labelled with its title opens and closes it, and the screen reader hears whether it is expanded.
  * It starts closed. All of its content is part of the saved lesson, so it opens offline with nothing to download. The introduction is the
- * author's text shown as plain paragraphs; cross-references are the frozen passages (ScriptureLinks), apart from that text. It is shown to every
+ * author's text shown as plain paragraphs; then the NESTED blocks, if the author added any, in their published order (NestedBlocks: the lesson's own
+ * components, drawn from the snapshot, so they work offline and keep no state of their own); cross-references are the frozen passages (ScriptureLinks), apart from that text.
+ * A section without nested blocks looks and behaves exactly as it always did. It is shown to every
  * level the block is visible to: nothing here depends on the learner's level. If the title or introduction is missing the section is "not
  * available" instead of an empty control; the rest of the lesson is unaffected. Long text and large fonts wrap.
  */
 const asText = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
 
-export function ExploreDeeperBlock({ content }: { content: Record<string, unknown> }) {
+export function ExploreDeeperBlock({ lessonId, level, content }: { lessonId: string; level: LearningLevel; content: Record<string, unknown> }) {
   const { spacing, colors, radius } = useTheme();
   const [open, setOpen] = useState(false);
   const reduce = useReduceMotion();
@@ -75,6 +79,7 @@ export function ExploreDeeperBlock({ content }: { content: Record<string, unknow
               {p}
             </AppText>
           ))}
+          <NestedBlocks lessonId={lessonId} level={level} blocks={content.blocks} />
           <ScriptureLinks entries={content.scripture} />
         </Reveal>
       ) : null}

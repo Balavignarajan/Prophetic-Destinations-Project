@@ -63,7 +63,7 @@ export function GuidedQuestionBlock({ content }: { content: Record<string, unkno
       <AppText variant="sectionHeading" accessibilityRole="header">
         {content.question}
       </AppText>
-      <ScriptureLinks entries={passages} />
+      <ScriptureLinks entries={passages} presentation="inline" />
       <View style={{ gap: 2 }}>
         <AppText variant="bodySmall" color="textMuted" style={{ fontWeight: '600' }}>
           Explanation

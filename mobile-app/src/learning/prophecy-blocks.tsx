@@ -33,7 +33,10 @@ function Incomplete({ what }: { what: string }) {
   );
 }
 
-/** Optional Scripture of one item: per-passage handling stays in ScriptureLinks; a value that is not a list is reported for this item only. */
+/**
+ * Optional Scripture of one item: per-passage handling stays in ScriptureLinks; a value that is not a list is reported for this item only. These are
+ * SUPPORTING references (the block's point is the author's expressions, entities and steps), so they stay expandable.
+ */
 function OptionalScripture({ entries }: { entries: unknown }) {
   const { spacing } = useTheme();
   if (entries === undefined || entries === null) return null;

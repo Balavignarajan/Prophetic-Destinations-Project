@@ -14,8 +14,11 @@ export interface EmbedProblem {
 /**
  * Replaces the reference in each resolved QUIZ block by the quiz itself, as it is right now:
  *
- *   { quizId, quizVersion, quiz: { title, description, questions: [{ id, type, prompt, explanation, correctOptionId,
- *                                                                    options: [{ id, text }] }] } }
+ *   { quizId, quizVersion, quiz: { title, description, questions: [{ id, type, prompt, explanation, correctOptionId, scripture?,
+ *                                                                    options: [{ id, text, feedback? }] }] } }
+ *
+ * `scripture` (the question's optional Scripture) and an option's `feedback` are present only when the author set them. `scripture` leaves this service as
+ * the stored reference list and is turned into frozen passages by ScriptureEmbedService, which runs next on the same blocks.
  *
  * This is what a lesson snapshot freezes. The correct option and the explanation ARE part of it, on purpose: the learner app
  * checks answers on the device so a quiz works offline. That content is delivered by the public lesson endpoint, so it cannot be
@@ -94,7 +97,10 @@ export class QuizEmbedService {
               prompt: question.prompt,
               explanation: question.explanation,
               correctOptionId: question.correctOptionId,
-              options: question.options.map((option) => ({ id: option.id, text: option.text })),
+              // Optional additions: absent keys, not nulls, so a quiz that uses neither freezes to exactly what it always did.
+              // The question's Scripture is still the STORED reference here; ScriptureEmbedService freezes it into the passage form next.
+              ...(question.scripture && question.scripture.length > 0 ? { scripture: question.scripture } : {}),
+              options: question.options.map((option) => ({ id: option.id, text: option.text, ...(option.feedback ? { feedback: option.feedback } : {}) })),
             })),
           },
         },

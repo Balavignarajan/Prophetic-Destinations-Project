@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { BusinessRuleError } from '../../../shared-kernel/index.js';
 import { ScriptureFacade } from '../../scripture/index.js';
 import type { ContentProblem } from '../domain/blocks/rich-text.js';
-import { datasetStampOf, passageReferenceOf } from '../domain/blocks/scripture-passage.js';
+import { datasetStampOf, passageReferenceOf, sameReference } from '../domain/blocks/scripture-passage.js';
 import { MAX_REFS_PER_ITEM, itemReferenceOf, sameItemReference } from '../domain/blocks/scripture-refs.js';
 import { stampOf } from '../domain/blocks/scripture-passage.js';
 import type { ResolvedBlock } from '../domain/level-resolution.js';
@@ -70,6 +70,10 @@ export class ScriptureEmbedService {
         out.push(block);
       } else if (block.type === 'SCRIPTURE_PASSAGE') {
         out.push(await this.embedPassage(block, problems));
+      } else if (block.type === 'QUIZ') {
+        out.push(await this.embedQuiz(block, problems));
+      } else if (block.type === 'EXPLORE_DEEPER') {
+        out.push(await this.embedExploreDeeper(block, problems));
       } else if (SCRIPTURE_LISTS[block.type]) {
         out.push(await this.embedNested(block, problems));
       } else {
@@ -171,7 +175,133 @@ export class ScriptureEmbedService {
     return { ...block, content };
   }
 
+  /**
+   * A QUIZ block that has already been embedded (QuizEmbedService runs first): each question's optional Scripture is still the stored reference list.
+   * It becomes the usual frozen passage ({ reference, display, source, verses }) when the installed Scripture text verifies it. With NO Scripture text
+   * installed it is frozen as the reference alone ({ reference, display }): the quiz does not depend on the Bible text being available, and the learner
+   * app shows such a passage as its reference. A reference the installed text says does not exist (unknown book, chapter or verse) is NOT published.
+   * A question's Scripture carries no stamp: the text is read from the installed data set at publication, which is what the snapshot then freezes.
+   */
+  private async embedQuiz(block: ResolvedBlock, problems: ScriptureEmbedProblem[]): Promise<ResolvedBlock> {
+    const content = block.content as Json;
+    const quiz = content.quiz;
+    if (!isObject(quiz) || !Array.isArray(quiz.questions)) return block;
+    const found: ContentProblem[] = [];
+    const questions: unknown[] = [];
+    for (let q = 0; q < quiz.questions.length; q += 1) {
+      const question = quiz.questions[q];
+      if (!isObject(question) || !Array.isArray(question.scripture) || question.scripture.length === 0) {
+        questions.push(question);
+        continue;
+      }
+      const frozen: Json[] = [];
+      for (let k = 0; k < question.scripture.length; k += 1) {
+        const reference = itemReferenceOf(question.scripture[k]);
+        const at = `quiz.questions[${q}].scripture[${k}]`;
+        if (!reference) {
+          found.push({ path: at, message: `Question ${q + 1}, passage ${k + 1}: its Scripture reference is incomplete or malformed.` });
+          continue;
+        }
+        const result = await this.scripture.verify(reference);
+        if (result.verified) frozen.push({ reference: result.reference, display: result.display, source: result.source, verses: result.verses });
+        else if (result.reason === 'DATA_UNAVAILABLE') frozen.push({ reference, display: this.scripture.format(reference as Parameters<ScriptureFacade['format']>[0]) });
+        else found.push({ path: at, message: `Question ${q + 1}, passage ${k + 1}: this passage cannot be published (${result.message}).` });
+      }
+      questions.push({ ...question, scripture: frozen });
+    }
+    if (found.length > 0) {
+      problems.push({ blockId: block.blockId, problems: found });
+      return block;
+    }
+    return { ...block, content: { ...content, quiz: { ...quiz, questions } } };
+  }
+
+  /**
+   * An Explore Deeper block: its own cross-references as before, then each nested block gets exactly the treatment a top-level block of that type gets
+   * (a Scripture passage is verified and frozen, lists of references are frozen). A problem in a nested block is reported on the Explore Deeper block with
+   * the nested block's number, and the block then keeps its stored form, so one unavailable passage never alters the rest of the stored content.
+   */
+  private async embedExploreDeeper(block: ResolvedBlock, problems: ScriptureEmbedProblem[]): Promise<ResolvedBlock> {
+    const own = await this.embedNested(block, problems);
+    const content = own.content as Json;
+    const children = Array.isArray(content.blocks) ? content.blocks : [];
+    if (children.length === 0) return own;
+    const found: ContentProblem[] = [];
+    const frozen: unknown[] = [];
+    for (let i = 0; i < children.length; i += 1) {
+      const child = children[i];
+      if (!isObject(child) || typeof child.type !== 'string' || !isObject(child.content)) {
+        frozen.push(child);
+        continue;
+      }
+      const probe: ResolvedBlock = { blockId: block.blockId, type: child.type as ResolvedBlock['type'], ordinal: i + 1, source: block.source, content: child.content };
+      const sink: ScriptureEmbedProblem[] = [];
+      let result: ResolvedBlock = probe;
+      if (child.type === 'SCRIPTURE_PASSAGE') result = await this.embedPassage(probe, sink);
+      else if (SCRIPTURE_LISTS[child.type]) result = await this.embedNested(probe, sink);
+      for (const problem of sink) {
+        for (const item of problem.problems) {
+          found.push({ path: `blocks[${i}].content${item.path ? `.${item.path}` : ''}`, message: `Nested block ${i + 1}: ${item.message}` });
+        }
+      }
+      frozen.push({ ...child, content: result.content });
+    }
+    if (found.length > 0) {
+      problems.push({ blockId: block.blockId, problems: found });
+      return own;
+    }
+    return { ...own, content: { ...content, blocks: frozen } };
+  }
+
   // ---------------------------------------------------------------------------------------------------- saving a block
+
+  /**
+   * A SCRIPTURE_PASSAGE nested in an Explore Deeper block, saved: the same treatment BlockService gives a top-level passage block. The reference is verified
+   * against the installed text and stamped with the data set that confirmed it (the client never supplies a stamp, no Bible text is stored); with no text
+   * installed a NEW or CHANGED reference is refused but an unchanged one is kept exactly as saved.
+   */
+  private async stampPassage(content: Json, current: Json | null): Promise<Json> {
+    const reference = passageReferenceOf(content);
+    const commentary = typeof content.commentary === 'string' && content.commentary.trim() ? { commentary: content.commentary.trim() } : {};
+    if (!reference) return { ...commentary };
+    const result = await this.scripture.verify(reference);
+    if (result.verified) {
+      return { reference, ...commentary, dataset: { id: result.source.id, version: result.source.version, fingerprint: result.source.fingerprint } };
+    }
+    if (result.reason === 'DATA_UNAVAILABLE') {
+      if (sameReference(passageReferenceOf(current), reference)) {
+        const stamp = current?.dataset;
+        return { reference, ...commentary, ...(stamp ? { dataset: stamp } : {}) };
+      }
+      throw new BusinessRuleError('Scripture passages cannot be chosen yet: the Scripture text is not installed on the server, so the passage cannot be verified.', {
+        code: 'SCRIPTURE_DATA_UNAVAILABLE',
+      });
+    }
+    throw new BusinessRuleError(result.message, { code: result.reason });
+  }
+
+  /** Stamps the Scripture of the nested blocks of an Explore Deeper block being saved; nested blocks are matched with the stored ones by their id. */
+  private async stampExploreChildren(content: Json, current: Json | null): Promise<Json> {
+    const children = content.blocks;
+    if (!Array.isArray(children) || children.length === 0) return content;
+    const before = new Map<string, Json>();
+    const storedBlocks = current?.blocks;
+    if (Array.isArray(storedBlocks)) {
+      for (const stored of storedBlocks) if (isObject(stored) && typeof stored.id === 'string') before.set(stored.id, stored);
+    }
+    const next: unknown[] = [];
+    for (const child of children) {
+      if (!isObject(child) || typeof child.type !== 'string' || !isObject(child.content)) {
+        next.push(child);
+        continue;
+      }
+      const old = typeof child.id === 'string' ? before.get(child.id) : undefined;
+      const oldContent = old && old.type === child.type && isObject(old.content) ? old.content : null;
+      const stamped = child.type === 'SCRIPTURE_PASSAGE' ? await this.stampPassage(child.content, oldContent) : await this.stampNested(child.type, child.content, oldContent);
+      next.push({ ...child, content: stamped ?? child.content });
+    }
+    return { ...content, blocks: next };
+  }
 
   /**
    * Stamps one list of entries being saved: drops anything the client sent as a stamp (stamps are server-controlled) and the input-only
@@ -255,6 +385,8 @@ export class ScriptureEmbedService {
     if (!specs || content === null) return content;
     let next = content;
     for (const spec of specs) next = await this.stampField(next, current, spec);
+    // An Explore Deeper section may hold nested blocks that carry Scripture of their own.
+    if (type === 'EXPLORE_DEEPER') next = await this.stampExploreChildren(next, current);
     return next;
   }
 }
