@@ -1,5 +1,5 @@
 import type { LearningLevel } from '@/learning/levels';
-import { readJson, removeKey, tryWriteJson } from '@/storage/json-store';
+import { readJsonResult, tryRemoveKey, tryWriteJson } from '@/storage/json-store';
 
 import { type LessonPosition, type QuizResult, lessonKey, parseProgress } from './progress-model';
 
@@ -36,13 +36,17 @@ export const emptyLearningProgress: LearningProgress = { version: 1, lastOpened:
 
 export const completionKey = lessonKey;
 
-export async function loadLearningProgress(): Promise<LearningProgress> {
-  return (await readJson(LEARNING_PROGRESS_KEY, parseProgress)) ?? emptyLearningProgress;
-}
+/**
+ * What reading the saved progress found. Only 'ok' means the progress is known: either it was read, or nothing was ever saved (a new learner).
+ * 'unreadable' (the storage failed) and 'invalid' (a value is stored but is damaged or from a newer format) mean the stored value is UNKNOWN and
+ * untouched, so the caller must not start from empty progress and must not write over it.
+ */
+export type ProgressLoad = { status: 'ok'; progress: LearningProgress } | { status: 'unreadable' } | { status: 'invalid' };
 
 /**
- * Writes and clears run strictly one after another, in the order they were requested. So a slow earlier write can never land after a
- * later "reset" and bring deleted progress (or quiz results) back, and the last request always decides what is stored.
+ * Writes, clears and the initial read run strictly one after another, in the order they were requested. So a slow earlier write can never
+ * land after a later "reset" and bring deleted progress (or quiz results) back, the last request always decides what is stored, and the
+ * initial read always sees every write that was requested before it.
  */
 let queue: Promise<unknown> = Promise.resolve();
 function inOrder<T>(task: () => Promise<T>): Promise<T> {
@@ -51,6 +55,17 @@ function inOrder<T>(task: () => Promise<T>): Promise<T> {
   return run;
 }
 
+/** Reads the saved progress. Never throws, never writes, and never turns "could not read" into "empty". */
+export const loadLearningProgress = (): Promise<ProgressLoad> =>
+  inOrder(async (): Promise<ProgressLoad> => {
+    const read = await readJsonResult(LEARNING_PROGRESS_KEY, parseProgress);
+    if (read.status === 'ok') return { status: 'ok', progress: read.value };
+    if (read.status === 'missing') return { status: 'ok', progress: emptyLearningProgress };
+    return { status: read.status };
+  });
+
 /** Resolves to whether the value was stored. */
 export const saveLearningProgress = (progress: LearningProgress): Promise<boolean> => inOrder(() => tryWriteJson(LEARNING_PROGRESS_KEY, progress));
-export const clearLearningProgress = (): Promise<void> => inOrder(() => removeKey(LEARNING_PROGRESS_KEY));
+
+/** Resolves to whether the saved progress is gone. Only the learner's own, confirmed "reset" calls this. */
+export const clearLearningProgress = (): Promise<boolean> => inOrder(() => tryRemoveKey(LEARNING_PROGRESS_KEY));

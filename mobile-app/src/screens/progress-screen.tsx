@@ -4,7 +4,9 @@ import { View } from 'react-native';
 import { useResource } from '@/api/use-resource';
 import { AppText, Card, ChevronIcon, EmptyState, PageHeading, ScreenContainer, ScreenSection } from '@/components/ui';
 import { useLearningProgress } from '@/features/learning/learning-provider';
-import { completedLessons, continueTarget, quizResultsList, summarise, unfinishedLessons } from '@/features/learning/progress-model';
+import { useContinueTarget } from '@/features/learning/continue-target';
+import { completedLessons, quizResultsList, summarise, unfinishedLessons } from '@/features/learning/progress-model';
+import { ProgressStatusNotice, isProgressUnavailable } from '@/features/learning/progress-notice';
 import { loadCourseList } from '@/features/offline/offline-api';
 import { ContinueCard } from '@/learning/continue-card';
 import { LEVEL_LABELS } from '@/learning/levels';
@@ -23,14 +25,17 @@ export function ProgressScreen() {
   const router = useRouter();
   const { spacing } = useTheme();
   const { level, ready } = useLearningLevel();
-  const { progress } = useLearningProgress();
+  const { progress, status } = useLearningProgress();
+  // When the saved progress could not be read, the empty progress is not "nothing yet": neither the empty state nor zero counts are shown.
+  const progressUnavailable = isProgressUnavailable(status);
   const [courses] = useResource(ready ? `courses:${level}` : null, (signal) => loadCourseList(level, signal));
   const courseList = courses.status === 'success' ? courses.data.value.courses : [];
   const total = courses.status === 'success' ? courseList.reduce((sum, course) => sum + course.lessonCount, 0) : null;
   const summary = summarise(progress, level, total);
   const unfinished = unfinishedLessons(progress);
-  const resume = continueTarget(progress);
-  const others = resume ? unfinished.slice(1) : unfinished;
+  // The lesson to continue: the most recent unfinished one that is still published. The list below keeps every unfinished lesson (the history).
+  const resume = useContinueTarget();
+  const others = resume ? unfinished.filter((entry) => entry.lessonId !== resume.lessonId || entry.level !== resume.level) : unfinished;
   const done = completedLessons(progress);
   const quizzes = quizResultsList(progress.quizResults);
   const hasAnything = unfinished.length + done.length + quizzes.length > 0;
@@ -44,7 +49,9 @@ export function ProgressScreen() {
       <View style={{ gap: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.xxl }}>
         <PageHeading title="Your Progress" description="See how far you've come in your learning journey." />
 
-        {!hasAnything ? (
+        <ProgressStatusNotice />
+
+        {progressUnavailable ? null : !hasAnything ? (
           <EmptyState
             variant="card"
             title="Your journey starts here"

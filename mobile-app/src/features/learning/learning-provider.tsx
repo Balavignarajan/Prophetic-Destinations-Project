@@ -1,22 +1,32 @@
-import { type ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, createContext, useContext, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 
 import type { LearningLevel } from '@/learning/levels';
 
-import { type LessonPosition, type QuizIdentity, type QuizResult, matchingQuizResult, withPosition, withQuizResult } from './progress-model';
-import {
-  type LearningProgress,
-  type LessonRef,
-  completionKey,
-  emptyLearningProgress,
-  loadLearningProgress,
-  saveLearningProgress,
-  clearLearningProgress,
-} from './store';
+import { type LessonPosition, type QuizIdentity, type QuizResult, matchingQuizResult } from './progress-model';
+import { type SessionStatus, createProgressSession } from './progress-session';
+import { type LearningProgress, type LessonRef, clearLearningProgress, completionKey, emptyLearningProgress, loadLearningProgress, saveLearningProgress } from './store';
 
 type LearningContextValue = {
   progress: LearningProgress;
+  /**
+   * True once the saved progress is known: it was read, or nothing was ever saved. Until then nothing is restored and nothing is written over
+   * the saved value. After a failed read it stays false (see `status`), and the saved value is left exactly as it was.
+   */
   ready: boolean;
-  /** Notes the lesson being read as the resume point. Writes only when it differs from what is saved. */
+  /** `loading` (first read running), `ready`, or why the first read failed: `unreadable` (storage error) or `invalid` (damaged data). */
+  status: SessionStatus;
+  /** The latest progress could not be stored. It is kept in memory and written again by the next change or by `retrySave`. */
+  saveFailed: boolean;
+  /** A retry of a failed first read is running. */
+  retrying: boolean;
+  /** Reads the saved progress again after a failed read. Resolves to whether it is now known. */
+  retryLoad: () => Promise<boolean>;
+  /** Writes the latest progress again after a failed write. Resolves to whether it is stored. */
+  retrySave: () => Promise<boolean>;
+  /**
+   * Notes the lesson being read as the resume point. Writes only when it differs from what is saved. While the saved progress is still being
+   * read, the change is queued and applied after it; if the read fails it is dropped (never written against an unknown baseline).
+   */
   recordOpened: (lesson: LessonRef) => void;
   isCompleted: (lessonId: string, level: LearningLevel) => boolean;
   /** Remembers where the learner is in an unfinished lesson (a scroll offset). Ignored for completed lessons. */
@@ -27,18 +37,26 @@ type LearningContextValue = {
   quizResultFor: (identity: QuizIdentity) => QuizResult | null;
   /**
    * Keeps the finished attempt as the latest result of its quiz block. The result is available in memory at once; the promise says whether it
-   * was also stored on this device (false: the storage failed, or the progress was reset in the meantime).
+   * was also stored on this device (false: the storage failed, the saved progress is unavailable, or the progress was reset in the meantime).
    */
   recordQuizResult: (result: QuizResult) => Promise<boolean>;
   /** The explicit "mark complete / undo" action. */
   setCompleted: (lesson: LessonRef, completed: boolean) => void;
-  /** Forgets the resume point, all completion marks, saved positions and saved quiz results. */
-  reset: () => void;
+  /**
+   * Forgets the resume point, all completion marks, saved positions and saved quiz results. The only thing that ever removes saved progress, and
+   * only on the learner's own confirmed request. Resolves to whether the saved progress is really gone.
+   */
+  reset: () => Promise<boolean>;
 };
 
 const LearningContext = createContext<LearningContextValue>({
   progress: emptyLearningProgress,
   ready: false,
+  status: 'loading',
+  saveFailed: false,
+  retrying: false,
+  retryLoad: () => Promise.resolve(false),
+  retrySave: () => Promise.resolve(false),
   recordOpened: () => undefined,
   savePosition: () => undefined,
   positionOf: () => null,
@@ -46,106 +64,40 @@ const LearningContext = createContext<LearningContextValue>({
   setCompleted: () => undefined,
   quizResultFor: () => null,
   recordQuizResult: () => Promise.resolve(false),
-  reset: () => undefined,
+  reset: () => Promise.resolve(false),
 });
 
 export function LearningProgressProvider({ children }: { children: ReactNode }) {
-  const [progress, setProgress] = useState<LearningProgress>(emptyLearningProgress);
-  const [ready, setReady] = useState(false);
-  const latest = useRef(progress);
-  // Counts resets. A load that was started before a reset must not bring the old progress back, and a result recorded before a reset must not
-  // report "saved" for data that has since been erased.
-  const generation = useRef(0);
+  // One session for the life of the provider. It reads the saved progress once, holds the safety rules (progress-session.ts) and writes
+  // through store.ts. Everything below only reads its snapshot or forwards to it.
+  const [session] = useState(() =>
+    createProgressSession({ load: loadLearningProgress, save: saveLearningProgress, clear: clearLearningProgress }, emptyLearningProgress),
+  );
+  const snapshot = useSyncExternalStore(session.subscribe, session.getSnapshot, session.getSnapshot);
 
   useEffect(() => {
-    let cancelled = false;
-    const startedIn = generation.current;
-    loadLearningProgress().then((loaded) => {
-      if (cancelled) return;
-      if (startedIn === generation.current) {
-        latest.current = loaded;
-        setProgress(loaded);
-      }
-      setReady(true);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const commit = useCallback((next: LearningProgress) => {
-    latest.current = next;
-    setProgress(next);
-    void saveLearningProgress(next);
-  }, []);
-
-  const recordOpened = useCallback(
-    (lesson: LessonRef) => {
-      const current = latest.current;
-      const last = current.lastOpened;
-      if (last && last.lessonId === lesson.lessonId && last.level === lesson.level && last.courseId === lesson.courseId && last.title === lesson.title) return;
-      commit({ ...current, lastOpened: { ...lesson, openedAt: Date.now() } });
-    },
-    [commit],
-  );
-
-  const savePosition = useCallback(
-    (lesson: LessonRef, offset: number) => {
-      const current = latest.current;
-      const key = completionKey(lesson.lessonId, lesson.level);
-      if (key in current.completed) return;
-      const saved = current.positions[key];
-      const rounded = Number.isFinite(offset) && offset > 0 ? Math.round(offset) : 0;
-      if (saved && saved.offset === rounded && saved.title === lesson.title && saved.courseId === lesson.courseId) return;
-      commit({ ...current, positions: withPosition(current.positions, lesson, offset, Date.now()) });
-    },
-    [commit],
-  );
-
-  const setCompleted = useCallback(
-    (lesson: LessonRef, completed: boolean) => {
-      const current = latest.current;
-      const key = completionKey(lesson.lessonId, lesson.level);
-      const done = key in current.completed;
-      if (completed === done) return;
-      const next = { ...current.completed };
-      if (completed) next[key] = { title: lesson.title, completedAt: Date.now() };
-      else delete next[key];
-      commit({ ...current, completed: next });
-    },
-    [commit],
-  );
-
-  const recordQuizResult = useCallback(async (result: QuizResult): Promise<boolean> => {
-    const startedIn = generation.current;
-    const next = { ...latest.current, quizResults: withQuizResult(latest.current.quizResults, result) };
-    latest.current = next;
-    setProgress(next);
-    const stored = await saveLearningProgress(next);
-    return stored && startedIn === generation.current;
-  }, []);
-
-  const reset = useCallback(() => {
-    generation.current += 1;
-    latest.current = emptyLearningProgress;
-    setProgress(emptyLearningProgress);
-    void clearLearningProgress();
-  }, []);
+    session.start();
+  }, [session]);
 
   const value = useMemo<LearningContextValue>(
     () => ({
-      progress,
-      ready,
-      recordOpened,
-      savePosition,
-      positionOf: (lessonId, level) => progress.positions[completionKey(lessonId, level)] ?? null,
-      isCompleted: (lessonId, level) => completionKey(lessonId, level) in progress.completed,
-      setCompleted,
-      quizResultFor: (identity) => matchingQuizResult(progress.quizResults, identity),
-      recordQuizResult,
-      reset,
+      progress: snapshot.progress,
+      ready: snapshot.status === 'ready',
+      status: snapshot.status,
+      saveFailed: snapshot.saveFailed,
+      retrying: snapshot.retrying,
+      retryLoad: session.retryLoad,
+      retrySave: session.retrySave,
+      recordOpened: session.recordOpened,
+      savePosition: session.savePosition,
+      positionOf: (lessonId, level) => snapshot.progress.positions[completionKey(lessonId, level)] ?? null,
+      isCompleted: (lessonId, level) => completionKey(lessonId, level) in snapshot.progress.completed,
+      setCompleted: session.setCompleted,
+      quizResultFor: (identity) => matchingQuizResult(snapshot.progress.quizResults, identity),
+      recordQuizResult: session.recordQuizResult,
+      reset: session.reset,
     }),
-    [progress, ready, recordOpened, savePosition, setCompleted, recordQuizResult, reset],
+    [session, snapshot],
   );
 
   return <LearningContext.Provider value={value}>{children}</LearningContext.Provider>;

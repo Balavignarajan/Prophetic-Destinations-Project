@@ -27,6 +27,8 @@ function savedLabel(status: OwnerStatus): string {
   switch (status) {
     case 'complete':
       return 'Saved for offline reading';
+    case 'text-only':
+      return 'Text saved for offline reading. Images are not saved in the web version.';
     case 'saving':
       return 'Text saved. Saving images…';
     case 'updating':

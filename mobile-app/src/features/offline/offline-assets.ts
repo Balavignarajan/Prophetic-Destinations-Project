@@ -7,11 +7,14 @@ import {
   type AssetRef,
   currentEpoch,
   downloadSaved,
+  forgetMissingFiles,
   hasAllAssets,
   initOfflineMedia,
   isOwnerComplete,
   mediaOwnerKey,
   offlineMediaEnabled,
+  restoreSavedAssets,
+  savedAssetIds,
   setSavedAssets,
   stageUpdate,
 } from './offline-media';
@@ -83,31 +86,44 @@ export function assetsOf(kind: CacheKind, id: string, level: LearningLevel, data
  *  - An update of a lesson whose saved copy is COMPLETE, when the new version needs images that are not on the device: the new
  *    content is staged. The old text and images stay in the cache; the new content is written only once all its images are on disk.
  *  - Courses and course lists (cover thumbnails only) are written at once with their new references.
+ *
+ * Resolves to `false` ONLY when the content cache refused the write (so the item is not saved for offline use and must not be reported
+ * as saved); in every other case (saved, staged behind a complete older copy, or nothing to do because the cache was cleared) it is `true`.
+ * When the write is refused the references are put back and no images are downloaded for it, so the text and its references always
+ * describe the same saved version.
  */
-export async function saveLoaded(kind: CacheKind, id: string, level: LearningLevel, value: unknown, startedIn: number): Promise<void> {
-  if (startedIn !== currentEpoch()) return; // the offline cache was cleared while this was loading
+export async function saveLoaded(kind: CacheKind, id: string, level: LearningLevel, value: unknown, startedIn: number): Promise<boolean> {
+  if (startedIn !== currentEpoch()) return true; // the offline cache was cleared while this was loading
   let assets: AssetRef[] | null = null;
   try {
     assets = assetsOf(kind, id, level, value);
   } catch {
     assets = null; // a surprising shape: keep the text, skip the images
   }
-  if (!offlineMediaEnabled || assets === null) {
-    await cacheWrite(kind, id, level, value);
-    return;
-  }
+  if (!offlineMediaEnabled || assets === null) return cacheWrite(kind, id, level, value);
 
   await initOfflineMedia();
-  if (startedIn !== currentEpoch()) return;
+  if (startedIn !== currentEpoch()) return true;
   const owner = mediaOwnerKey(kind, id, level);
+  // A saved image whose file has gone is not "saved": forget it now, so it counts as missing and is downloaded again below.
+  forgetMissingFiles(assets);
 
   if (kind === 'lesson' && isOwnerComplete(owner) && !hasAllAssets(assets)) {
-    void stageUpdate(owner, assets, startedIn, () => cacheWrite(kind, id, level, value)).catch(() => undefined);
-    return;
+    // The promotion must fail loudly when the cache refuses the new text, so the references stay with the older copy that is still saved.
+    const promote = async () => {
+      if (!(await cacheWrite(kind, id, level, value))) throw new Error('the offline cache refused the newer copy');
+    };
+    void stageUpdate(owner, assets, startedIn, promote).catch(() => undefined);
+    return true; // the older, complete copy is still saved
   }
 
   // The references switch before the content they belong to is written, so the cache never holds new content with old references.
+  const before = savedAssetIds(owner);
   setSavedAssets(owner, assets);
-  await cacheWrite(kind, id, level, value);
+  if (!(await cacheWrite(kind, id, level, value))) {
+    restoreSavedAssets(owner, before);
+    return false;
+  }
   void downloadSaved(owner, assets, startedIn).catch(() => undefined);
+  return true;
 }

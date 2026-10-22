@@ -4,6 +4,7 @@ import { View } from 'react-native';
 import { useReduceMotion } from '@/accessibility/use-reduce-motion';
 import { AppText, Card, OptionRow, ScreenContainer, ScreenHeader, ScreenSection, SecondaryButton } from '@/components/ui';
 import { useLearningProgress } from '@/features/learning/learning-provider';
+import { isProgressUnavailable } from '@/features/learning/progress-notice';
 import { cacheClear } from '@/features/offline/cache-store';
 import { type ThemePreference } from '@/storage/preferences';
 import { useTheme, useThemePreference } from '@/theme';
@@ -69,7 +70,9 @@ function ConfirmButton({
 export function SettingsScreen() {
   const { preference, setPreference, themeName } = useThemePreference();
   const { colors, layout, radius, spacing } = useTheme();
-  const { reset } = useLearningProgress();
+  const { reset, status: progressStatus } = useLearningProgress();
+  // The saved progress could not be read: it is not shown or changed, and erasing it is only ever done on the learner's explicit, repeated confirmation.
+  const progressUnavailable = isProgressUnavailable(progressStatus);
   const reduceMotion = useReduceMotion();
 
   return (
@@ -174,15 +177,27 @@ export function SettingsScreen() {
                 <AppText variant="bodySmall" color="textSecondary">
                   Forget where you stopped, which lessons you completed and your saved quiz results.
                 </AppText>
+                {progressUnavailable ? (
+                  <AppText variant="bodySmall" color="textSecondary">
+                    Your saved progress can't be read right now, so it is not shown here and has not been changed.
+                  </AppText>
+                ) : null}
               </View>
               <ConfirmButton
                 label="Reset reading progress and quiz results"
                 confirmLabel="Tap again to erase reading progress and saved quiz results"
-                warning="This cannot be undone."
-                run={() => {
-                  reset();
-                  return 'Reading progress and saved quiz results were erased from this device.';
-                }}
+                warning={
+                  progressStatus === 'unreadable'
+                    ? "Your saved progress couldn't be read, so the app can't tell what it contains. This erases whatever is stored on this device and cannot be undone."
+                    : progressStatus === 'invalid'
+                      ? "Your saved progress looks damaged. This erases it from this device and cannot be undone."
+                      : 'This cannot be undone.'
+                }
+                run={async () =>
+                  (await reset())
+                    ? 'Reading progress and saved quiz results were erased from this device.'
+                    : "Your reading progress couldn't be erased from this device. Please try again."
+                }
               />
             </View>
           </Card>

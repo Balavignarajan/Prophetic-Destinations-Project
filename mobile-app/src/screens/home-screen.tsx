@@ -5,7 +5,9 @@ import { useResource } from '@/api/use-resource';
 import { AppText, Card, ErrorState, GoldGlow, LoadingState, PrimaryButton, ScreenContainer, SecondaryButton } from '@/components/ui';
 import { useBookmarks } from '@/features/bookmarks/bookmarks-provider';
 import { useLearningProgress } from '@/features/learning/learning-provider';
-import { continueTarget, summarise } from '@/features/learning/progress-model';
+import { useContinueTarget } from '@/features/learning/continue-target';
+import { summarise } from '@/features/learning/progress-model';
+import { ProgressStatusNotice, isProgressUnavailable } from '@/features/learning/progress-notice';
 import { describeLoadError } from '@/features/offline/describe-offline';
 import { loadCourseList } from '@/features/offline/offline-api';
 import { OfflineBanner } from '@/features/offline/offline-banner';
@@ -28,11 +30,14 @@ export function HomeScreen() {
   const router = useRouter();
   const { colors, layout, radius, spacing } = useTheme();
   const { level, ready } = useLearningLevel();
-  const { progress } = useLearningProgress();
+  const { progress, status } = useLearningProgress();
+  // When the saved progress could not be read, the empty progress is not "nothing yet": no "Start learning" and no zero counts are shown.
+  const progressUnavailable = isProgressUnavailable(status);
   const { items: saved } = useBookmarks();
   const [courses, reload] = useResource(ready ? `courses:${level}` : null, (signal) => loadCourseList(level, signal));
   useRetryOnReconnect(isRecoverable(courses), reload);
-  const resume = continueTarget(progress);
+  // The most recent unfinished lesson that is still published (the saved progress itself is never changed by this).
+  const resume = useContinueTarget();
   const summary = summarise(progress, level, null);
   const courseList = courses.status === 'success' ? courses.data.value.courses : [];
   // The course name is only known when the resumed lesson is at the level whose course list is loaded.
@@ -61,7 +66,9 @@ export function HomeScreen() {
           </AppText>
         </View>
 
-        {resume ? (
+        <ProgressStatusNotice />
+
+        {progressUnavailable ? null : resume ? (
           <ContinueCard
             lessonTitle={resume.title}
             courseTitle={resumeCourse?.title}
@@ -110,16 +117,18 @@ export function HomeScreen() {
         </View>
 
         <View style={{ gap: spacing.md }}>
-          <Card onPress={() => router.push('/progress')} accessibilityLabel={`Your progress: ${summary.completed} completed, ${summary.inProgress} in progress. Open progress.`}>
-            <View style={{ gap: spacing.xs }}>
-              <AppText variant="bodySmall" color="textMuted" style={{ fontWeight: '600' }}>
-                Your progress
-              </AppText>
-              <AppText variant="body" style={{ fontWeight: '600' }}>
-                {summary.completed} {summary.completed === 1 ? 'lesson' : 'lessons'} completed · {summary.inProgress} in progress
-              </AppText>
-            </View>
-          </Card>
+          {progressUnavailable ? null : (
+            <Card onPress={() => router.push('/progress')} accessibilityLabel={`Your progress: ${summary.completed} completed, ${summary.inProgress} in progress. Open progress.`}>
+              <View style={{ gap: spacing.xs }}>
+                <AppText variant="bodySmall" color="textMuted" style={{ fontWeight: '600' }}>
+                  Your progress
+                </AppText>
+                <AppText variant="body" style={{ fontWeight: '600' }}>
+                  {summary.completed} {summary.completed === 1 ? 'lesson' : 'lessons'} completed · {summary.inProgress} in progress
+                </AppText>
+              </View>
+            </Card>
+          )}
           {saved.length > 0 ? <SecondaryButton size="medium" label={`Saved items (${saved.length})`} onPress={() => router.push('/saved')} /> : null}
         </View>
       </View>

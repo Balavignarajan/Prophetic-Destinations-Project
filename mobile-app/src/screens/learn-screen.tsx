@@ -14,8 +14,8 @@ import {
   SettingsIcon,
 } from '@/components/ui';
 import { useBookmarks } from '@/features/bookmarks/bookmarks-provider';
-import { useLearningProgress } from '@/features/learning/learning-provider';
-import { continueTarget } from '@/features/learning/progress-model';
+import { useContinueTarget } from '@/features/learning/continue-target';
+import { ProgressStatusNotice } from '@/features/learning/progress-notice';
 import { describeLoadError } from '@/features/offline/describe-offline';
 import { loadCourseList } from '@/features/offline/offline-api';
 import { OfflineBanner } from '@/features/offline/offline-banner';
@@ -33,12 +33,11 @@ export function LearnScreen() {
   const router = useRouter();
   const { spacing } = useTheme();
   const { level, setLevel, ready } = useLearningLevel();
-  const { progress } = useLearningProgress();
   const { items: saved } = useBookmarks();
   const [courses, reload] = useResource(ready ? `courses:${level}` : null, (signal) => loadCourseList(level, signal));
   useRetryOnReconnect(isRecoverable(courses), reload);
   // Only an unfinished lesson is offered for resuming (the specification: Continue Learning appears when unfinished progress exists).
-  const last = continueTarget(progress);
+  const last = useContinueTarget();
   const courseList = courses.status === 'success' ? courses.data.value.courses : [];
   const lastCourse = last && last.level === level && last.courseId ? courseList.find((course) => course.courseId === last.courseId) : undefined;
 
@@ -65,6 +64,8 @@ export function LearnScreen() {
             </IconButton>
           </View>
         </View>
+
+        <ProgressStatusNotice />
 
         {last ? (
           <ContinueCard

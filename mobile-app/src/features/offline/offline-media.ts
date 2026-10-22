@@ -46,6 +46,7 @@ export type OwnerStatus =
   | 'incomplete' // the saved version is missing images and nothing is downloading
   | 'updating' // an older complete version is saved; a newer one is being saved
   | 'update-failed' // an older complete version is saved; the newer one could not be completed (this session)
+  | 'text-only' // this platform (the web build) keeps no image files: only the text is saved, images need a connection
   | 'unknown'; // saved before offline images existed (or not saved)
 
 const INDEX_KEY = 'pd.media.v1';
@@ -217,9 +218,38 @@ export function localAssetUri(mediaId: string | null | undefined): string | null
   if (!offlineMediaEnabled || !mediaId || !files.has(mediaId)) return null;
   try {
     const file = new (fs().File)(dirs().root, mediaId);
-    return file.exists ? file.uri : null;
+    if (file.exists) return file.uri;
+    // Recorded as saved but the file has gone: show the live picture, and stop counting it as saved so the next successful load fetches it again.
+    // (Deferred: this runs while a component renders, and forgetting it notifies the components.)
+    queueMicrotask(() => reportBrokenAsset(mediaId));
+    return null;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Forgets saved files that have gone from the disk (the system or the learner removed them), so they are downloaded again by the next
+ * successful load instead of being reported as saved. Call after `initOfflineMedia()`. If the disk cannot be checked, nothing changes.
+ */
+export function forgetMissingFiles(assets: AssetRef[]): void {
+  if (!offlineMediaEnabled) return;
+  let changed = false;
+  try {
+    const { File } = fs();
+    const { root } = dirs();
+    for (const asset of assets) {
+      if (files.has(asset.mediaId) && !new File(root, asset.mediaId).exists) {
+        files.delete(asset.mediaId);
+        changed = true;
+      }
+    }
+  } catch {
+    return;
+  }
+  if (changed) {
+    void persist();
+    notify();
   }
 }
 
@@ -304,6 +334,25 @@ export function setSavedAssets(owner: string, assets: AssetRef[]): void {
   staged.delete(owner);
   void persist();
   notify();
+}
+
+/** The asset ids the saved version of `owner` needs right now (a copy), or undefined when nothing is recorded. */
+export function savedAssetIds(owner: string): string[] | undefined {
+  const saved = refs[owner];
+  return saved === undefined ? undefined : [...saved];
+}
+
+/**
+ * Puts the references of `owner` back to what they were (see `savedAssetIds`) when the content they were switched for could not be written
+ * to the content cache, so the saved text and its references keep describing the same version.
+ */
+export function restoreSavedAssets(owner: string, ids: string[] | undefined): void {
+  if (!offlineMediaEnabled) return;
+  if (ids === undefined) delete refs[owner];
+  else refs[owner] = ids;
+  void persist();
+  notify();
+  void sweep().catch(() => undefined);
 }
 
 /** Downloads what the saved version of `owner` is missing. Never throws; a failed asset is retried by the next successful load. */
@@ -392,7 +441,7 @@ export async function invalidateAllMedia(): Promise<void> {
 }
 
 export function ownerStatus(owner: string): OwnerStatus {
-  if (!offlineMediaEnabled) return 'complete'; // this platform keeps no image files, so there is nothing to wait for
+  if (!offlineMediaEnabled) return 'text-only'; // this platform keeps no image files: the text can be saved, the images cannot
   const saved = refs[owner];
   const complete = saved !== undefined && saved.every((id) => files.has(id));
   if (staged.has(owner)) return 'updating';

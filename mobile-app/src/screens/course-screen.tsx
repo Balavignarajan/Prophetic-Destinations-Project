@@ -7,6 +7,7 @@ import { useResource } from '@/api/use-resource';
 import { AppText, Divider, EmptyState, ErrorState, LoadingState, PrimaryButton, ScreenContainer, ScreenHeader } from '@/components/ui';
 import { useLearningProgress } from '@/features/learning/learning-provider';
 import { unfinishedLessons } from '@/features/learning/progress-model';
+import { ProgressStatusNotice } from '@/features/learning/progress-notice';
 import { describeLoadError } from '@/features/offline/describe-offline';
 import { loadCourse } from '@/features/offline/offline-api';
 import { OfflineBanner } from '@/features/offline/offline-banner';
@@ -56,6 +57,8 @@ export function CourseScreen() {
     <ScreenContainer scroll>
       <ScreenHeader title="Course" />
       <View style={{ gap: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.xxl }}>
+        <ProgressStatusNotice />
+
         {course.status === 'loading' ? <LoadingState message="Loading course…" /> : null}
 
         {notFound ? (

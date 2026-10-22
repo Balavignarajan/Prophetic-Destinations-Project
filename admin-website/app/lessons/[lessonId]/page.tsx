@@ -68,6 +68,7 @@ import { readSummaryContent, summaryErrorMessage } from '../../../lib/summary-bl
 import MediaImage from '../../../components/MediaImage';
 import { friendlyMediaError, readImageContent } from '../../../lib/image-block';
 import { supportsLevelVariants } from '../../../lib/block-capabilities';
+import { blockContentAtLevel, hasStoredLevelContent } from '../../../lib/block-level-state';
 import { hasLegacyMarkers, legacyMarkdownToRichText } from '../../../lib/legacy-markdown';
 import { validateScriptureReference, CANONICAL_BOOKS, ParseResult } from '../../../lib/scripture';
 import { friendlyError, readableLevel, readinessMessage } from '../../../lib/ui-messages';
@@ -291,9 +292,7 @@ export default function LessonAuthoringPage() {
       setEditEstimatedMinutes(lessonRes.estimatedMinutes ? String(lessonRes.estimatedMinutes) : '');
       setEditCoverMediaId(lessonRes.coverMediaId ?? null);
       setEditLevels(lessonRes.levels);
-      if (lessonRes.levels.length > 0 && !lessonRes.levels.includes(selectedLevel)) {
-        setSelectedLevel(lessonRes.levels[0]);
-      }
+      setSelectedLevel((current) => lessonRes.levels.includes(current) ? current : lessonRes.levels[0] ?? current);
     } catch (err: unknown) {
       setError(friendlyError(err, 'Failed to load lesson authoring workspace.'));
     } finally {
@@ -1229,6 +1228,10 @@ export default function LessonAuthoringPage() {
   const handleSaveVariant = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!variantModalBlock) return;
+    if (hasStoredLevelContent(variantModalBlock, variantLevel)) {
+      setVariantError('This level has existing custom content. Its visibility cannot be changed here without discarding that content.');
+      return;
+    }
     setSavingVariant(true);
     setVariantError(null);
 
@@ -1693,7 +1696,7 @@ export default function LessonAuthoringPage() {
               const levelSetting = block.levels.find((l) => l.level === selectedLevel);
               const isVisibleAtSelected = Boolean(levelSetting);
               const hasCustomVariant = Boolean(levelSetting?.content);
-              const displayContent = hasCustomVariant ? levelSetting?.content || null : block.sharedContent;
+              const displayContent = blockContentAtLevel(block, selectedLevel);
 
               return (
                 <div
@@ -1803,49 +1806,49 @@ export default function LessonAuthoringPage() {
                   {/* Block Content Display */}
                   <div className="py-4 text-sm text-slate-800 leading-relaxed font-serif">
                     {block.type === 'IMAGE' ? (
-                      <ImageBlockView content={block.sharedContent} />
+                      <ImageBlockView content={displayContent} />
                     ) : block.type === 'SUMMARY' ? (
-                      <SummaryBlockView content={block.sharedContent} />
+                      <SummaryBlockView content={displayContent} />
                     ) : block.type === 'SECTION_INTRO' ? (
-                      <SectionBlockView content={block.sharedContent} />
+                      <SectionBlockView content={displayContent} />
                     ) : block.type === 'PROPHECY_EQUIVALENCE' ? (
-                      <EquivalenceView content={block.sharedContent} />
+                      <EquivalenceView content={displayContent} />
                     ) : block.type === 'PROPHECY_COMPARISON' ? (
-                      <ComparisonView content={block.sharedContent} />
+                      <ComparisonView content={displayContent} />
                     ) : block.type === 'PROPHECY_CALCULATION' ? (
-                      <CalculationView content={block.sharedContent} />
+                      <CalculationView content={displayContent} />
                     ) : block.type === 'REFLECTION_STUDY_ACTIVITY' ? (
-                      <ReflectionView content={block.sharedContent} />
+                      <ReflectionView content={displayContent} />
                     ) : block.type === 'GUIDED_DISCOVERY_QUESTION' ? (
-                      <DiscoveryView content={block.sharedContent} />
+                      <DiscoveryView content={displayContent} />
                     ) : block.type === 'CONTINUE_EXPLORING' ? (
-                      <ExploringBlockView content={block.sharedContent} lessonId={lessonId} blockId={block.id} mode="working" />
+                      <ExploringBlockView content={displayContent} lessonId={lessonId} blockId={block.id} mode="working" />
                     ) : block.type === 'NARRATIVE_SCENE' ? (
-                      <SceneView content={block.sharedContent} />
+                      <SceneView content={displayContent} />
                     ) : block.type === 'MEDIA_ANIMATION' ? (
-                      <AnimationView content={block.sharedContent} />
+                      <AnimationView content={displayContent} />
                     ) : block.type === 'WORD_STUDY' ? (
-                      <WordStudyView content={block.sharedContent} />
+                      <WordStudyView content={displayContent} />
                     ) : block.type === 'SYMBOL_STUDY' ? (
-                      <SymbolStudyView content={block.sharedContent} />
+                      <SymbolStudyView content={displayContent} />
                     ) : block.type === 'MAP' ? (
-                      <HotspotBlockView content={block.sharedContent} variant="map" />
+                      <HotspotBlockView content={displayContent} variant="map" />
                     ) : block.type === 'EXPLORE_DEEPER' ? (
-                      <ExploreDeeperView content={block.sharedContent} />
+                      <ExploreDeeperView content={displayContent} />
                     ) : block.type === 'SCRIPTURE_CONNECTION' ? (
-                      <ScriptureConnectionView content={block.sharedContent} />
+                      <ScriptureConnectionView content={displayContent} />
                     ) : block.type === 'CALLOUT' ? (
-                      <CalloutBlockView content={block.sharedContent} />
+                      <CalloutBlockView content={displayContent} />
                     ) : block.type === 'HISTORICAL_EVIDENCE' ? (
-                      <EvidenceBlockView content={block.sharedContent} />
+                      <EvidenceBlockView content={displayContent} />
                     ) : block.type === 'SCRIPTURE_PASSAGE' ? (
-                      <ScriptureBlockView content={block.sharedContent} />
+                      <ScriptureBlockView content={displayContent} />
                     ) : block.type === 'TIMELINE' ? (
-                      <TimelineBlockView content={block.sharedContent} />
+                      <TimelineBlockView content={displayContent} />
                     ) : block.type === 'INTERACTIVE_IMAGE' ? (
-                      <HotspotBlockView content={block.sharedContent} />
+                      <HotspotBlockView content={displayContent} />
                     ) : block.type === 'QUIZ' ? (
-                      <QuizBlockView content={block.sharedContent} />
+                      <QuizBlockView content={displayContent} />
                     ) : hasRichTextContent(displayContent) ? (
                       <RichTextView content={displayContent} />
                     ) : (
@@ -2203,6 +2206,12 @@ export default function LessonAuthoringPage() {
             </div>
           )}
 
+          {variantModalBlock && hasStoredLevelContent(variantModalBlock, variantLevel) && (
+            <p role="alert" className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs">
+              This level has existing custom content. Changing its visibility here would discard it, so this setting is read-only.
+            </p>
+          )}
+
           <div className="space-y-2">
             <label className="flex items-start gap-2.5 p-3 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50 transition-colors">
               <input
@@ -2264,8 +2273,6 @@ export default function LessonAuthoringPage() {
               Level-specific content is not available for {variantModalBlock.type.replace(/_/g, ' ').toLowerCase()} blocks yet
               (pending a product decision), so a block shows the same shared text at every level it is visible at. You can still choose
               here whether it is visible at {variantLevel}.
-              {variantModalBlock.levels.some((l) => l.level === variantLevel && l.content) &&
-                ' This level currently has a custom variant; choosing "Use Shared Content" replaces it with the shared text.'}
             </p>
           )}
 
@@ -2300,7 +2307,7 @@ export default function LessonAuthoringPage() {
             </button>
             <button
               type="submit"
-              disabled={savingVariant || (variantMode === 'variant' && (variantLocked || !supportsLevelVariants(variantModalBlock?.type ?? '')))}
+              disabled={savingVariant || Boolean(variantModalBlock && hasStoredLevelContent(variantModalBlock, variantLevel)) || (variantMode === 'variant' && (variantLocked || !supportsLevelVariants(variantModalBlock?.type ?? '')))}
               className="px-4 py-2 text-sm font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-lg flex items-center gap-2 disabled:opacity-50"
             >
               {savingVariant && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
