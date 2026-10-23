@@ -1,4 +1,4 @@
-import { BOOK_NAMES } from './books';
+import { BOOK_NAMES, OLD_TESTAMENT_BOOK_COUNT, type Testament } from './books';
 import { BUNDLED_SCRIPTURE, type BookId, type ScriptureDataset, type ScriptureReference } from './scripture-data';
 import { getScriptureAvailability, lookupPassage } from './scripture-lookup';
 
@@ -8,18 +8,28 @@ import { getScriptureAvailability, lookupPassage } from './scripture-lookup';
  * derived from the data set that is actually bundled: a book is listed only if the data set contains it, chapter counts are the data set's
  * own, and with no data set nothing is listed and nothing is invented.
  */
-export const BIBLE_ROUTES = { books: '/bible', chapters: '/bible/book', read: '/bible/read' } as const;
+export const BIBLE_ROUTES = { books: '/bible', chapters: '/bible/book', read: '/bible/read', search: '/bible/search' } as const;
 
-export type BibleBook = { id: BookId; name: string; chapters: number };
+/** `testament` follows the canonical order (the first 39 books are the Old Testament), so the lists can be grouped without any second book table. */
+export type BibleBook = { id: BookId; name: string; chapters: number; testament: Testament };
 
-/** The books the data set contains, in canonical order. Empty without a data set. */
+/**
+ * The books the data set contains, in canonical order. Empty without a data set. The chapter counts come from the data set's own `chapterCounts` when it has them
+ * (the bundled set does, so listing the Bible reads no book); otherwise from the books themselves.
+ */
 export function listBibleBooks(dataset: ScriptureDataset | null = BUNDLED_SCRIPTURE): BibleBook[] {
   if (!dataset) return [];
   const out: BibleBook[] = [];
-  for (const [id, name] of BOOK_NAMES) {
+  BOOK_NAMES.forEach(([id, name], position) => {
+    const testament: Testament = position < OLD_TESTAMENT_BOOK_COUNT ? 'OT' : 'NT';
+    const declared = dataset.chapterCounts?.[id];
+    if (declared !== undefined) {
+      if (Number.isInteger(declared) && declared > 0) out.push({ id, name, chapters: declared, testament });
+      return;
+    }
     const chapters = dataset.books[id];
-    if (Array.isArray(chapters) && chapters.length > 0) out.push({ id, name, chapters: chapters.length });
-  }
+    if (Array.isArray(chapters) && chapters.length > 0) out.push({ id, name, chapters: chapters.length, testament });
+  });
   return out;
 }
 
@@ -64,8 +74,18 @@ const whole = (value: Param): number | null => {
 /** The published Scripture a reader was opened from, so the reader can say when its own text differs. */
 export type PassageSource = { id?: string; version?: string; translation?: string; edition?: string; fingerprint?: string };
 
-/** The reader's route parameters, strictly parsed (strings only; anything malformed gives null). */
-export type ReaderParams = { bookId: string; chapter: number; range: { startVerse: number; endVerse: number } | null; source: PassageSource; fromLesson: boolean };
+/**
+ * The reader's route parameters, strictly parsed (strings only; anything malformed gives null). `fromLesson` is "Open in Bible" from a lesson passage (which also carries
+ * the passage's published text identity); `fromSearch` is a verse chosen in the Bible search. They are never both true.
+ */
+export type ReaderParams = {
+  bookId: string;
+  chapter: number;
+  range: { startVerse: number; endVerse: number } | null;
+  source: PassageSource;
+  fromLesson: boolean;
+  fromSearch: boolean;
+};
 
 export function parseReaderParams(params: Record<string, Param>): ReaderParams | null {
   const bookId = first(params.bookId);
@@ -90,6 +110,7 @@ export function parseReaderParams(params: Record<string, Param>): ReaderParams |
       fingerprint: /^[0-9a-fA-F]{64}$/.test(first(params.srcFingerprint) ?? '') ? first(params.srcFingerprint) : undefined,
     },
     fromLesson: first(params.from) === 'lesson',
+    fromSearch: first(params.from) === 'search',
   };
 }
 
@@ -139,6 +160,26 @@ export function bibleReadHref(reference: ScriptureReference, source?: PassageSou
       ...(source?.translation ? { srcTranslation: source.translation } : {}),
       ...(source?.edition ? { srcEdition: source.edition } : {}),
       ...(source?.fingerprint ? { srcFingerprint: source.fingerprint } : {}),
+    },
+  } as const;
+}
+
+/**
+ * Route that opens a chapter chosen in the Bible search, marking the verse (or verses) when one was asked for. The same route and parameters as the other links; `from=search`
+ * only changes how the reader labels the marked verse (a search result, not a lesson passage) and carries no published text identity, because there is no lesson here.
+ */
+export function bibleOpenHref(target: { bookId: BookId; chapter: number; startVerse?: number | null; endVerse?: number | null }) {
+  if (target.startVerse == null) {
+    return { pathname: BIBLE_ROUTES.read, params: { bookId: target.bookId, chapter: String(target.chapter) } } as const;
+  }
+  return {
+    pathname: BIBLE_ROUTES.read,
+    params: {
+      bookId: target.bookId,
+      chapter: String(target.chapter),
+      startVerse: String(target.startVerse),
+      endVerse: String(target.endVerse ?? target.startVerse),
+      from: 'search',
     },
   } as const;
 }

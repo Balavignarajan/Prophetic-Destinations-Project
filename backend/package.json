@@ -24,6 +24,7 @@
     "migration:show": "nest build && typeorm migration:show -d dist/database/data-source.js",
     "migration:run": "nest build && typeorm migration:run -d dist/database/data-source.js",
     "migration:drift": "nest build && typeorm schema:log -d dist/database/data-source.js",
+    "scripture:convert": "node scripts/convert-kjv.mjs",
     "seed:admin": "nest build && node dist/modules/identity/cli/seed-admin.js",
     "seed:demo": "nest build && node --env-file-if-exists=.env dist/cli/seed-demo.js",
     "demo:setup": "nest build && node dist/modules/identity/cli/seed-admin.js && node --env-file-if-exists=.env dist/cli/seed-demo.js",

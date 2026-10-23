@@ -79,6 +79,16 @@ function readReferenceOnly(content: Record<string, unknown>) {
 /** True when `ScriptureReference` (rather than the passage card) is the right way to show this frozen passage. */
 export const isReferenceOnly = (content: Record<string, unknown>) => readPassage(content) === null && readReferenceOnly(content) !== null;
 
+/**
+ * The place in the Bible a frozen passage points at: its label and the route that opens it (the same link "Open in Bible" uses, carrying the passage's published text
+ * identity), or null when the passage has no valid structured reference. It is read only from the passage's structured `reference`, never from the words of its label.
+ */
+export function bibleLocationOf(content: Record<string, unknown>) {
+  const passage = readPassage(content) ?? readReferenceOnly(content);
+  if (!passage || !passage.reference) return null;
+  return { display: passage.display, href: bibleReadHref(passage.reference, passage.published) };
+}
+
 export function ScripturePassage({ content, embedded = false }: { content: Record<string, unknown>; embedded?: boolean }) {
   const { spacing, colors, typography, fontFamilies } = useTheme();
   const router = useRouter();

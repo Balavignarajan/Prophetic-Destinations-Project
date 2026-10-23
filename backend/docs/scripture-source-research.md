@@ -104,3 +104,17 @@ Still **no source approved, nothing downloaded or bundled**. What now exists is 
   fingerprint, not by the editable labels. Stamps written before this (no fingerprint) are never treated as verified.
 - **References on timeline events and hotspots** (`scripture` lists, up to 5 per item) use the same structured reference. Unchanged references keep their server
   stamp during unrelated edits; a changed text requires an explicit Refresh (or reselection) and a new approval. Still blocked until a dataset is installed.
+
+### Update (Batch 21): a community transcription is installed for development; it is NOT approved
+
+- **Source used:** `Bible-kjv-master` (project root), MIT licence, "Copyright (c) 2019 Arul John". It is neither candidate above, and its edition and text source are not stated.
+  The `KJV` folder next to it is not used (the audit found corrupted and mis-numbered verses in 1 Chronicles 18-19 and other faults).
+- **Conversion:** `backend/scripts/convert-kjv.mjs` (`npm run scripture:convert`) turns it, unchanged, into `backend/data/kjv.json` (this contract) and into the
+  per-book files in `mobile-app/src/features/scripture/data`. It refuses to write unless the source is exactly 66 books / 1,189 chapters / 31,102 verses with no
+  gaps or repeats, and it checks the text fingerprint three ways (Node, this backend's `parseDataset`, and the app's JavaScript SHA-256). Verse text is never edited;
+  three verses with odd spacing in the source (Josh 7:2, Mark 10:19, Rev 19:3) are kept as supplied.
+- **Fingerprint** of the installed text: `03ced4db2fd830e932d9cdd20a5066bacc41f3f204358ee327b64e2209165202`. A match means the backend and the app hold the same text; it does not
+  show the transcription is correct.
+- **Status:** `PENDING_TEXT_VERIFICATION`, not release-approved. Open: verification of the wording against a printed edition (the audit found, for example,
+  divine-name capitalisation differences such as LORD/Lord and GOD/God), the UK Crown position and the licence basis (questions 1-4 above), and the attribution wording.
+  Correcting the text later changes the fingerprint, and any lesson published with Scripture before then must be approved again.

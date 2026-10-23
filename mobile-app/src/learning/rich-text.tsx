@@ -1,8 +1,10 @@
+import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Linking, Text, View, type TextStyle } from 'react-native';
 
 import { AppText, Reveal } from '@/components/ui';
-import { ScripturePassage, isReferenceOnly } from '@/learning/scripture-passage';
+import { getScriptureAvailability } from '@/features/scripture/scripture-lookup';
+import { ScripturePassage, bibleLocationOf, isReferenceOnly } from '@/learning/scripture-passage';
 import { useTheme } from '@/theme';
 
 /**
@@ -19,7 +21,8 @@ import { useTheme } from '@/theme';
  * FROZEN passage { reference, display, source, verses } (backend scripture-embed.service.ts), so everything is read from the lesson itself: it needs no Bible service and no
  * Bible text in the app, and it works offline through the lesson cache. The reference is drawn in the sentence by its label ("Daniel 2:31-35"). When the passage carries its
  * verse text, the label opens that frozen passage directly under the paragraph and closes it again (the supporting-reference convention of ScriptureLinks; Scripture a
- * lesson depends on belongs in a Scripture passage block, which is never hidden). A reference without verse text is just its label. A reference that cannot be read shows nothing.
+ * lesson depends on belongs in a Scripture passage block, which is never hidden). A reference without verse text opens the Bible at its structured reference when the Bible
+ * is in the app (otherwise it is just its label). A reference that cannot be read shows nothing.
  */
 type Mark = { type?: unknown; attrs?: { href?: unknown } };
 type RichNode = { type?: unknown; text?: unknown; marks?: unknown; content?: unknown; attrs?: unknown };
@@ -146,12 +149,27 @@ function Paragraph({ node }: { node: RichNode }) {
   );
 }
 
-/** The reference's label inside the sentence. With verse text it opens and closes the frozen passage under the paragraph; without, it is the label alone. */
+/**
+ * The reference's label inside the sentence. With verse text it opens and closes the frozen passage under the paragraph (and that passage carries its own "Open in Bible"
+ * button). Without verse text there is nothing to show, so the label itself opens the Bible at the reference when the Bible is in the app and the passage has a valid structured
+ * reference; otherwise it is the label alone.
+ */
 function Reference({ reference, open, onToggle }: { reference: InlineReference; open: boolean; onToggle: () => void }) {
+  const router = useRouter();
   const { colors, fontFamilies } = useTheme();
   const style: TextStyle = { color: colors.primaryHighlight, fontFamily: fontFamilies.sansMedium };
   if (!reference.hasText) {
-    return <Text style={style}>{reference.label}</Text>;
+    const location = getScriptureAvailability().available ? bibleLocationOf(reference.passage) : null;
+    if (!location) return <Text style={style}>{reference.label}</Text>;
+    return (
+      <Text
+        accessibilityRole="link"
+        accessibilityLabel={`Open ${reference.label} in the Bible`}
+        onPress={() => router.push(location.href)}
+        style={[style, { textDecorationLine: 'underline' }]}>
+        {reference.label}
+      </Text>
+    );
   }
   return (
     <Text
