@@ -10,11 +10,12 @@ import AddLessonFlow from '../../../components/AddLessonFlow';
 import DirectLessonLists from '../../../components/DirectLessonLists';
 import StatusSectionedList from '../../../components/StatusSectionedList';
 import { STALE_CATALOG_MESSAGE, actionLabelFor, catalogPublishExplanation, visibleActions } from '../../../lib/review-guidance';
-import { Course, ModuleItem, LessonSummary, LearningLevel, WorkflowState, WorkflowEvent } from '../../../lib/types';
+import { Course, CourseBook, ModuleItem, LessonSummary, LearningLevel, WorkflowState, WorkflowEvent } from '../../../lib/types';
 import { LoadingSpinner, StatusBadge, EmptyState, Modal, ConfirmDialog } from '../../../components/ui';
 import { friendlyError } from '../../../lib/ui-messages';
 import DuplicateLessonDialog from '../../../components/DuplicateLessonDialog';
 import CoverImageField from '../../../components/CoverImageField';
+import CourseBookField from '../../../components/CourseBookField';
 import LessonMetadataFields, { EMPTY_LESSON_METADATA, type LessonMetadataValues, durationProblem, lessonMetadataPayload, lessonMetadataTouched } from '../../../components/LessonMetadataFields';
 
 export default function CourseDetailPage() {
@@ -37,6 +38,7 @@ export default function CourseDetailPage() {
   const [editTitle, setEditTitle] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [editCoverMediaId, setEditCoverMediaId] = useState<string | null>(null);
+  const [editBook, setEditBook] = useState<CourseBook | null>(null);
   const [updatingCourse, setUpdatingCourse] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
 
@@ -90,6 +92,7 @@ export default function CourseDetailPage() {
       setWorkflowEvents(wfEventsRes.items);
       setEditTitle(courseRes.title);
       setEditCoverMediaId(courseRes.coverMediaId ?? null);
+      setEditBook(courseRes.book ?? null);
       setEditDescription(courseRes.description || '');
     } catch (err: unknown) {
       setError(friendlyError(err, 'Failed to load course details.'));
@@ -110,7 +113,8 @@ export default function CourseDetailPage() {
       (editCourseModalOpen && course && (
         editTitle !== course.title ||
         editDescription !== (course.description || '') ||
-        editCoverMediaId !== (course.coverMediaId ?? null)
+        editCoverMediaId !== (course.coverMediaId ?? null) ||
+        editBook !== (course.book ?? null)
       ))
     );
 
@@ -123,7 +127,7 @@ export default function CourseDetailPage() {
 
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [createModuleModalOpen, newModuleTitle, editCourseModalOpen, course, editTitle, editDescription, editCoverMediaId]);
+  }, [createModuleModalOpen, newModuleTitle, editCourseModalOpen, course, editTitle, editDescription, editCoverMediaId, editBook]);
 
   const confirmDiscard = (hasChanges: boolean, close: () => void) => {
     if (!hasChanges || window.confirm('Discard your unsaved changes?')) close();
@@ -143,6 +147,7 @@ export default function CourseDetailPage() {
           title: editTitle.trim(),
           description: editDescription.trim() || null,
           coverMediaId: editCoverMediaId,
+          book: editBook,
           version: course.version,
         }),
       });
@@ -519,7 +524,7 @@ export default function CourseDetailPage() {
       {/* Edit Course Modal */}
       <Modal
         isOpen={editCourseModalOpen}
-        onClose={() => confirmDiscard(editTitle !== course.title || editDescription !== (course.description || '') || editCoverMediaId !== (course.coverMediaId ?? null), () => setEditCourseModalOpen(false))}
+        onClose={() => confirmDiscard(editTitle !== course.title || editDescription !== (course.description || '') || editCoverMediaId !== (course.coverMediaId ?? null) || editBook !== (course.book ?? null), () => setEditCourseModalOpen(false))}
         title="Edit Course Details"
         maxWidth="xl"
         description="Saving changes returns this course to Draft, so it must be reviewed again before publishing."
@@ -558,10 +563,12 @@ export default function CourseDetailPage() {
 
           <CoverImageField subject="course" mode="edit" saveLabel="Save Changes" value={editCoverMediaId} onChange={setEditCoverMediaId} disabled={updatingCourse} />
 
+          <CourseBookField id="edit-course-book" value={editBook} onChange={setEditBook} disabled={updatingCourse} />
+
           <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
             <button
               type="button"
-              onClick={() => confirmDiscard(editTitle !== course.title || editDescription !== (course.description || '') || editCoverMediaId !== (course.coverMediaId ?? null), () => setEditCourseModalOpen(false))}
+              onClick={() => confirmDiscard(editTitle !== course.title || editDescription !== (course.description || '') || editCoverMediaId !== (course.coverMediaId ?? null) || editBook !== (course.book ?? null), () => setEditCourseModalOpen(false))}
               className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50"
             >
               Cancel

@@ -72,7 +72,7 @@ export class MediaFacade {
    * The bytes of an asset, for a caller that has ALREADY decided the reader may see it (the learner image route, which only
    * asks after finding the asset inside the active published snapshot). It performs no permission check of its own.
    */
-  openContent(id: string): Promise<MediaContent> {
-    return this.service.openContent(id);
+  openContent(id: string, range?: { start: number; end: number }): Promise<MediaContent> {
+    return this.service.openContent(id, range);
   }
 }

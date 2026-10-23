@@ -1,5 +1,6 @@
 import React from 'react';
 import { animationReadiness, readAnimation, readScene, sceneReadiness } from '../lib/scene-media';
+import MediaFileTile from './MediaFileTile';
 import MediaImage from './MediaImage';
 import ScriptureEntriesView from './ScriptureEntriesView';
 
@@ -13,7 +14,16 @@ export function SceneView({ content }: { content: unknown }) {
     <section className="font-sans">
       {c.mediaId && <MediaImage mediaId={c.mediaId} alt={c.altText} className="block w-full h-auto max-h-64 rounded-lg border border-slate-200" fit="contain" />}
       {c.title && <h4 className="mt-2 text-base font-semibold text-slate-900 break-words">{c.title}</h4>}
-      {c.narrative && <p className="mt-1 text-sm text-slate-900 whitespace-pre-line break-words">{c.narrative}</p>}
+      {c.narrative &&
+        c.narrative
+          .split(/\n\s*\n/)
+          .map((paragraph) => paragraph.trim())
+          .filter(Boolean)
+          .map((paragraph, index) => (
+            <p key={index} className="mt-1 text-sm text-slate-900 whitespace-pre-line break-words">
+              {paragraph}
+            </p>
+          ))}
       <ScriptureEntriesView entries={c.scriptureRaw} />
       <Needs items={sceneReadiness(c)} />
     </section>
@@ -21,18 +31,23 @@ export function SceneView({ content }: { content: unknown }) {
 }
 
 /**
- * An animated image for the author. It never autoplays here: the poster is shown if there is one, otherwise a text placeholder. Learners press Play in
- * the app. (The file itself is only used in the app; the admin does not play it.)
+ * An animated image, a video or a Lottie animation for the author. It never plays here: the poster is shown if there is one, otherwise a placeholder that names the
+ * kind of file. Learners press Play in the app. (The file itself is only used in the app; the admin does not play it.)
  */
 export function AnimationView({ content }: { content: unknown }) {
   const c = readAnimation(content);
-  if (!c.mediaId && !c.altText && !c.caption) return <span className="text-slate-600 italic font-sans text-xs">(No animated image chosen yet)</span>;
+  const noun = c.mediaType === 'VIDEO' ? 'video' : c.mediaType === 'LOTTIE' ? 'Lottie animation' : 'animated image';
+  if (!c.mediaId && !c.altText && !c.caption) return <span className="text-slate-600 italic font-sans text-xs">(No {noun} chosen yet)</span>;
   return (
     <figure className="font-sans space-y-1">
       {c.posterMediaId ? (
         <MediaImage mediaId={c.posterMediaId} alt={c.altText} className="block w-full h-auto max-h-64 rounded-lg border border-slate-200" fit="contain" />
       ) : (
-        <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-3 text-xs text-slate-700">{c.mediaId ? 'Animated image (no poster chosen). Learners press Play in the app.' : 'No animated image chosen yet.'}</div>
+        c.mediaId && c.mediaType !== 'ANIMATED_IMAGE' ? (
+          <MediaFileTile mediaId={c.mediaId} contentType={c.mediaType === 'VIDEO' ? 'video/mp4' : 'application/json'} className="rounded-lg border border-dashed border-slate-300" />
+        ) : (
+          <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-3 text-xs text-slate-700">{c.mediaId ? 'Animated image (no poster chosen). Learners press Play in the app.' : `No ${noun} chosen yet.`}</div>
+        )
       )}
       {c.caption && <figcaption className="text-sm text-slate-800">{c.caption}</figcaption>}
       {c.altText && <p className="text-xs text-slate-600">Accessibility text: {c.altText}</p>}

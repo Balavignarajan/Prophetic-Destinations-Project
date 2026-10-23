@@ -16,6 +16,7 @@ import {
 import { type Bookmark } from '@/features/bookmarks/model';
 import { useBookmarks } from '@/features/bookmarks/bookmarks-provider';
 import { useDaniel2Lesson } from '@/features/daniel-2/use-daniel2-lesson';
+import { useSavedTitleSync } from '@/features/learning/use-lesson-title-sync';
 import { type OwnerStatus, mediaOwnerKey, useOfflineMedia } from '@/features/offline/offline-media';
 import { useCacheEntries } from '@/features/offline/use-cache-entries';
 import { formatSavedAt } from '@/features/offline/offline-banner';
@@ -28,7 +29,9 @@ function savedLabel(status: OwnerStatus): string {
     case 'complete':
       return 'Saved for offline reading';
     case 'text-only':
-      return 'Text saved for offline reading. Images are not saved in the web version.';
+      return 'Text saved for offline reading. This browser cannot keep the images.';
+    case 'no-room':
+      return 'Text saved. Some images could not be saved because this browser has no room left.';
     case 'saving':
       return 'Text saved. Saving images…';
     case 'updating':
@@ -49,6 +52,9 @@ export function SavedScreen() {
   const cached = useCacheEntries();
   const offlineMedia = useOfflineMedia();
   const sceneTitles = daniel.status === 'success' ? new Map(daniel.data.scenes.map((scene) => [scene.id as string, scene.title])) : null;
+  // A lesson renamed in the CMS is titled by the live published catalog: the title stored with the saved item is replaced in place (title only: its id, saved time and
+  // place in the list stay) and remains the fallback while offline or when the lesson is no longer published.
+  useSavedTitleSync(items.flatMap((item) => (item.type === 'lesson' ? [{ lessonId: item.lessonId, level: item.level }] : [])));
 
   const lessons = items.filter((item) => item.type === 'lesson');
   const scenes = items.filter((item) => item.type === 'daniel2-scene');

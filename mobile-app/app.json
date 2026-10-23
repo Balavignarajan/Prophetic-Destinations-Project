@@ -25,6 +25,7 @@
     "plugins": [
       "expo-router",
       "expo-system-ui",
+      "expo-video",
       [
         "expo-splash-screen",
         {

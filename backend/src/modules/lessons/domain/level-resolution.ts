@@ -1,6 +1,7 @@
 import type { LearningLevel } from '../../../shared-kernel/index.js';
 import type { VariantSupport } from './blocks/registry.js';
 import type { BlockType } from './blocks/block-types.js';
+import { contentForLevel } from './blocks/item-levels.js';
 
 /**
  * The level-aware resolver: lesson + level -> the blocks a learner at that level
@@ -18,6 +19,8 @@ import type { BlockType } from './blocks/block-types.js';
  *     requested level is ever looked at.
  *  5. A visible block that cannot be resolved is returned as an unresolved entry
  *     with a diagnostic. It is never skipped silently and never replaced.
+ *  6. Items inside a block that are reserved for other levels (a hotspot, a map marker or a timeline event with `levels`) are left out of the resolved content, so
+ *     what is previewed, checked and published for a level holds only that level's items (blocks/item-levels.ts). Content without such items is returned as it is.
  */
 
 export type Content = Record<string, unknown>;
@@ -124,7 +127,7 @@ export function resolveLesson(
           type: block.type,
           ordinal,
           source: 'VARIANT',
-          content: row.variant,
+          content: contentForLevel(block.type, row.variant, level),
         });
       }
     } else if (block.sharedContent !== null) {
@@ -133,7 +136,7 @@ export function resolveLesson(
         type: block.type,
         ordinal,
         source: 'SHARED',
-        content: block.sharedContent,
+        content: contentForLevel(block.type, block.sharedContent, level),
       });
     } else {
       unresolved(

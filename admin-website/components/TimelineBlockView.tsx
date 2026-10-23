@@ -1,4 +1,5 @@
 import React from 'react';
+import { restrictedLevelsText } from '../lib/item-levels';
 import { readTimelineContent } from '../lib/timeline-block';
 import MediaImage from './MediaImage';
 import ScriptureEntriesView from './ScriptureEntriesView';
@@ -35,6 +36,7 @@ export default function TimelineBlockView({ content }: { content: unknown }) {
                 {event.dateLabel || <em className="normal-case font-normal text-slate-600">No date or period yet</em>}
               </p>
               <p className="text-sm font-semibold text-slate-900 break-words">{event.title || <em className="font-normal text-slate-600">No title yet</em>}</p>
+              {restrictedLevelsText(event.levels) && <p className="mt-0.5 text-xs font-medium text-slate-700">Only at: {restrictedLevelsText(event.levels)}</p>}
               {event.explanation && <p className="mt-0.5 text-sm text-slate-800 whitespace-pre-line break-words">{event.explanation}</p>}
               <ScriptureEntriesView entries={event.scriptureRaw} />
               {event.mediaId && (

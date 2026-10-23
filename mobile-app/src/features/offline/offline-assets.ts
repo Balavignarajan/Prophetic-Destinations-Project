@@ -36,9 +36,12 @@ export function assetsOf(kind: CacheKind, id: string, level: LearningLevel, data
     }
     for (const block of lesson.snapshot?.blocks ?? []) {
       if (block.type === 'MEDIA_ANIMATION') {
-        // The animated file AND its poster are both needed to show the block, so both are collected (and tracked, deduplicated and cleaned up like every image).
-        const c = (block.content ?? {}) as { mediaId?: unknown; posterMediaId?: unknown };
-        for (const mediaId of [c.mediaId, c.posterMediaId]) if (isText(mediaId)) out.push({ mediaId, url: lessonCoverUrl(id, mediaId, level) });
+        // An animated image: the animated file AND its poster are both needed to show the block, so both are collected (and tracked, deduplicated and cleaned up like every image).
+        // A VIDEO or LOTTIE file is NEVER collected: videos are large and there is no approved offline policy for them, so they stream when played and nothing is
+        // downloaded in advance. Their poster is an ordinary still image and is saved with the lesson.
+        const c = (block.content ?? {}) as { mediaId?: unknown; posterMediaId?: unknown; mediaType?: unknown };
+        const playedOnline = c.mediaType === 'VIDEO' || c.mediaType === 'LOTTIE';
+        for (const mediaId of playedOnline ? [c.posterMediaId] : [c.mediaId, c.posterMediaId]) if (isText(mediaId)) out.push({ mediaId, url: lessonCoverUrl(id, mediaId, level) });
         continue;
       }
       if (block.type === 'HISTORICAL_EVIDENCE' || block.type === 'SECTION_INTRO' || block.type === 'SYMBOL_STUDY' || block.type === 'NARRATIVE_SCENE') {
@@ -92,6 +95,32 @@ export function assetsOf(kind: CacheKind, id: string, level: LearningLevel, data
     return out;
   }
   return null; // navigation entries carry no images
+}
+
+/**
+ * The live answer names the same published version as the saved copy, so the saved text is left exactly as it is (nothing is rewritten). Only its images are looked
+ * after: references are recorded when the copy was saved before they were tracked, and any image that is not on the device (never downloaded, failed earlier, or its
+ * file has gone) is downloaded again. A staged newer version that this answer supersedes is dropped. Never throws for a platform that keeps no images.
+ */
+export async function keepSaved(kind: CacheKind, id: string, level: LearningLevel, value: unknown, startedIn: number): Promise<boolean> {
+  if (startedIn !== currentEpoch()) return true; // the offline cache was cleared while this was loading
+  let assets: AssetRef[] | null = null;
+  try {
+    assets = assetsOf(kind, id, level, value);
+  } catch {
+    assets = null;
+  }
+  if (!offlineMediaEnabled || assets === null) return true;
+
+  await initOfflineMedia();
+  if (startedIn !== currentEpoch()) return true;
+  const owner = mediaOwnerKey(kind, id, level);
+  forgetMissingFiles(assets);
+  const recorded = savedAssetIds(owner);
+  const wanted = new Set(assets.map((asset) => asset.mediaId));
+  if (recorded === undefined || recorded.length !== wanted.size || recorded.some((assetId) => !wanted.has(assetId))) setSavedAssets(owner, assets);
+  if (!hasAllAssets(assets)) void downloadSaved(owner, assets, startedIn).catch(() => undefined);
+  return true;
 }
 
 /**

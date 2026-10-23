@@ -21,6 +21,7 @@ import {
   'chk_courses_status',
   `"status" IN ('DRAFT', 'READY_FOR_REVIEW', 'APPROVED', 'PUBLISHED')`,
 )
+@Check('chk_courses_book', `"book" IS NULL OR "book" IN ('DANIEL', 'REVELATION')`)
 export class CourseEntity {
   @PrimaryColumn({ type: 'uuid', default: () => 'gen_random_uuid()' })
   id: string;
@@ -37,6 +38,10 @@ export class CourseEntity {
   /** Working cover image (a media_assets id); the published cover is stored with each catalog version. */
   @Column({ name: 'cover_media_id', type: 'uuid', nullable: true })
   coverMediaId: string | null;
+
+  /** Optional: which Bible book this course is the dedicated Home entry for ('DANIEL' | 'REVELATION'); null for every other course. */
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  book: string | null;
 
   /** 1-based place in the manual course order (the learner catalog follows it too). */
   @Column({ type: 'int' })

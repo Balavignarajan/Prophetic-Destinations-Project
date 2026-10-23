@@ -9,8 +9,11 @@ import type { Readable } from 'node:stream';
 export interface MediaStorage {
   /** Stores the bytes under a new key. Fails if the key already exists (a stored object is never overwritten). */
   put(key: string, data: Buffer): Promise<void>;
-  /** A stream of the stored bytes. Throws `StoredObjectNotFoundError` if there is no such object. */
-  open(key: string): Promise<Readable>;
+  /**
+   * A stream of the stored bytes (or of bytes `start` to `end`, both inclusive, when a range is given: a video is played by asking for the part it needs).
+   * Throws `StoredObjectNotFoundError` if there is no such object.
+   */
+  open(key: string, range?: { start: number; end: number }): Promise<Readable>;
   /** Removes the object. Removing one that does not exist is not an error (deletes are repeatable). */
   delete(key: string): Promise<void>;
 }

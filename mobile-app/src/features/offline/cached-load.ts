@@ -2,7 +2,7 @@ import { ApiError, NetworkError, ResponseShapeError } from '@/api/errors';
 import type { LearningLevel } from '@/learning/levels';
 
 import { type CacheKind, cacheRead, cacheRemove } from './cache-store';
-import { saveLoaded } from './offline-assets';
+import { keepSaved, saveLoaded } from './offline-assets';
 import { currentEpoch } from './offline-media';
 
 /** A loaded value and where it came from. `cache` means a SAVED copy, shown because the live request could not be completed. */
@@ -15,6 +15,12 @@ export type Loaded<T> = {
   reason?: 'offline' | 'server-problem';
   /** Network loads only: `false` when this device refused to save the copy, so it will NOT be readable offline. Absent otherwise. */
   saved?: boolean;
+  /**
+   * Network loads of content that names its published version only (lessons): how the live answer compares with the copy saved before.
+   * `new` = nothing was saved; `updated` = a different published version (or a copy saved without a version) was saved and is replaced;
+   * `unchanged` = the saved copy IS this published version, so nothing was rewritten.
+   */
+  change?: 'new' | 'updated' | 'unchanged';
 };
 
 type Options<T> = {
@@ -23,6 +29,11 @@ type Options<T> = {
   level: LearningLevel;
   fetch: () => Promise<T>;
   validate: (data: unknown) => data is T;
+  /**
+   * The published version a response names (for lessons: publication number + content hash), or null when it names none. When given, a live answer that names the
+   * SAME version as the saved copy does not replace it; a different one does.
+   */
+  version?: (data: T) => string | null;
   signal?: AbortSignal;
 };
 
@@ -46,10 +57,17 @@ const isConfirmedUnavailable = (error: unknown): boolean => error instanceof Api
  *   unavailable.
  * - Any other 4xx (a bad request) and a cancelled request are not cache situations and are thrown as they are.
  *
- * Conditional requests (ETag / If-None-Match) are not used: the shared API client does not send validators, and the saved copy
- * is simply replaced by the fresh answer on each successful load.
+ * Published versions (lessons): the backend names the version of a published lesson (`publicationVersion` and `contentHash`), so a live answer is compared with
+ * the saved copy by that identity. The same version is left exactly as it is saved (only its images are completed if some are missing); a different version, or a
+ * copy saved before versions were recorded, is replaced as described above; an answer that does not name its version is rejected before it gets here (see
+ * learner-api.ts) and never replaces anything.
+ *
+ * Conditional requests (ETag / If-None-Match) are not used by this loader: the backend already sends an ETag and `Cache-Control: public, no-cache` on every published
+ * representation, so a browser or the system networking layer revalidates by itself where it keeps an HTTP cache; but a page on another origin cannot read the ETag
+ * without a CORS change, a 304 would need its own path through the shared API client, and the version identity above already says exactly whether a saved lesson is
+ * current, so a manual validator would only save bandwidth at the cost of a new way to fail.
  */
-export async function loadCached<T>({ kind, id, level, fetch, validate, signal }: Options<T>): Promise<Loaded<T>> {
+export async function loadCached<T>({ kind, id, level, fetch, validate, version, signal }: Options<T>): Promise<Loaded<T>> {
   const startedIn = currentEpoch(); // if the offline cache is cleared while this loads, nothing is written afterwards
   let value: T;
   try {
@@ -75,6 +93,27 @@ export async function loadCached<T>({ kind, id, level, fetch, validate, signal }
     };
   }
 
+  // Is this the version that is already saved? Only content that names its version is compared.
+  let change: Loaded<T>['change'];
+  if (version) {
+    const fresh = version(value);
+    const prior = fresh === null ? null : await cacheRead(kind, id, level, validate);
+    if (prior === null) change = 'new';
+    else if (fresh !== null && version(prior.data) === fresh) change = 'unchanged';
+    else change = 'updated';
+  }
+
+  // The saved copy already is this published version: nothing is rewritten. Its images are completed if some are missing.
+  if (change === 'unchanged') {
+    let kept = true;
+    try {
+      kept = await keepSaved(kind, id, level, value, startedIn);
+    } catch {
+      kept = true; // the saved text is intact whatever happened to its images
+    }
+    return { value, source: 'network', fetchedAt: Date.now(), saved: kept, change };
+  }
+
   // Saves the text (at once for a first save; staged until its images are on disk when it updates a completely saved lesson)
   // and starts saving the images in the background. Missing images are retried on every successful load. A problem while saving
   // never costs the learner the answer they already have.
@@ -84,5 +123,5 @@ export async function loadCached<T>({ kind, id, level, fetch, validate, signal }
   } catch {
     saved = false;
   }
-  return { value, source: 'network', fetchedAt: Date.now(), saved };
+  return { value, source: 'network', fetchedAt: Date.now(), saved, ...(change ? { change } : {}) };
 }

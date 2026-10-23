@@ -1,16 +1,20 @@
-import { parseHttpUrl } from '@/content/documents';
-
-import { DEFAULT_SHARE_MESSAGE, buildShareText } from './share-text';
+import { DEFAULT_SHARE_MESSAGE, buildShareText, publicShareUrl } from './share-text';
 
 /**
- * "Invite a Friend": what the native share sheet is given. The specification asks for a configurable message and link
- * (FINAL_FEATURE_COMPLIANCE_AUDIT.md SHR-001, decision C-16); neither has been decided, and the app has no store link yet.
- *  - EXPO_PUBLIC_SHARE_URL      the link to share (the store page, once it exists). Not set: only the message is shared.
- *  - EXPO_PUBLIC_SHARE_MESSAGE  the invitation text. Not set: a neutral placeholder is used (pending approval).
- * No link is invented, and no contacts are read or stored: the operating system's share sheet does the sharing.
- * Expo inlines EXPO_PUBLIC_* values only when written as `process.env.EXPO_PUBLIC_NAME`, so they are read literally here.
+ * "Invite a Friend" (SHR-001): the ONE place the public link and the message come from.
+ *
+ * EXPO_PUBLIC_SHARE_URL is the address people are invited to: the app's store page or public website, an https address on a public domain. It is a client and
+ * deployment decision and none is guessed here. When it is not set, or is not a valid public address (see `publicShareUrl`), `SHARE_URL` is null and the app says
+ * that inviting is not available yet instead of sharing a message with no destination or a placeholder.
+ *
+ * EXPO_PUBLIC_SHARE_MESSAGE is optional approved wording. Without it the neutral default is used. Nothing else is added: no invite code, no referral or tracking
+ * parameter, no contacts.
  */
-export const SHARE_URL: string | null = parseHttpUrl(process.env.EXPO_PUBLIC_SHARE_URL);
+export const SHARE_URL: string | null = publicShareUrl(process.env.EXPO_PUBLIC_SHARE_URL);
+
+/** True when there is a valid public link to invite with. */
+export const SHARE_AVAILABLE: boolean = SHARE_URL !== null;
+
 export const SHARE_MESSAGE: string = process.env.EXPO_PUBLIC_SHARE_MESSAGE?.trim() || DEFAULT_SHARE_MESSAGE;
 
 export { buildShareText };

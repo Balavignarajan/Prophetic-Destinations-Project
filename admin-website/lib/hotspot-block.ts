@@ -1,9 +1,10 @@
+import { levelsField, readItemLevels } from './item-levels';
 import { type ScriptureEntryDraft, buildScriptureEntries, readScriptureEntries } from './scripture-info';
 
 /**
  * The INTERACTIVE_IMAGE lesson block (backend/src/modules/lessons/domain/blocks/interactive-image.ts). PROPOSED schema, not approved:
- *   { mediaId, altText, caption?, source?, hotspots: [{ id, x?, y?, label, explanation }] }
- * `x` and `y` are fractions (0 to 1) of the whole image's width and height from its top-left corner. A hotspot without x/y is
+ *   { mediaId, altText, caption?, source?, hotspots: [{ id, x?, y?, label, explanation, levels? }] }
+ * `levels` (optional) reserves a hotspot for some levels (CMS-016); none = every level the block is shown at. `x` and `y` are fractions (0 to 1) of the whole image's width and height from its top-left corner. A hotspot without x/y is
  * "not placed yet" (allowed in a draft, not for publishing).
  * The MAP block (backend map-explore.ts) reuses this exact content, adding an optional `title` and not requiring any marker: its markers are
  * these hotspots under the same stored key. `title` is empty (and never saved) for an interactive image.
@@ -21,6 +22,8 @@ export interface HotspotDraft {
   scripture: ScriptureEntryDraft[];
   /** The stored/previewed `scripture` value as it came (for display only; never sent back). */
   scriptureRaw?: unknown;
+  /** The levels this hotspot is reserved for; null/absent = every level the block is shown at. */
+  levels?: string[] | null;
 }
 
 export interface HotspotContent {
@@ -49,7 +52,7 @@ export function readHotspotContent(content: unknown): HotspotContent {
       ? c.hotspots.filter(isObject).map((h, index) => {
           const x = fraction(h.x);
           const y = fraction(h.y);
-          return { id: text(h.id) || `h-${index + 1}`, x: x !== null && y !== null ? x : null, y: x !== null && y !== null ? y : null, label: text(h.label), explanation: text(h.explanation), scripture: readScriptureEntries(h.scripture), scriptureRaw: h.scripture };
+          return { id: text(h.id) || `h-${index + 1}`, x: x !== null && y !== null ? x : null, y: x !== null && y !== null ? y : null, label: text(h.label), explanation: text(h.explanation), scripture: readScriptureEntries(h.scripture), scriptureRaw: h.scripture, levels: readItemLevels(h.levels) };
         })
       : [],
   };
@@ -68,6 +71,7 @@ export function buildHotspotContent(draft: HotspotContent): Record<string, unkno
       label: h.label.trim(),
       explanation: h.explanation.trim(),
       ...buildScriptureEntries(h.scripture),
+      ...levelsField(h.levels),
     })),
   };
   if (draft.title.trim()) out.title = draft.title.trim();

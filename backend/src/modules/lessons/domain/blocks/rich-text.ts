@@ -5,10 +5,26 @@
  *
  *   { "body": { "type": "doc", "content": [ ...block nodes ] } }
  *
- * Block nodes:  paragraph, bulletList, orderedList,
+ * Block nodes:  paragraph, heading, bulletList, orderedList,
  *               listItem (inside lists only, may hold paragraphs and nested lists)
- * Inline node:  text  { "type": "text", "text": "...", "marks": [...] }
+ *               heading { "type": "heading", "attrs": { "level": 1 | 2 | 3 }, "content": [ plain text nodes, no marks ] }
+ *               (document level only: a list item holds paragraphs and lists, never a heading)
+ * Inline nodes: text  { "type": "text", "text": "...", "marks": [...] }
+ *               scriptureRef  { "type": "scriptureRef", "attrs": { "reference": { bookId, chapter, startVerse, endVerse },
+ *                                                                   "dataset": { id, version, fingerprint } } }
+ *               (paragraphs only, so also the paragraphs inside list items; never inside a heading)
  * Marks:        bold, italic, link (attrs.href)
+ *
+ * HEADINGS (BLK-001 lists "headings"). The workbook does not say which levels exist, so the three levels the learner app already knew how to draw
+ * are allowed (1 to 3); nothing deeper. A heading is plain text: it takes no marks and holds no Scripture reference. Major lesson transitions still
+ * use SECTION_INTRO; a heading only titles a part of one explanatory text.
+ *
+ * SCRIPTURE REFERENCES (BLK-001 lists "references"). A reference is STRUCTURED data, never a string to be found in the text: the same reference
+ * model as every other Scripture block (scripture/domain/reference.ts), stored as `attrs.reference`. It is the identity; no Bible text is ever
+ * stored in the block. `attrs.dataset` is SET BY THE SERVER when the block is saved (the Scripture data set that confirmed the reference); a
+ * client cannot set it. When the lesson is published the node's attrs are replaced by the frozen passage { reference, display, source, verses }
+ * (ScriptureEmbedService), exactly like the references of other blocks, so a published lesson carries the approved text and needs no Bible
+ * service to be read. The learner app draws the reference in the sentence and shows the frozen text when the learner opens it.
  *
  * Everything not listed here is rejected: unknown nodes, marks, keys and
  * attributes, markup-like keys, and links whose scheme is not allow-listed.
@@ -31,6 +47,10 @@ export const RICH_TEXT_LIMITS = {
   maxNodes: 5000,
   maxHrefLength: 2048,
   maxMarksPerText: 3,
+  /** Inline Scripture references in one block. Each is frozen with its verse text when the lesson is published, so the number is kept modest. */
+  maxScriptureRefs: 10,
+  /** Heading levels that exist (see the contract above). */
+  headingLevels: [1, 2, 3],
   /** Stop collecting after this many problems. */
   maxProblems: 20,
 } as const;
@@ -41,7 +61,7 @@ export const ALLOWED_LINK_SCHEMES: readonly string[] = [
   'mailto:',
 ];
 
-const BLOCK_NODES = ['paragraph', 'bulletList', 'orderedList'] as const;
+const BLOCK_NODES = ['paragraph', 'heading', 'bulletList', 'orderedList'] as const;
 const LIST_ITEM_CHILDREN = ['paragraph', 'bulletList', 'orderedList'] as const;
 const MARK_TYPES = ['bold', 'italic', 'link'] as const;
 
@@ -64,6 +84,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 class Walk {
   readonly problems: ContentProblem[] = [];
   nodes = 0;
+  scriptureRefs = 0;
 
   add(path: string, message: string): void {
     if (this.problems.length < RICH_TEXT_LIMITS.maxProblems) {
@@ -169,17 +190,72 @@ function checkMarks(marks: unknown, path: string, walk: Walk): void {
   });
 }
 
-function checkText(node: unknown, path: string, walk: Walk): void {
+const REFERENCE_KEYS = ['bookId', 'chapter', 'startVerse', 'endVerse'] as const;
+const BOOK_ID = /^[1-3]?[A-Za-z]+$/;
+const whole = (value: unknown, max: number) => typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= max;
+
+/** An inline Scripture reference: structured data only (the shared one-chapter reference model); the dataset stamp, when present, is the server's. */
+function checkScriptureRef(node: Record<string, unknown>, path: string, walk: Walk): void {
+  walk.scriptureRefs += 1;
+  if (walk.scriptureRefs === RICH_TEXT_LIMITS.maxScriptureRefs + 1) {
+    walk.add(path, `A block may have at most ${RICH_TEXT_LIMITS.maxScriptureRefs} Scripture references`);
+  }
+  const attrs = node.attrs;
+  if (!isPlainObject(attrs)) {
+    walk.add(`${path}.attrs`, 'A Scripture reference needs attrs.reference');
+    return;
+  }
+  walk.keys(attrs, ['reference', 'dataset'], `${path}.attrs`);
+  const ref = attrs.reference;
+  if (!isPlainObject(ref)) {
+    walk.add(`${path}.attrs.reference`, 'A Scripture reference needs a reference { bookId, chapter, startVerse, endVerse }');
+  } else {
+    walk.keys(ref, REFERENCE_KEYS, `${path}.attrs.reference`);
+    if (typeof ref.bookId !== 'string' || ref.bookId.length > 10 || !BOOK_ID.test(ref.bookId)) {
+      walk.add(`${path}.attrs.reference.bookId`, 'The book must be a book id such as "John" or "1Sam"');
+    }
+    if (!whole(ref.chapter, 150)) walk.add(`${path}.attrs.reference.chapter`, 'The chapter must be a whole number from 1 to 150');
+    if (!whole(ref.startVerse, 176)) walk.add(`${path}.attrs.reference.startVerse`, 'The first verse must be a whole number from 1 to 176');
+    if (!whole(ref.endVerse, 176)) walk.add(`${path}.attrs.reference.endVerse`, 'The last verse must be a whole number from 1 to 176');
+    if (whole(ref.startVerse, 176) && whole(ref.endVerse, 176) && (ref.endVerse as number) < (ref.startVerse as number)) {
+      walk.add(`${path}.attrs.reference`, 'The last verse comes before the first verse');
+    }
+  }
+  const dataset = attrs.dataset;
+  if (dataset !== undefined) {
+    if (
+      !isPlainObject(dataset) ||
+      typeof dataset.id !== 'string' ||
+      typeof dataset.version !== 'string' ||
+      (dataset.fingerprint !== undefined && typeof dataset.fingerprint !== 'string') ||
+      Object.keys(dataset).some((key) => !['id', 'version', 'fingerprint'].includes(key))
+    ) {
+      walk.add(`${path}.attrs.dataset`, 'dataset must be { id, version, fingerprint }');
+    }
+  }
+}
+
+/** Text in a heading is plain: no marks. */
+type InlineMode = 'paragraph' | 'heading';
+
+function checkText(node: unknown, path: string, walk: Walk, mode: InlineMode): void {
   walk.nodes += 1;
   if (!isPlainObject(node)) {
     walk.add(path, 'An inline node must be an object');
+    return;
+  }
+  if (node.type === 'scriptureRef' && mode === 'paragraph') {
+    walk.keys(node, ['type', 'attrs'], path);
+    checkScriptureRef(node, path, walk);
     return;
   }
   walk.keys(node, ['type', 'text', 'marks'], path);
   if (node.type !== 'text') {
     walk.add(
       `${path}.type`,
-      `Only text is allowed here, not "${String(node.type)}"`,
+      mode === 'heading'
+        ? `Only plain text is allowed in a heading, not "${String(node.type)}"`
+        : `Only text or a Scripture reference is allowed here, not "${String(node.type)}"`,
     );
     return;
   }
@@ -188,17 +264,21 @@ function checkText(node: unknown, path: string, walk: Walk): void {
   } else if (node.text.includes('\u0000')) {
     walk.add(`${path}.text`, 'text must not contain NUL characters');
   }
-  if (node.marks !== undefined) checkMarks(node.marks, `${path}.marks`, walk);
+  if (mode === 'heading' && node.marks !== undefined) {
+    walk.add(`${path}.marks`, 'A heading is plain text and takes no marks');
+  } else if (node.marks !== undefined) {
+    checkMarks(node.marks, `${path}.marks`, walk);
+  }
 }
 
-function checkInline(content: unknown, path: string, walk: Walk): void {
+function checkInline(content: unknown, path: string, walk: Walk, mode: InlineMode = 'paragraph'): void {
   if (content === undefined) return; // an empty paragraph is allowed in a draft
   if (!Array.isArray(content)) {
     walk.add(path, 'content must be an array');
     return;
   }
   content.forEach((child, index) => {
-    if (!walk.full) checkText(child, `${path}[${index}]`, walk);
+    if (!walk.full) checkText(child, `${path}[${index}]`, walk, mode);
   });
 }
 
@@ -260,6 +340,20 @@ function checkNode(
       walk.keys(node, ['type', 'content'], path);
       checkInline(node.content, `${path}.content`, walk);
       break;
+    case 'heading': {
+      walk.keys(node, ['type', 'attrs', 'content'], path);
+      const attrs = node.attrs;
+      if (!isPlainObject(attrs)) {
+        walk.add(`${path}.attrs`, 'A heading needs attrs.level');
+      } else {
+        walk.keys(attrs, ['level'], `${path}.attrs`);
+        if (!(RICH_TEXT_LIMITS.headingLevels as readonly unknown[]).includes(attrs.level)) {
+          walk.add(`${path}.attrs.level`, `A heading level must be ${RICH_TEXT_LIMITS.headingLevels.join(', ')}`);
+        }
+      }
+      checkInline(node.content, `${path}.content`, walk, 'heading');
+      break;
+    }
     case 'bulletList':
     case 'orderedList':
       walk.keys(node, ['type', 'content'], path);

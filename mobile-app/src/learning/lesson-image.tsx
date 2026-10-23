@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { API_BASE_URL } from '@/config/api';
 import { useReduceMotion } from '@/accessibility/use-reduce-motion';
 import { AppText, BlockNotice, IconButton, Reveal } from '@/components/ui';
-import { offlineMediaEnabled, reportBrokenAsset, useAssetUri } from '@/features/offline/offline-media';
+import { canSaveImages, canSwitchToSavedWebCopy, reportBrokenAsset, switchToSavedWebCopy, useAssetUri } from '@/features/offline/offline-media';
 import type { LearningLevel } from '@/learning/levels';
 import { useTheme } from '@/theme';
 import { NATIVE_DRIVER, motion } from '@/theme/motion';
@@ -78,9 +78,9 @@ export function LessonImage({ lessonId, level, content }: { lessonId: string; le
             variant="offline"
             title={alt ? `Image: ${alt}` : 'An image belongs here, but it could not be shown.'}
             message={
-              offlineMediaEnabled
+              canSaveImages()
                 ? 'This image is not saved on this device yet. It is saved when you open the lesson with an internet connection.'
-                : 'This image could not be loaded. Check your internet connection and try again. The web version does not keep images for offline use.'
+                : 'This image could not be loaded. Check your internet connection and try again. This browser cannot keep images for offline use.'
             }
           />
           {uri ? (
@@ -115,7 +115,12 @@ export function LessonImage({ lessonId, level, content }: { lessonId: string; le
             onError={() => {
               // a saved copy that cannot be shown is dropped (it is downloaded again later) and the learner URL is tried instead
               if (uri !== remoteUri) reportBrokenAsset(mediaId);
-              else setStatus('failed');
+              // on the web the live image failed (offline, server down): the saved copy is shown if there is one
+              else if (canSwitchToSavedWebCopy(mediaId)) {
+                void switchToSavedWebCopy(mediaId).then((shown) => {
+                  if (!shown) setStatus('failed');
+                });
+              } else setStatus('failed');
             }}
           />
           {status === 'loading' ? (

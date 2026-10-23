@@ -1,11 +1,12 @@
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Share, View } from 'react-native';
+import { View } from 'react-native';
 
 import { AppText, Card, LinkGroup, LinkRow, PageHeading, ScreenContainer, ScreenSection } from '@/components/ui';
-import { SHARE_MESSAGE, SHARE_URL, buildShareText } from '@/config/share';
+import { SHARE_AVAILABLE } from '@/config/share';
 import { useBookmarks } from '@/features/bookmarks/bookmarks-provider';
 import { getScriptureAvailability } from '@/features/scripture/scripture-lookup';
+import { inviteFriend, inviteNote } from '@/features/sharing/invite-friend';
 import { LevelSelector } from '@/learning/level-selector';
 import { LEVEL_LABELS } from '@/learning/levels';
 import { useLearningLevel } from '@/learning/use-learning-level';
@@ -40,14 +41,11 @@ export function MoreScreen() {
     }, []),
   );
 
-  // The operating system's share sheet does the sharing: the app never sees or stores contacts.
+  // The operating system's share sheet (or the browser's share dialog, or a copied link) does the sharing: the app never sees or stores contacts. Without a valid
+  // public link there is nothing to invite with, and that is said instead of sharing a message that goes nowhere.
   const invite = async () => {
     setShareNote(null);
-    try {
-      await Share.share({ message: buildShareText(SHARE_MESSAGE, SHARE_URL) });
-    } catch {
-      setShareNote('Sharing is not available on this device.');
-    }
+    setShareNote(inviteNote(await inviteFriend()));
   };
 
   return (
@@ -94,12 +92,12 @@ export function MoreScreen() {
             <LinkRow title="Settings" description="Appearance and saved data." onPress={() => router.push('/settings')} />
             <LinkRow
               title="Invite a Friend"
-              description="Share Prophetic Destinations using your device's share options."
+              description={SHARE_AVAILABLE ? "Share Prophetic Destinations using your device's share options." : 'Not available yet: the public link to share has not been set up.'}
               onPress={() => void invite()}
             />
           </LinkGroup>
           {shareNote ? (
-            <AppText variant="bodySmall" color="textMuted" accessibilityLiveRegion="polite">
+            <AppText variant="bodySmall" color="textMuted" accessibilityLiveRegion="polite" selectable>
               {shareNote}
             </AppText>
           ) : null}

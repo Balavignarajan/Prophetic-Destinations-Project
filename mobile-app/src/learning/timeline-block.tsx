@@ -16,6 +16,9 @@ import { motion, staggerDelay } from '@/theme/motion';
  * if the image fails, only the image falls back to its description: the event text is unaffected. An event's Scripture passages (frozen in
  * the snapshot) open from buttons under it, apart from the explanation; a malformed passage affects only itself.
  *
+ * The events are the ones the server resolved for the learner's level (an event reserved for other levels is never sent), shown as given: nothing is filtered
+ * here. A timeline that has no event at this level says so, quietly, instead of looking broken.
+ *
  * Nothing is skipped quietly. The publisher refuses malformed timelines, so if any event is malformed or incomplete anyway, the WHOLE
  * timeline is replaced by a short "not available" message (a partial list would look like a complete timeline). The rest of the
  * lesson is unaffected.
@@ -51,6 +54,18 @@ export function TimelineContent({ lessonId, level, content }: { lessonId: string
   const { spacing, colors, radius } = useTheme();
   const events = readEvents(content);
 
+  if (!events && Array.isArray(content.events) && content.events.length === 0) {
+    return (
+      <View style={{ gap: spacing.sm }} accessible={false}>
+        <AppText variant="sectionHeading" accessibilityRole="header">
+          {asText(content.heading) || 'Timeline'}
+        </AppText>
+        <AppText variant="bodySmall" color="textMuted">
+          There are no events in this timeline at your level.
+        </AppText>
+      </View>
+    );
+  }
   if (!events) {
     return (
       <BlockNotice title="Timeline not available" message="This lesson has a timeline that could not be shown completely, so it is hidden rather than shown with events missing. The rest of the lesson is not affected." />

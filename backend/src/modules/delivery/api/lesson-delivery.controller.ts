@@ -125,6 +125,8 @@ export class LessonDeliveryController {
     @Param('mediaId', ParseUUIDPipe) mediaId: string,
     @Query() query: LessonDeliveryQueryDto,
     @Headers('if-none-match') ifNoneMatch: string | undefined,
+    @Headers('range') range: string | undefined,
+    @Headers('if-range') ifRange: string | undefined,
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile | undefined> {
     const result = await this.media.getImage(
@@ -132,21 +134,33 @@ export class LessonDeliveryController {
       mediaId,
       query.level,
       ifNoneMatch,
+      range,
+      ifRange,
     );
     res.setHeader('ETag', result.etag);
     res.setHeader('Cache-Control', PUBLISHED_CACHE_CONTROL);
+    res.setHeader('Accept-Ranges', 'bytes');
     if (result.kind === 'NOT_MODIFIED') {
       res.status(304);
+      return undefined;
+    }
+    if (result.kind === 'UNSATISFIABLE') {
+      res.setHeader('Content-Range', `bytes */${result.size}`);
+      res.status(416);
       return undefined;
     }
     const { asset, stream } = result.content;
     res.set({
       'Content-Type': asset.contentType,
-      'Content-Length': String(asset.sizeBytes),
+      'Content-Length': String(result.range ? result.range.end - result.range.start + 1 : asset.sizeBytes),
       'Content-Disposition': 'inline',
       'X-Content-Type-Options': 'nosniff',
       'Content-Security-Policy': "default-src 'none'; sandbox",
     });
+    if (result.range) {
+      res.setHeader('Content-Range', `bytes ${result.range.start}-${result.range.end}/${result.range.size}`);
+      res.status(206);
+    }
     return new StreamableFile(stream);
   }
 }

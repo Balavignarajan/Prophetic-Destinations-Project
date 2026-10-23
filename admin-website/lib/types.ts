@@ -27,6 +27,13 @@ export interface AuthSessionResponse {
   admin: AdminUser;
 }
 
+/** The Bible books that have a dedicated entry on the learner Home (backend COURSE_BOOKS). */
+export type CourseBook = 'DANIEL' | 'REVELATION';
+export const COURSE_BOOK_OPTIONS: readonly { value: CourseBook; label: string }[] = [
+  { value: 'DANIEL', label: 'Daniel' },
+  { value: 'REVELATION', label: 'Revelation' },
+];
+
 export interface Course {
   id: string;
   title: string;
@@ -34,6 +41,8 @@ export interface Course {
   status: 'DRAFT' | 'READY_FOR_REVIEW' | 'APPROVED' | 'PUBLISHED';
   /** Working cover image (media asset id), or null. */
   coverMediaId?: string | null;
+  /** Which dedicated Home entry (Daniel / Revelation) this course is the destination of, or null/absent for an ordinary course. */
+  book?: CourseBook | null;
   /** 1-based place in the manual course order. */
   position?: number;
   version: number;

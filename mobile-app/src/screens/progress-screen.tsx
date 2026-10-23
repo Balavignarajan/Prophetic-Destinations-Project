@@ -1,11 +1,15 @@
 import { useRouter } from 'expo-router';
+import { useMemo } from 'react';
 import { View } from 'react-native';
 
 import { useResource } from '@/api/use-resource';
 import { AppText, Card, ChevronIcon, EmptyState, PageHeading, ScreenContainer, ScreenSection } from '@/components/ui';
+import { type LevelProgress, isMissingFromCatalog, levelProgressLine, publishedLessonsOf } from '@/features/learning/catalog-progress';
 import { ProgressStatusNotice } from '@/features/learning/progress-notice';
-import { levelProgressLine, useProgressOverview } from '@/features/learning/progress-overview';
+import { useProgressOverview } from '@/features/learning/progress-overview';
+import { useLessonTitleSync } from '@/features/learning/use-lesson-title-sync';
 import { loadCourseList } from '@/features/offline/offline-api';
+import { isRecoverable, useRetryOnReconnect } from '@/features/offline/use-retry-on-reconnect';
 import { ContinueCard } from '@/learning/continue-card';
 import { LEVEL_LABELS } from '@/learning/levels';
 import { useLearningLevel } from '@/learning/use-learning-level';
@@ -13,7 +17,9 @@ import { useTheme } from '@/theme';
 
 /**
  * Progress: lessons completed and in progress, the quiz results saved on this device, and a way to continue. Everything comes from this device;
- * the "remaining" count comes from the published catalog at the learner's level (live, or its saved copy) and is left out when that is unknown.
+ * "completed of available" and "remaining" for the learner's level come from the published catalog at that level (live, or its saved copy) and are left
+ * out when that is unknown. Only lessons that are available now count toward the total, so a lesson that was completed and later unpublished never makes
+ * the count exceed it.
  *
  * There is deliberately NO "overall progress" percentage: the specification does not define the formula (decision C-14). Quiz scores are the
  * latest completed result of each quiz block taken on this device (provisional rule, see QuizResult); a lesson counts as complete on its own,
@@ -23,17 +29,26 @@ export function ProgressScreen() {
   const router = useRouter();
   const { spacing } = useTheme();
   const { level, ready } = useLearningLevel();
-  const [courses] = useResource(ready ? `courses:${level}` : null, (signal) => loadCourseList(level, signal));
+  const [courses, reloadCourses] = useResource(ready ? `courses:${level}` : null, (signal) => loadCourseList(level, signal));
+  // When the totals below come from the saved course list, they are refreshed as soon as the connection is back.
+  useRetryOnReconnect(isRecoverable(courses), reloadCourses);
   const courseList = courses.status === 'success' ? courses.data.value.courses : [];
-  const total = courses.status === 'success' ? courseList.reduce((sum, course) => sum + course.lessonCount, 0) : null;
+  const catalogLive = courses.status === 'success' && courses.data.source === 'network';
+  const published = useMemo(() => (courses.status === 'success' ? publishedLessonsOf(courses.data.value.courses) : null), [courses]);
   // The same figures Home shows, from one place. When the saved progress could not be read, the empty progress is not "nothing yet": neither the empty
   // state nor zero counts are shown. The lesson to continue is the most recent unfinished one that is still published; the list below keeps every
   // unfinished lesson (the history) and says which ones are no longer available. `verifyAll` asks the server about each of them.
-  const { unavailable: progressUnavailable, summary, resume, others, done, quizzes, hasAnything, isUnavailable } = useProgressOverview(level, total, { verifyAll: true });
+  const { unavailable: progressUnavailable, summary, levelProgress, resume, others, done, quizzes, hasAnything, isUnavailable } = useProgressOverview(level, published, { verifyAll: true });
+  // A lesson renamed in the CMS is titled by the live catalog: the titles saved with the learner's progress (lessons in progress, completed, quiz results) are brought up
+  // to date, titles only (completion dates, positions and scores are untouched), and stay the fallback while offline.
+  const listedAtLevel = [...(resume ? [resume] : []), ...others, ...done, ...quizzes].filter((entry) => entry.level === level).map((entry) => entry.lessonId);
+  useLessonTitleSync({ level, courses: courseList, live: catalogLive, lessonIds: listedAtLevel });
+  // A lesson the live catalog no longer lists keeps its place in the history but is not described as somewhere to go; a saved copy of the catalog never says this.
+  const isGone = (lesson: { lessonId: string; level: typeof level }) => isUnavailable(lesson) || isMissingFromCatalog(published, catalogLive, lesson, level);
   // The course name is only known when the resumed lesson is at the level whose course list is loaded.
   const resumeCourse = resume && resume.level === level && resume.courseId ? courseList.find((course) => course.courseId === resume.courseId) : undefined;
   const open = (lessonId: string, lessonLevel: string) => router.push({ pathname: '/lesson/[lessonId]', params: { lessonId, level: lessonLevel } });
-  const levelLine = levelProgressLine(level, summary, total);
+  const levelLine = levelProgressLine(level, levelProgress);
 
   return (
     <ScreenContainer scroll>
@@ -51,14 +66,23 @@ export function ProgressScreen() {
           />
         ) : (
           <View style={{ gap: spacing.md }}>
+            {levelProgress.kind === 'counts' ? <LevelCountsCard level={level} progress={levelProgress} spoken={levelLine} /> : null}
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md }}>
               <StatTile value={summary.completed} label="Completed" spoken={`${summary.completed} ${summary.completed === 1 ? 'lesson' : 'lessons'} completed`} />
               <StatTile value={summary.inProgress} label="In progress" spoken={`${summary.inProgress} ${summary.inProgress === 1 ? 'lesson' : 'lessons'} in progress`} />
               <StatTile value={quizzes.length} label={quizzes.length === 1 ? 'Quiz taken' : 'Quizzes taken'} spoken={`${quizzes.length} ${quizzes.length === 1 ? 'quiz' : 'quizzes'} taken`} />
             </View>
-            <AppText variant="bodySmall" color="textSecondary">
-              {levelLine}
-            </AppText>
+            {levelProgress.kind === 'counts' ? null : (
+              <AppText variant="bodySmall" color="textSecondary">
+                {levelLine}
+              </AppText>
+            )}
+            {/* The totals come from the course list saved on this device when the live one could not be reached: they may be out of date, and are refreshed once the connection is back. */}
+            {courses.status === 'success' && courses.data.source === 'cache' && levelProgress.kind !== 'unknown' ? (
+              <AppText variant="bodySmall" color="textMuted">
+                Lesson totals come from the course list saved on this device. They update when you are back online.
+              </AppText>
+            ) : null}
           </View>
         )}
 
@@ -75,7 +99,7 @@ export function ProgressScreen() {
           <ScreenSection title={resume ? 'Also in progress' : 'In progress'}>
             {others.map((lesson) => {
               // Your place in a lesson that is no longer published is kept (and shown), but it is not described as somewhere to continue.
-              const gone = isUnavailable(lesson);
+              const gone = isGone(lesson);
               return (
                 <LessonEntry
                   key={`${lesson.lessonId}:${lesson.level}`}
@@ -91,16 +115,24 @@ export function ProgressScreen() {
 
         {done.length > 0 ? (
           <ScreenSection title="Completed">
-            {done.map((lesson) => (
-              <LessonEntry
-                key={`${lesson.lessonId}:${lesson.level}`}
-                done
-                title={lesson.title}
-                meta={`Completed${dateOf(lesson.completedAt) ? ` ${dateOf(lesson.completedAt)}` : ''} · ${LEVEL_LABELS[lesson.level]} level`}
-                onPress={() => open(lesson.lessonId, lesson.level)}
-                accessibilityLabel={`${lesson.title}, ${LEVEL_LABELS[lesson.level]} level, completed. Open again.`}
-              />
-            ))}
+            {done.map((lesson) => {
+              // The completion stays on record whatever happens to the lesson; one that is no longer published is said to be, and is not offered as "open again".
+              const gone = isGone(lesson);
+              return (
+                <LessonEntry
+                  key={`${lesson.lessonId}:${lesson.level}`}
+                  done
+                  title={lesson.title}
+                  meta={`Completed${dateOf(lesson.completedAt) ? ` ${dateOf(lesson.completedAt)}` : ''} · ${LEVEL_LABELS[lesson.level]} level${gone ? ' · No longer available' : ''}`}
+                  onPress={() => open(lesson.lessonId, lesson.level)}
+                  accessibilityLabel={
+                    gone
+                      ? `${lesson.title}, ${LEVEL_LABELS[lesson.level]} level, completed, no longer available. Open for details.`
+                      : `${lesson.title}, ${LEVEL_LABELS[lesson.level]} level, completed. Open again.`
+                  }
+                />
+              );
+            })}
           </ScreenSection>
         ) : null}
 
@@ -145,6 +177,29 @@ function dateOf(time: number): string {
   } catch {
     return '';
   }
+}
+
+/**
+ * Lessons completed out of the lessons available at the learner's level, and how many remain. Counts only: there is no percentage because the documents do
+ * not define one (decision C-14).
+ */
+function LevelCountsCard({ level, progress, spoken }: { level: keyof typeof LEVEL_LABELS; progress: Extract<LevelProgress, { kind: 'counts' }>; spoken: string }) {
+  const { spacing } = useTheme();
+  return (
+    <Card>
+      <View accessible accessibilityLabel={spoken} style={{ gap: spacing.xs }}>
+        <AppText variant="bodySmall" color="textMuted" style={{ fontWeight: '600' }}>
+          {LEVEL_LABELS[level]} level
+        </AppText>
+        <AppText variant="title" color="primaryHighlight">
+          {progress.completed} of {progress.total}
+        </AppText>
+        <AppText variant="bodySmall" color="textSecondary">
+          {progress.total === 1 ? 'lesson' : 'lessons'} completed{progress.remaining > 0 ? ` · ${progress.remaining} remaining` : ' · none remaining'}
+        </AppText>
+      </View>
+    </Card>
+  );
 }
 
 /** One count, big, with its label. Wraps onto a new line on a narrow screen or at a large font size. */

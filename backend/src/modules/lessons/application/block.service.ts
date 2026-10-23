@@ -386,6 +386,17 @@ export class BlockService {
           { code: 'MEDIA_NOT_FOUND', mediaId: reference.targetId },
         );
       }
+      if (reference.mediaKind === 'video' || reference.mediaKind === 'lottie') {
+        // The stored type was detected from the file's own bytes at upload, so this cannot be passed off by naming a file differently.
+        const wanted = reference.mediaKind === 'video' ? 'video/mp4' : 'application/json';
+        if (asset.contentType !== wanted) {
+          throw new BusinessRuleError(
+            reference.mediaKind === 'video' ? 'The selected file is not an MP4 video. Choose an MP4 video from the Media Library.' : 'The selected file is not a Lottie animation. Choose a Lottie JSON file from the Media Library.',
+            { code: reference.mediaKind === 'video' ? 'MEDIA_NOT_A_VIDEO' : 'MEDIA_NOT_LOTTIE', mediaId: reference.targetId },
+          );
+        }
+        continue;
+      }
       if (!asset.contentType.startsWith('image/')) {
         throw new BusinessRuleError('The selected file is not an image', {
           code: 'MEDIA_NOT_AN_IMAGE',

@@ -9,9 +9,11 @@ import {
   clampFraction,
   newHotspotId,
 } from '../lib/hotspot-block';
+import { hasEmptyLevelChoice } from '../lib/item-levels';
 import { fillIfEmpty } from '../lib/media-api';
 import type { LearningLevel, MediaAsset } from '../lib/types';
 import ImageUploadPanel from './ImageUploadPanel';
+import ItemLevelsField from './ItemLevelsField';
 import MediaBrowser from './MediaBrowser';
 import MediaImage from './MediaImage';
 import ScriptureRefList from './ScriptureRefList';
@@ -85,7 +87,7 @@ function Body({ mode, lessonLevels, initial, variant = 'interactive', saving, er
 
   const addHotspot = () => {
     const id = newHotspotId(draft.hotspots);
-    setDraft((d) => ({ ...d, hotspots: [...d.hotspots, { id, x: null, y: null, label: '', explanation: '', scripture: [] }] }));
+    setDraft((d) => ({ ...d, hotspots: [...d.hotspots, { id, x: null, y: null, label: '', explanation: '', scripture: [], levels: null }] }));
     setSelectedId(id);
   };
   const removeHotspot = (id: string) => {
@@ -125,7 +127,7 @@ function Body({ mode, lessonLevels, initial, variant = 'interactive', saving, er
     patchHotspot(h.id, axis === 'x' ? { x: next, y: h.y ?? 0.5 } : { y: next, x: h.x ?? 0.5 });
   };
 
-  const canSave = !saving && Boolean(draft.mediaId) && (mode === 'edit' || levels.length > 0);
+  const canSave = !saving && Boolean(draft.mediaId) && !hasEmptyLevelChoice(draft.hotspots) && (mode === 'edit' || levels.length > 0);
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (canSave) onSave(buildHotspotContent(draft), levels);
@@ -293,6 +295,7 @@ function Body({ mode, lessonLevels, initial, variant = 'interactive', saving, er
                   onChange={(scripture) => patchHotspot(h.id, { scripture })}
                   disabled={saving}
                 />
+                <ItemLevelsField idPrefix={`hs-lv-${h.id}`} itemLabel={`${Noun} ${index + 1}`} plural={`${noun}s`} value={h.levels} onChange={(next) => patchHotspot(h.id, { levels: next })} disabled={saving} />
                 <div className="flex flex-wrap items-end gap-3">
                   <div>
                     <label htmlFor={`hs-x-${h.id}`} className="block text-xs font-semibold text-slate-800">Horizontal position (% from left)</label>

@@ -6,6 +6,9 @@ import type { LearningLevel } from '@/learning/levels';
  * Only fields the backend documents are modelled; nothing here is assumed.
  */
 
+/** The Bible books that have a dedicated entry on Home (backend COURSE_BOOKS). */
+export type CourseBook = 'DANIEL' | 'REVELATION';
+
 /** GET /courses?level= */
 export interface CourseListItem {
   courseId: string;
@@ -14,8 +17,15 @@ export interface CourseListItem {
   description: string | null;
   /** Published cover image id. Optional: older cached responses (and courses without a cover) do not have it. */
   coverMediaId?: string | null;
+  /**
+   * The course's CMS-managed Bible book: the course the Daniel / Revelation Home entry opens. null = an ordinary course. Optional: responses saved before it existed
+   * do not have it (which is different from null, "no book").
+   */
+  book?: CourseBook | null;
   moduleCount: number;
   lessonCount: number;
+  /** The ids of the lessons counted in `lessonCount`, in the published order. Optional: responses saved before it existed do not have it. */
+  lessonIds?: string[];
 }
 export interface CourseListResponse {
   level: LearningLevel;
@@ -47,6 +57,7 @@ export interface CourseResponse {
   title: string;
   description: string | null;
   coverMediaId?: string | null;
+  book?: CourseBook | null;
   moduleCount: number;
   lessonCount: number;
   modules: CatalogModule[];

@@ -10,6 +10,7 @@ import {
   isNavigationResponse,
   isExploreResponse,
   isRelatedResponse,
+  lessonVersion,
   listCourses,
 } from '@/api/learner-api';
 import type { CourseListResponse, CourseResponse, ExploreResponse, LessonResponse, NavigationResponse, RelatedResponse } from '@/api/types';
@@ -28,7 +29,7 @@ export const loadCourse = (courseId: string, level: LearningLevel, signal?: Abor
   loadCached({ kind: 'course', id: courseId, level, fetch: () => getCourse(courseId, level, signal), validate: isCourseResponse, signal });
 
 export const loadLesson = (lessonId: string, level: LearningLevel, signal?: AbortSignal): Promise<Loaded<LessonResponse>> =>
-  loadCached({ kind: 'lesson', id: lessonId, level, fetch: () => getLesson(lessonId, level, signal), validate: isLessonResponse, signal });
+  loadCached({ kind: 'lesson', id: lessonId, level, fetch: () => getLesson(lessonId, level, signal), validate: isLessonResponse, version: lessonVersion, signal });
 
 export const loadNavigation = (lessonId: string, level: LearningLevel, signal?: AbortSignal): Promise<Loaded<NavigationResponse>> =>
   loadCached({ kind: 'navigation', id: lessonId, level, fetch: () => getNavigation(lessonId, level, signal), validate: isNavigationResponse, signal });

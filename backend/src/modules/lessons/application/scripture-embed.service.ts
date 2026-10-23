@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { BusinessRuleError } from '../../../shared-kernel/index.js';
 import { ScriptureFacade } from '../../scripture/index.js';
 import type { ContentProblem } from '../domain/blocks/rich-text.js';
+import { listScriptureRefs, replaceScriptureRefs } from '../domain/blocks/rich-text-scripture.js';
 import { datasetStampOf, passageReferenceOf, sameReference } from '../domain/blocks/scripture-passage.js';
 import { MAX_REFS_PER_ITEM, itemReferenceOf, sameItemReference } from '../domain/blocks/scripture-refs.js';
 import { stampOf } from '../domain/blocks/scripture-passage.js';
@@ -74,6 +75,8 @@ export class ScriptureEmbedService {
         out.push(await this.embedQuiz(block, problems));
       } else if (block.type === 'EXPLORE_DEEPER') {
         out.push(await this.embedExploreDeeper(block, problems));
+      } else if (block.type === 'RICH_TEXT') {
+        out.push(await this.embedRichText(block, problems));
       } else if (SCRIPTURE_LISTS[block.type]) {
         out.push(await this.embedNested(block, problems));
       } else {
@@ -83,8 +86,12 @@ export class ScriptureEmbedService {
     return { blocks: out, problems };
   }
 
-  /** Verifies one stored entry against the installed text; returns the frozen passage or the reason it cannot be published. */
-  private async freeze(entry: unknown, stamp: ReturnType<typeof stampOf>): Promise<{ frozen: Json } | { problem: string }> {
+  /**
+   * Verifies one stored entry against the installed text; returns the frozen passage or the reason it cannot be published. `again` is what the author does to
+   * bring a stale reference up to date, which depends on where the reference lives (the other blocks have a Refresh button; an inline reference is re-checked
+   * when its text block is saved).
+   */
+  private async freeze(entry: unknown, stamp: ReturnType<typeof stampOf>, again = 'use Refresh on it and save'): Promise<{ frozen: Json } | { problem: string }> {
     const reference = itemReferenceOf(entry);
     if (!reference) return { problem: 'its Scripture reference is incomplete or malformed' };
     const result = await this.scripture.verify(reference);
@@ -97,11 +104,11 @@ export class ScriptureEmbedService {
       };
     }
     if (!stamp || stamp.fingerprint === null) {
-      return { problem: 'this passage was added before text fingerprints existed, so it is not treated as verified; remove and add it again (or use Refresh) and save' };
+      return { problem: `this passage was added before text fingerprints existed, so it is not treated as verified; ${again === 'use Refresh on it and save' ? 'remove and add it again (or use Refresh) and save' : again}` };
     }
     if (stamp.fingerprint !== result.source.fingerprint) {
       return {
-        problem: `the Scripture text on the server (${result.source.translation}, version ${result.source.version}) is not the text this passage was added with; use Refresh on it and save, then have the lesson approved again`,
+        problem: `the Scripture text on the server (${result.source.translation}, version ${result.source.version}) is not the text this passage was added with; ${again}, then have the lesson approved again`,
       };
     }
     return { frozen: { reference: result.reference, display: result.display, source: result.source, verses: result.verses } };
@@ -118,6 +125,31 @@ export class ScriptureEmbedService {
     }
     const commentary = content.commentary;
     return { ...block, content: { ...outcome.frozen, ...(typeof commentary === 'string' && commentary.trim() ? { commentary: commentary.trim() } : {}) } };
+  }
+
+  /**
+   * A RICH_TEXT block: each inline Scripture reference (a structured `scriptureRef` node) is verified against the installed text and its attrs are replaced by
+   * the frozen passage { reference, display, source, verses }, so the published text block carries the approved wording and needs no Bible service to be
+   * read. If ANY reference cannot be frozen the block keeps its stored form and is reported with the reference's place in the document, so one unavailable
+   * passage never alters the rest of the stored content. A block without references is returned as it is.
+   */
+  private async embedRichText(block: ResolvedBlock, problems: ScriptureEmbedProblem[]): Promise<ResolvedBlock> {
+    const content = block.content as Json;
+    const refs = listScriptureRefs(content);
+    if (refs.length === 0) return block;
+    const found: ContentProblem[] = [];
+    const replacements = new Map<string, Json>();
+    for (let k = 0; k < refs.length; k += 1) {
+      const { path, attrs } = refs[k];
+      const outcome = await this.freeze(attrs, stampOf(attrs.dataset), 'open this text block, save it again');
+      if ('problem' in outcome) found.push({ path, message: `Scripture reference ${k + 1}: ${outcome.problem}.` });
+      else replacements.set(path, outcome.frozen);
+    }
+    if (found.length > 0) {
+      problems.push({ blockId: block.blockId, problems: found });
+      return block;
+    }
+    return { ...block, content: replaceScriptureRefs(content, replacements) };
   }
 
   /** Freezes a list of stored entries; every entry that cannot be frozen is reported with its path and label. */
@@ -238,6 +270,7 @@ export class ScriptureEmbedService {
       const sink: ScriptureEmbedProblem[] = [];
       let result: ResolvedBlock = probe;
       if (child.type === 'SCRIPTURE_PASSAGE') result = await this.embedPassage(probe, sink);
+      else if (child.type === 'RICH_TEXT') result = await this.embedRichText(probe, sink);
       else if (SCRIPTURE_LISTS[child.type]) result = await this.embedNested(probe, sink);
       for (const problem of sink) {
         for (const item of problem.problems) {
@@ -341,6 +374,43 @@ export class ScriptureEmbedService {
     return stamped;
   }
 
+  /**
+   * A RICH_TEXT block being saved: every inline Scripture reference is checked against the installed text and stamped with the data set that confirmed it
+   * (a client can never supply the stamp: whatever it sent is replaced). Unlike the lists of the other blocks, a stamp is NOT kept just because the reference
+   * is unchanged: a reference sits inside prose that is edited as a whole text, so every save re-checks all of them against the current text, which keeps
+   * an unchanged reference from ever going stale unnoticed. That is safe because changed content puts the lesson back to Draft, so it is approved again.
+   * With no Scripture text installed a reference that was already in the block is kept exactly as saved (editing the prose is never blocked by it), but a new
+   * one is refused. A reference the installed text says does not exist is refused.
+   */
+  private async stampRichText(content: Json | null, current: Json | null): Promise<Json | null> {
+    if (content === null) return content;
+    const refs = listScriptureRefs(content);
+    if (refs.length === 0) return content;
+    const before = current ? listScriptureRefs(current) : [];
+    const replacements = new Map<string, Json>();
+    for (let k = 0; k < refs.length; k += 1) {
+      const { path, attrs } = refs[k];
+      const label = `Scripture reference ${k + 1}`;
+      const reference = itemReferenceOf(attrs);
+      if (!reference) throw new BusinessRuleError(`${label}: the Scripture reference is incomplete`, { code: 'INVALID_REFERENCE' });
+      const result = await this.scripture.verify(reference);
+      if (result.verified) {
+        const { id, version, fingerprint } = result.source;
+        replacements.set(path, { reference, dataset: { id, version, fingerprint } });
+      } else if (result.reason === 'DATA_UNAVAILABLE') {
+        const previous = before.find((old) => sameItemReference(itemReferenceOf(old.attrs), reference));
+        if (!previous) {
+          throw new BusinessRuleError(`${label}: Scripture references cannot be added yet because the Scripture text is not installed on the server.`, { code: 'SCRIPTURE_DATA_UNAVAILABLE' });
+        }
+        const previousStamp = stampOf(previous.attrs.dataset);
+        replacements.set(path, { reference, ...(previousStamp ? { dataset: previousStamp } : {}) });
+      } else {
+        throw new BusinessRuleError(`${label}: ${result.message}`, { code: result.reason });
+      }
+    }
+    return replaceScriptureRefs(content, replacements);
+  }
+
   /** Stamps the entries of ONE field of the content being saved (see stampNested). */
   private async stampField(content: Json, current: Json | null, spec: FieldSpec): Promise<Json> {
     if (spec.kind === 'direct') {
@@ -381,6 +451,7 @@ export class ScriptureEmbedService {
    * against the stored ones. Content without any entries is returned untouched.
    */
   async stampNested(type: string, content: Json | null, current: Json | null): Promise<Json | null> {
+    if (type === 'RICH_TEXT') return this.stampRichText(content, current);
     const specs = SCRIPTURE_LISTS[type];
     if (!specs || content === null) return content;
     let next = content;

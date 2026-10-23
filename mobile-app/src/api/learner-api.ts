@@ -34,6 +34,22 @@ export const isLessonResponse = (body: unknown): body is LessonResponse => {
   );
 };
 
+/**
+ * The published version a lesson response names: its publication number and the hash of its content (the backend's own identity of a published lesson; republishing
+ * identical content still gives a new publication number). Null when either is missing, which a real answer never is: such a response cannot be compared with a saved one.
+ */
+export const lessonVersion = (body: LessonResponse): string | null =>
+  Number.isInteger(body.publicationVersion) && body.publicationVersion >= 1 && typeof body.contentHash === 'string' && body.contentHash.length > 0
+    ? `${body.publicationVersion}:${body.contentHash}`
+    : null;
+
+/**
+ * A lesson answer is only used (and only ever saved over a saved copy) when it is complete and is the lesson and level that were asked for. An answer without its
+ * published version, or for another lesson or level, is treated like any other unusable answer: the saved copy, if there is one, stays the one that is shown and kept.
+ */
+export const isRequestedLesson = (body: LessonResponse, lessonId: string, level: LearningLevel): boolean =>
+  typeof body.lessonId === 'string' && body.lessonId.toLowerCase() === lessonId.toLowerCase() && body.level === level && lessonVersion(body) !== null;
+
 export const isNavigationResponse = (body: unknown): body is NavigationResponse =>
   isRecord(body) && typeof body.courseId === 'string';
 
@@ -79,7 +95,7 @@ export async function getCourse(courseId: string, level: LearningLevel, signal?:
 /** GET /lessons/:lessonId?level= — the published snapshot. 404 if it is not currently deliverable at this level. */
 export async function getLesson(lessonId: string, level: LearningLevel, signal?: AbortSignal): Promise<LessonResponse> {
   const body = await apiGet<unknown>(`/lessons/${encodeURIComponent(lessonId)}`, { level }, signal);
-  if (!isLessonResponse(body)) throw new ResponseShapeError('the lesson');
+  if (!isLessonResponse(body) || !isRequestedLesson(body, lessonId, level)) throw new ResponseShapeError('the lesson');
   return body;
 }
 

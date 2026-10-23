@@ -1,8 +1,10 @@
+import { levelsField, readItemLevels } from './item-levels';
 import { type ScriptureEntryDraft, buildScriptureEntries, readScriptureEntries } from './scripture-info';
 
 /**
  * The TIMELINE lesson block (backend/src/modules/lessons/domain/blocks/timeline.ts). PROPOSED schema, not approved:
- *   { heading?: string, events: [{ id, dateLabel, title, explanation }] }
+ *   { heading?: string, events: [{ id, dateLabel, title, explanation, levels? }] }
+ * `levels` (optional) reserves an event for some levels (CMS-017); none = every level the block is shown at.
  * `dateLabel` is display text only ("605 BC", "c. 538 BC", "the seventy weeks"): never parsed, converted or sorted. Events keep the
  * author's order. An event may also carry an image: { mediaId, altText, caption?, source? } as in the IMAGE block. Scripture references per
  * event: `scripture` is a list of structured references (see scripture-info.ts); the server verifies and stamps them.
@@ -23,6 +25,8 @@ export interface TimelineEventDraft {
   scripture: ScriptureEntryDraft[];
   /** The stored/previewed `scripture` value as it came (for display only; never sent back). */
   scriptureRaw?: unknown;
+  /** The levels this event is reserved for; null/absent = every level the block is shown at. */
+  levels?: string[] | null;
 }
 
 export interface TimelineContent {
@@ -57,6 +61,7 @@ export function readTimelineContent(content: unknown): TimelineContent & { malfo
         source: text(e.source),
         scripture: readScriptureEntries(e.scripture),
         scriptureRaw: e.scripture,
+        levels: readItemLevels(e.levels),
       });
     });
   }
@@ -73,6 +78,7 @@ export function buildTimelineContent(draft: TimelineContent): Record<string, unk
       // The image fields are saved only when an image is chosen; removing the image drops its description too (the media file stays).
       ...(e.mediaId ? { mediaId: e.mediaId, altText: e.altText.trim(), ...(e.caption.trim() ? { caption: e.caption.trim() } : {}), ...(e.source.trim() ? { source: e.source.trim() } : {}) } : {}),
       ...buildScriptureEntries(e.scripture),
+      ...levelsField(e.levels),
     })),
   };
   if (draft.heading.trim()) out.heading = draft.heading.trim();

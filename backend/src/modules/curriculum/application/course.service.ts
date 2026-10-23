@@ -5,6 +5,9 @@ import {
   ConflictError,
   NotFoundError,
   BusinessRuleError,
+  COURSE_BOOKS,
+  type CourseBook,
+  isCourseBook,
   checkReorder,
   positionsFor,
   statusAfterEdit,
@@ -24,6 +27,8 @@ export interface CreateCourseInput {
   description?: string | null;
   /** A media-library image id, or null/omitted for no cover. */
   coverMediaId?: string | null;
+  /** The Bible book this course is the dedicated Home entry for, or null/omitted for none. */
+  book?: CourseBook | null;
 }
 
 export interface UpdateCourseInput {
@@ -31,6 +36,8 @@ export interface UpdateCourseInput {
   description?: string | null;
   /** undefined = leave alone, null = remove the cover (the image itself is never deleted). */
   coverMediaId?: string | null;
+  /** undefined = leave alone, null = no book. */
+  book?: CourseBook | null;
   /** The version the editor last saw; a mismatch means a conflicting edit. */
   version?: number;
 }
@@ -48,11 +55,12 @@ export class CourseService {
     const title = checkTitle(input.title);
     const description = normalizeDescription(input.description);
     const coverMediaId = checkCover(input.coverMediaId) ?? null;
+    const book = checkBook(input.book) ?? null;
     if (coverMediaId) await this.media.requireImage(coverMediaId);
     return this.transactions.run(async (manager) => {
       await this.courses.lockOrdering(manager);
       const position = await this.courses.nextPosition(manager);
-      return this.courses.create({ title, description, coverMediaId, position }, manager);
+      return this.courses.create({ title, description, coverMediaId, book, position }, manager);
     });
   }
 
@@ -104,8 +112,9 @@ export class CourseService {
 
   async update(id: string, input: UpdateCourseInput): Promise<Course> {
     const cover = checkCover(input.coverMediaId);
-    // A cover-only update is valid: the text rules only require something to change when no cover is sent.
-    const changes = cover === undefined || input.title !== undefined || input.description !== undefined
+    const book = checkBook(input.book);
+    // A cover-only or book-only update is valid: the text rules only require something to change when neither is sent.
+    const changes = (cover === undefined && book === undefined) || input.title !== undefined || input.description !== undefined
       ? checkTextChanges(input)
       : {};
 
@@ -121,6 +130,7 @@ export class CourseService {
         {
           ...changes,
           ...(cover !== undefined ? { coverMediaId: cover } : {}),
+          ...(book !== undefined ? { book } : {}),
           status: statusAfterEdit(current.status),
         },
         manager,
@@ -156,6 +166,15 @@ function checkCover(value: string | null | undefined): string | null | undefined
     throw new BusinessRuleError('coverMediaId must be a media asset id', { field: 'coverMediaId' });
   }
   return value.toLowerCase();
+}
+
+/** undefined stays undefined (leave alone); null clears; anything else must be one of the approved books. */
+function checkBook(value: string | null | undefined): CourseBook | null | undefined {
+  if (value === undefined || value === null) return value;
+  if (!isCourseBook(value)) {
+    throw new BusinessRuleError(`book must be one of: ${COURSE_BOOKS.join(', ')}`, { field: 'book' });
+  }
+  return value;
 }
 
 function courseNotFound() {

@@ -1,3 +1,4 @@
+import { checkItemLevels } from './item-levels.js';
 import { type ContentProblem, isMarkupLikeKey } from './rich-text.js';
 import { validateScriptureEntries } from './scripture-refs.js';
 
@@ -5,13 +6,13 @@ import { validateScriptureEntries } from './scripture-refs.js';
  * TIMELINE content contract (feature register BLK-013: "ordered prophecy/history events; supports dates and prophetic periods").
  * A timeline INSIDE a lesson; there is no global master timeline (out of scope per the workbook).
  *
- * PROPOSED, NOT APPROVED. The repository has no approved schema (open question D4: do events carry their own level flags), so this
- * is the minimum that works and is meant to be revised:
+ * PROPOSED, NOT APPROVED. The repository has no approved schema, so this is the minimum that works and is meant to be revised:
  *
  *   {
  *     "heading": "optional",
  *     "events": [ { "id": "e-ab12cd", "dateLabel": "c. 538 BC", "title": "…", "explanation": "…",
- *                   "mediaId": "<uuid, optional>", "altText": "…", "caption": "optional", "source": "optional" }, ... ]
+ *                   "mediaId": "<uuid, optional>", "altText": "…", "caption": "optional", "source": "optional",
+ *                   "levels": ["ADVANCED"] }, ... ]
  *   }
  *
  *  - `dateLabel` is DISPLAY TEXT (the data model says date_or_period is not always Gregorian): "605 BC", "AD 70", "c. 538 BC", "the
@@ -20,12 +21,15 @@ import { validateScriptureEntries } from './scripture-refs.js';
  *  - `id` is unique within the block and stable across edits.
  *  - An event MAY have an image: `mediaId` references a media-library image (same conventions as the IMAGE block: alt text, optional
  *    caption and source). Timelines without images stay valid. An image needs alternative text before publishing.
- *  - Plain text only. No level variants and no per-event level flags (D4 open).
+ *  - `levels` is OPTIONAL level visibility of the event (CMS-017 "... optional image and level visibility"; Data Model TimelineEvent "level flags", see
+ *    item-levels.ts): absent = every level the block is shown at. The published snapshot of a level holds only that level's events, in the author's order,
+ *    without `levels`.
+ *  - Plain text only. No level variants.
  *  - An event MAY list up to 5 Scripture references in `scripture` (shape and rules: scripture-refs.ts). They are verified against the
  *    installed Scripture text when the lesson is published and frozen into the snapshot; the text is never stored in the block.
  * The timeline requirement stays NOT complete while the approved Scripture text is missing (references cannot be verified or published).
- * A draft may be incomplete; publishing requires at least one event and, for every event, a date label, a title and an explanation,
- * plus alternative text for every event image.
+ * A draft may be incomplete; publishing requires at least one event SHOWN AT THE LEVEL being published and, for every event, a date label, a title and an
+ * explanation, plus alternative text for every event image.
  */
 export const TIMELINE_LIMITS = {
   maxHeadingLength: 200,
@@ -41,7 +45,7 @@ export const TIMELINE_LIMITS = {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const ALLOWED_KEYS = ['heading', 'events'] as const;
-const EVENT_KEYS = ['id', 'dateLabel', 'title', 'explanation', 'mediaId', 'altText', 'caption', 'source', 'scripture'] as const;
+const EVENT_KEYS = ['id', 'dateLabel', 'title', 'explanation', 'mediaId', 'altText', 'caption', 'source', 'scripture', 'levels'] as const;
 const ID = /^[A-Za-z0-9_-]+$/;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -103,6 +107,7 @@ export function validateTimelineShape(content: unknown): ContentProblem[] {
     checkText(event, 'caption', L.maxCaptionLength, `${at}.caption`, `${n}: the image caption`, problems);
     checkText(event, 'source', L.maxSourceLength, `${at}.source`, `${n}: the image source`, problems);
     validateScriptureEntries(event.scripture, `${at}.scripture`, n, problems);
+    checkItemLevels(event, `${at}.levels`, n, problems);
   });
   return problems;
 }
@@ -111,7 +116,7 @@ export function validateTimelineShape(content: unknown): ContentProblem[] {
 export function validateTimelineComplete(content: unknown): ContentProblem[] {
   const problems: ContentProblem[] = [];
   const events = isPlainObject(content) && Array.isArray(content.events) ? content.events : [];
-  if (events.length === 0) problems.push({ path: 'events', message: 'Add at least one event before publishing' });
+  if (events.length === 0) problems.push({ path: 'events', message: 'Add at least one event before publishing (events reserved for other levels do not count at this level)' });
   events.forEach((raw, index) => {
     const event = isPlainObject(raw) ? raw : {};
     const n = `Event ${index + 1}`;

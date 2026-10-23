@@ -62,7 +62,7 @@ export class MediaAssetRepository {
   ): Promise<{ items: StoredMediaAsset[]; total: number }> {
     const term = search?.trim();
     const pattern = term ? `%${term.replace(/[\\%_]/g, (c) => `\\${c}`)}%` : null;
-    const where = `WHERE ($2::text IS NULL OR "content_type" = $2) AND ($1::text IS NULL
+    const where = `WHERE ($2::text IS NULL OR "content_type" = $2 OR ($2 = 'image/*' AND "content_type" LIKE 'image/%')) AND ($1::text IS NULL
                    OR "original_filename" ILIKE $1
                    OR "title" ILIKE $1
                    OR EXISTS (SELECT 1 FROM unnest("tags") AS tag WHERE tag ILIKE $1))`;

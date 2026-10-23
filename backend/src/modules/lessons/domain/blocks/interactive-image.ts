@@ -1,25 +1,29 @@
+import { checkItemLevels } from './item-levels.js';
 import { type ContentProblem, isMarkupLikeKey } from './rich-text.js';
 import { validateScriptureEntries } from './scripture-refs.js';
 
 /**
  * INTERACTIVE_IMAGE content contract (feature register BLK-007: "tappable regions open approved explanation").
  *
- * PROPOSED, NOT APPROVED. The repository has no approved schema for this component (open questions D4 per-item level flags, D9 media
- * rules, D10 image fitting rule), so this is the minimum that works and is meant to be revised:
+ * PROPOSED, NOT APPROVED. The repository has no approved schema for this component (open questions D9 media rules, D10 image fitting
+ * rule), so this is the minimum that works and is meant to be revised:
  *
  *   {
  *     "mediaId":  "<uuid of a media asset>",
  *     "altText":  "what the image shows",
  *     "caption":  "optional", "source": "optional",
- *     "hotspots": [ { "id": "h-ab12cd", "x": 0.42, "y": 0.3, "label": "short name", "explanation": "text shown when chosen" }, ... ]
+ *     "hotspots": [ { "id": "h-ab12cd", "x": 0.42, "y": 0.3, "label": "short name", "explanation": "text shown when chosen",
+ *                     "levels": ["INTERMEDIATE", "ADVANCED"] }, ... ]
  *   }
  *
  *  - `x` and `y` are fractions (0 to 1) of the WHOLE image's width and height, measured from its top-left corner, so they do not depend
  *    on screen size. Clients must show the whole image (never crop it) and place markers on the image as actually displayed.
  *  - `hotspots` is ordered; the order is the numbering and reading order. `id` is unique within the block and stable across edits.
- *  - Plain text only. Hotspots have no level flags of their own (D4 is open) and the block has no level variants.
+ *  - `levels` is OPTIONAL level visibility of the hotspot (CMS-016 "level visibility for each hotspot"; Data Model Hotspot "level flags", see item-levels.ts):
+ *    absent = every level the block is shown at. The published snapshot of a level holds only that level's hotspots, without `levels`.
+ *  - Plain text only. The block has no level variants.
  * A draft may be incomplete (no image yet, an unplaced marker with no x/y, empty text); publishing requires an image with alternative
- * text and at least one hotspot, each placed, labelled and explained.
+ * text and at least one hotspot SHOWN AT THE LEVEL being published, each placed, labelled and explained.
  */
 export const INTERACTIVE_IMAGE_LIMITS = {
   maxAltTextLength: 500,
@@ -32,7 +36,7 @@ export const INTERACTIVE_IMAGE_LIMITS = {
 } as const;
 
 const ALLOWED_KEYS = ['mediaId', 'altText', 'caption', 'source', 'hotspots'] as const;
-const HOTSPOT_KEYS = ['id', 'x', 'y', 'label', 'explanation', 'scripture'] as const;
+const HOTSPOT_KEYS = ['id', 'x', 'y', 'label', 'explanation', 'scripture', 'levels'] as const;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ID = /^[A-Za-z0-9_-]+$/;
 
@@ -102,6 +106,7 @@ export function validateInteractiveImageShape(content: unknown): ContentProblem[
     checkText(hotspot, 'label', L.maxLabelLength, `${at}.label`, problems);
     checkText(hotspot, 'explanation', L.maxExplanationLength, `${at}.explanation`, problems);
     validateScriptureEntries(hotspot.scripture, `${at}.scripture`, n, problems);
+    checkItemLevels(hotspot, `${at}.levels`, n, problems);
   });
   return problems;
 }
@@ -114,7 +119,7 @@ export function validateInteractiveImageComplete(content: unknown): ContentProbl
     problems.push({ path: 'altText', message: 'Alternative text is required before publishing' });
   }
   const hotspots = isPlainObject(content) && Array.isArray(content.hotspots) ? content.hotspots : [];
-  if (hotspots.length === 0) problems.push({ path: 'hotspots', message: 'Add at least one hotspot before publishing' });
+  if (hotspots.length === 0) problems.push({ path: 'hotspots', message: 'Add at least one hotspot before publishing (hotspots reserved for other levels do not count at this level)' });
   hotspots.forEach((raw, index) => {
     const hotspot = isPlainObject(raw) ? raw : {};
     const n = `Hotspot ${index + 1}`;

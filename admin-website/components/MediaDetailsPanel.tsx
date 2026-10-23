@@ -6,6 +6,7 @@ import { friendlyBlockName } from '../lib/block-catalog';
 import { fileKindLabel, formatBytes, friendlyMediaError } from '../lib/image-block';
 import { type MediaUsage, type UsedByLesson, getMediaUsage, updateMediaDetails } from '../lib/media-api';
 import type { MediaAsset } from '../lib/types';
+import MediaFileTile from './MediaFileTile';
 import MediaImage from './MediaImage';
 
 /**
@@ -208,7 +209,11 @@ export default function MediaDetailsPanel({ asset, canWrite, onSaved, dirtyRef, 
   return (
     <div className="space-y-6">
       <div className="flex max-h-72 items-center justify-center overflow-hidden rounded-xl border border-slate-300 bg-slate-100 p-2">
-        <MediaImage mediaId={current.id} alt={current.altText?.trim() || current.title?.trim() || current.originalFilename} className="max-h-64 max-w-full" fit="contain" />
+        {current.contentType.startsWith('image/') ? (
+          <MediaImage mediaId={current.id} alt={current.altText?.trim() || current.title?.trim() || current.originalFilename} className="max-h-64 max-w-full" fit="contain" />
+        ) : (
+          <MediaFileTile contentType={current.contentType} className="h-40 w-full" />
+        )}
       </div>
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm bg-slate-50 border border-slate-200 rounded-xl p-4">
         <dt className="font-semibold text-slate-800">File</dt>

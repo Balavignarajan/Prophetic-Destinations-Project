@@ -3,7 +3,7 @@ import { ActivityIndicator, Animated, Image, type ImageLoadEventData, type Nativ
 
 import { useReduceMotion } from '@/accessibility/use-reduce-motion';
 import { AppText, BlockNotice, Reveal } from '@/components/ui';
-import { reportBrokenAsset, useAssetUri } from '@/features/offline/offline-media';
+import { canSwitchToSavedWebCopy, reportBrokenAsset, switchToSavedWebCopy, useAssetUri } from '@/features/offline/offline-media';
 import { lessonImageUrl } from '@/learning/lesson-image';
 import { ScriptureLinks } from '@/learning/scripture-links';
 import type { LearningLevel } from '@/learning/levels';
@@ -238,7 +238,11 @@ export function HotspotImage({
             onLoad={onLoad}
             onError={() => {
               if (uri !== remoteUri) reportBrokenAsset(mediaId);
-              else setStatus('failed');
+              else if (canSwitchToSavedWebCopy(mediaId)) {
+                void switchToSavedWebCopy(mediaId).then((shown) => {
+                  if (!shown) setStatus('failed');
+                });
+              } else setStatus('failed');
             }}
           />
           {status === 'ready'
@@ -267,6 +271,13 @@ export function HotspotImage({
       {!imageFailed && hasMarkers ? (
         <AppText variant="bodySmall" color="textMuted">
           Tap a numbered {noun.toLowerCase()} on the image, or choose one from the list.
+        </AppText>
+      ) : null}
+
+      {/* The hotspots are the ones the server resolved for this level; if none is meant for it the picture stands alone, and says so (a map may simply be an image). */}
+      {!isMap && hotspots.length === 0 ? (
+        <AppText variant="bodySmall" color="textMuted">
+          There are no hotspots on this image at your level.
         </AppText>
       ) : null}
 

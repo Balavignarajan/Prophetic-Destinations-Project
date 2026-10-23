@@ -5,6 +5,7 @@ import { deleteMedia, listMedia } from '../lib/media-api';
 import { fileKindLabel, formatBytes, friendlyMediaError } from '../lib/image-block';
 import type { MediaAsset } from '../lib/types';
 import MediaDetailsPanel from './MediaDetailsPanel';
+import MediaFileTile from './MediaFileTile';
 import MediaImage from './MediaImage';
 import { ConfirmDialog, EmptyState, LoadingSpinner, Modal } from './ui';
 
@@ -21,8 +22,11 @@ interface Props {
   /** select mode */
   selectedId?: string | null;
   onSelect?: (asset: MediaAsset) => void;
-  /** Only list files of this exact type (pickers for fields that accept one kind of file). */
-  contentType?: 'image/webp';
+  /**
+   * Only list files of this exact type (pickers for fields that accept one kind of file: animated WebP, MP4 video, Lottie JSON). A picker that does not name one
+   * lists images only, so a video or an animation file can never be offered where a picture is needed. The Media Library page (`manage`) lists every file.
+   */
+  contentType?: 'image/webp' | 'video/mp4' | 'application/json';
 }
 
 const dateOf = (iso: string) => new Date(iso).toLocaleDateString(undefined, { dateStyle: 'medium' });
@@ -31,7 +35,9 @@ const dateOf = (iso: string) => new Date(iso).toLocaleDateString(undefined, { da
  * The list of stored images: thumbnails, file name, format, size and upload date, with search by file name. The Media Library
  * page and the image picker in the lesson editor both use it, so they always show the same records.
  */
-export default function MediaBrowser({ mode, canWrite, reloadToken = 0, selectedId = null, onSelect, contentType }: Props) {
+export default function MediaBrowser({ mode, canWrite, reloadToken = 0, selectedId = null, onSelect, contentType: wanted }: Props) {
+  const contentType = wanted ?? (mode === 'select' ? 'image/*' : undefined);
+  const noun = wanted === 'video/mp4' ? 'video' : wanted === 'application/json' ? 'animation' : mode === 'manage' ? 'file' : 'image';
   const [typed, setTyped] = useState('');
   const [query, setQuery] = useState('');
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -183,7 +189,7 @@ export default function MediaBrowser({ mode, canWrite, reloadToken = 0, selected
           Searches the file name, the title and the tags. It does not search descriptions, captions, credits or internal notes.
         </p>
         <p className="text-sm text-slate-700" aria-live="polite">
-          {loading ? (query ? `Searching for “${query}”…` : 'Loading…') : refreshing ? 'Updating the list…' : error && items.length === 0 ? 'The search could not be completed.' : `${total} ${total === 1 ? 'image' : 'images'}${query ? ` matching “${query}”` : ''}`}
+          {loading ? (query ? `Searching for “${query}”…` : 'Loading…') : refreshing ? 'Updating the list…' : error && items.length === 0 ? 'The search could not be completed.' : `${total} ${total === 1 ? noun : `${noun}s`}${query ? ` matching “${query}”` : ''}`}
         </p>
       </div>
 
@@ -225,7 +231,7 @@ export default function MediaBrowser({ mode, canWrite, reloadToken = 0, selected
                   aria-pressed={mode === 'select' ? isSelected : undefined}
                   className="block h-36 w-full bg-slate-100 overflow-hidden focus:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-amber-500"
                 >
-                  <MediaImage mediaId={asset.id} alt="" className="h-full w-full" />
+                  {asset.contentType.startsWith('image/') ? <MediaImage mediaId={asset.id} alt="" className="h-full w-full" /> : <MediaFileTile contentType={asset.contentType} className="h-full w-full" />}
                 </button>
                 <div className="p-3 flex-1 flex flex-col justify-between gap-2">
                   <div>

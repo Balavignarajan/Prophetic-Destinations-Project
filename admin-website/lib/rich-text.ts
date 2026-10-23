@@ -2,16 +2,20 @@
  * Lossless conversion between the backend's RICH_TEXT document and the plain-text format the admin editor edits.
  *
  * Backend contract (backend/src/modules/lessons/domain/blocks/rich-text.ts):
- *   { body: { type: 'doc', content: [ paragraph | bulletList | orderedList ] } }
- *   paragraph: inline `text` nodes; list: `listItem`s holding paragraphs and nested lists; marks: bold, italic, link {href}.
+ *   { body: { type: 'doc', content: [ paragraph | heading | bulletList | orderedList ] } }
+ *   paragraph: inline `text` nodes and `scriptureRef` nodes; heading: attrs.level 1 to 3 and plain text; list: `listItem`s holding paragraphs and
+ *   nested lists; marks: bold, italic, link {href}.
  *
  * Editor text format (what an editor types; a blank line separates blocks):
  *   plain paragraph                 -> paragraph            (a single line break stays inside the paragraph)
+ *   # Title   ## Title   ### Title    -> heading level 1 / 2 / 3 (plain text on its own line; a space after the #s)
  *   **bold**   *italic*   ***both***  -> bold / italic marks
  *   [label](https://example.org)      -> link mark (may contain **bold** / *italic*)
+ *   {{Daniel 2:31-35}}                -> an inline Scripture reference (a structured scriptureRef node holding book, chapter and verses; never found by
+ *                                        looking at ordinary words; the server verifies it and the lesson snapshot freezes its text)
  *   - item                            -> bulletList item      (nest by indenting two spaces)
  *   1. item                           -> orderedList item
- *   \* \[ \] \\ \-                    -> the literal character (a backslash escapes the next character)
+ *   \* \[ \] \\ \- \# \{            -> the literal character (a backslash escapes the next character)
  *
  * Safety rule: a document is only EDITABLE here if converting it to text and back reproduces it exactly (`isEditable`). Anything
  * the format cannot represent (for example a list item with two paragraphs, an unknown mark, a text node containing a blank
@@ -19,8 +23,10 @@
  * what a learner sees is allowed: adjacent text nodes with the same marks are merged, marks are ordered link, bold, italic, and
  * empty top-level paragraphs are dropped.
  *
- * No runtime imports: this file is unit-tested with plain Node (see rich-text.test.ts).
+ * The only import is scripture.ts (book names and reference parsing, itself dependency-free): this file is unit-tested with plain Node (see rich-text.test.ts).
  */
+import { CANONICAL_BOOKS, type ScriptureReference, validateScriptureReference } from './scripture.ts';
+
 export interface RichTextMark {
   type: string;
   attrs?: { href?: unknown };
@@ -30,6 +36,7 @@ export interface RichTextNode {
   text?: string;
   marks?: RichTextMark[];
   content?: RichTextNode[];
+  attrs?: Record<string, unknown>;
 }
 export interface RichTextContent {
   body: { type: 'doc'; content: RichTextNode[] };
@@ -54,6 +61,11 @@ export function isSafeLinkHref(href: unknown): href is string {
 const MARK_ORDER = ['link', 'bold', 'italic'];
 const LIST_LINE = /^( *)(-|\d+\.) (.*)$/;
 const LIST_START_IN_TEXT = /^( *)(- |\d+\. )/;
+/** The heading levels the backend accepts (RICH_TEXT_LIMITS.headingLevels). */
+const HEADING_LEVELS = [1, 2, 3];
+const HEADING_LINE = /^(#{1,3}) (.*)$/;
+const HEADING_START_IN_TEXT = /^(#{1,3}) /;
+const REFERENCE_KEYS = ['bookId', 'chapter', 'startVerse', 'endVerse'];
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 
@@ -64,6 +76,38 @@ interface Inline {
   bold: boolean;
   italic: boolean;
   href: string | null;
+  /** A structured Scripture reference node: then `text` is '' and the other fields are unused. */
+  ref?: ScriptureReference;
+}
+
+const bookName = (bookId: string) => CANONICAL_BOOKS.find((book) => book.id === bookId)?.name;
+
+/** "Daniel 2:31-35": the written form of a reference (display only; the reference itself is what is stored). */
+export function describeScriptureReference(reference: ScriptureReference): string {
+  const verses = reference.startVerse === reference.endVerse ? `${reference.startVerse}` : `${reference.startVerse}-${reference.endVerse}`;
+  return `${bookName(reference.bookId) ?? reference.bookId} ${reference.chapter}:${verses}`;
+}
+
+/** What is typed in the editor for an inline reference: "{{Daniel 2:31-35}}". */
+export function scriptureToken(reference: ScriptureReference): string {
+  return `{{${describeScriptureReference(reference)}}}`;
+}
+
+const whole = (value: unknown, max: number) => typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= max;
+
+/**
+ * The reference of a stored `scriptureRef` node when the editor can show and re-save it exactly, else null. The server's dataset stamp (`attrs.dataset`) is
+ * allowed and ignored: the server sets it again on every save, and the editor never sends one.
+ */
+function readRefNode(node: Record<string, unknown>): ScriptureReference | null {
+  if (Object.keys(node).some((key) => key !== 'type' && key !== 'attrs') || !isObject(node.attrs)) return null;
+  const attrs = node.attrs;
+  if (Object.keys(attrs).some((key) => key !== 'reference' && key !== 'dataset') || !isObject(attrs.reference)) return null;
+  const ref = attrs.reference;
+  if (Object.keys(ref).length !== REFERENCE_KEYS.length || REFERENCE_KEYS.some((key) => !(key in ref))) return null;
+  if (typeof ref.bookId !== 'string' || bookName(ref.bookId) === undefined) return null;
+  if (!whole(ref.chapter, 150) || !whole(ref.startVerse, 176) || !whole(ref.endVerse, 176) || (ref.endVerse as number) < (ref.startVerse as number)) return null;
+  return { bookId: ref.bookId, chapter: ref.chapter as number, startVerse: ref.startVerse as number, endVerse: ref.endVerse as number };
 }
 
 /** Reads a paragraph's text nodes. Returns null if anything in it cannot be represented (unknown node or mark, odd link). */
@@ -72,6 +116,12 @@ function readInline(content: unknown): Inline[] | null {
   if (!Array.isArray(content)) return null;
   const out: Inline[] = [];
   for (const node of content) {
+    if (isObject(node) && node.type === 'scriptureRef') {
+      const ref = readRefNode(node);
+      if (ref === null) return null;
+      out.push({ text: '', bold: false, italic: false, href: null, ref });
+      continue;
+    }
     if (!isObject(node) || node.type !== 'text' || typeof node.text !== 'string') return null;
     if (Object.keys(node).some((key) => key !== 'type' && key !== 'text' && key !== 'marks')) return null;
     let bold = false;
@@ -95,16 +145,24 @@ function readInline(content: unknown): Inline[] | null {
 function mergeInline(items: Inline[]): Inline[] {
   const merged: Inline[] = [];
   for (const item of items) {
+    if (item.ref) {
+      merged.push({ ...item });
+      continue;
+    }
     if (item.text === '') continue;
     const last = merged[merged.length - 1];
-    if (last && last.bold === item.bold && last.italic === item.italic && last.href === item.href) last.text += item.text;
+    if (last && !last.ref && last.bold === item.bold && last.italic === item.italic && last.href === item.href) last.text += item.text;
     else merged.push({ ...item });
   }
   return merged;
 }
 
 function inlineToNodes(items: Inline[]): RichTextNode[] {
-  return mergeInline(items).map((item) => {
+  return mergeInline(items).map((item): RichTextNode => {
+    if (item.ref) {
+      const { bookId, chapter, startVerse, endVerse } = item.ref;
+      return { type: 'scriptureRef', attrs: { reference: { bookId, chapter, startVerse, endVerse } } };
+    }
     const marks: RichTextMark[] = [];
     for (const type of MARK_ORDER) {
       if (type === 'link' && item.href !== null) marks.push({ type: 'link', attrs: { href: item.href } });
@@ -115,11 +173,12 @@ function inlineToNodes(items: Inline[]): RichTextNode[] {
   });
 }
 
-const hasContent = (items: Inline[]) => items.some((item) => item.text.trim() !== '');
+const hasContent = (items: Inline[]) => items.some((item) => item.ref !== undefined || item.text.trim() !== '');
 
 // ------------------------------------------------------------------------------------------------ document -> editor text
 
-const escapeText = (text: string) => text.replace(/[\\*[\]]/g, '\\$&');
+// `{{` would open an inline Scripture reference, so it is escaped as well; a single `{` is just a character.
+const escapeText = (text: string) => text.replace(/[\\*[\]]/g, '\\$&').replace(/\{\{/g, '\\{\\{');
 const escapeUrl = (url: string) => url.replace(/[\\)]/g, '\\$&');
 
 /**
@@ -140,6 +199,13 @@ function inlineToText(items: Inline[]): string {
   let i = 0;
   while (i < items.length) {
     const href = items[i].href;
+    const ref = items[i].ref;
+    if (ref) {
+      moveTo(false, false);
+      out += scriptureToken(ref);
+      i += 1;
+      continue;
+    }
     if (href === null) {
       moveTo(items[i].bold, items[i].italic);
       out += escapeText(items[i].text);
@@ -149,7 +215,7 @@ function inlineToText(items: Inline[]): string {
     const enterBold = bold;
     const enterItalic = italic;
     out += '[';
-    while (i < items.length && items[i].href === href) {
+    while (i < items.length && items[i].href === href && !items[i].ref) {
       moveTo(items[i].bold, items[i].italic);
       out += escapeText(items[i].text);
       i += 1;
@@ -161,12 +227,28 @@ function inlineToText(items: Inline[]): string {
   return out;
 }
 
-/** A line that would read as a list marker if it started a block or line of a paragraph gets its marker escaped. */
+/** A line that would read as a list marker or a heading if it started a block or line of a paragraph gets its marker escaped. */
 function guardLineStarts(text: string): string {
   return text
     .split('\n')
     .map((line) => line.replace(LIST_START_IN_TEXT, (_all, spaces: string, marker: string) => (marker === '- ' ? `${spaces}\\- ` : `${spaces}${marker.replace('.', '\\.')}`)))
+    .map((line) => line.replace(HEADING_START_IN_TEXT, '\\$1 '))
     .join('\n');
+}
+
+/** The editor line of a heading node ("## Title"), or null when the editor cannot show it exactly (an unknown level, marks, line breaks, stray keys, no text). */
+function headingToLine(node: RichTextNode): string | null {
+  if (Object.keys(node).some((key) => key !== 'type' && key !== 'attrs' && key !== 'content')) return null;
+  const attrs = node.attrs;
+  if (!isObject(attrs) || Object.keys(attrs).length !== 1 || !HEADING_LEVELS.includes(attrs.level as number)) return null;
+  if (!Array.isArray(node.content) || node.content.length === 0) return null;
+  let text = '';
+  for (const child of node.content) {
+    if (!isObject(child) || child.type !== 'text' || typeof child.text !== 'string' || Object.keys(child).some((key) => key !== 'type' && key !== 'text')) return null;
+    text += child.text;
+  }
+  if (text === '' || text !== text.trim() || text.includes(NEWLINE)) return null;
+  return `${'#'.repeat(attrs.level as number)} ${escapeText(text)}`;
 }
 
 interface Serialised {
@@ -221,6 +303,10 @@ function documentToText(content: unknown): Serialised {
       }
       if (inline.length === 0) continue; // an empty paragraph shows nothing
       blocks.push(guardLineStarts(inlineToText(inline)));
+    } else if (node.type === 'heading') {
+      const line = headingToLine(node);
+      if (line === null) exact = false;
+      else blocks.push(line);
     } else if (node.type === 'bulletList' || node.type === 'orderedList') {
       const lines = listToLines(node, 0);
       if (lines === null) exact = false;
@@ -239,7 +325,12 @@ export function richTextToEditorText(content: unknown): string {
 
 // ------------------------------------------------------------------------------------------------ editor text -> document
 
-type Token = { kind: 'text'; value: string } | { kind: 'bold' } | { kind: 'italic' } | { kind: 'link'; label: string; url: string };
+type Token =
+  | { kind: 'text'; value: string }
+  | { kind: 'bold' }
+  | { kind: 'italic' }
+  | { kind: 'link'; label: string; url: string }
+  | { kind: 'scripture'; reference: ScriptureReference };
 
 function tokenise(src: string): Token[] {
   const tokens: Token[] = [];
@@ -266,6 +357,17 @@ function tokenise(src: string): Token[] {
         i += 1;
       }
       continue;
+    }
+    if (ch === '{' && src[i + 1] === '{') {
+      // "{{Daniel 2:31-35}}" is an inline Scripture reference when what is inside reads as a valid reference; anything else stays literal text.
+      const close = src.indexOf('}}', i + 2);
+      const parsed = close > i + 1 ? validateScriptureReference(src.slice(i + 2, close)) : null;
+      if (parsed && parsed.ok) {
+        flush();
+        tokens.push({ kind: 'scripture', reference: parsed.reference });
+        i = close + 2;
+        continue;
+      }
     }
     if (ch === '[') {
       const link = readLink(src, i);
@@ -322,9 +424,20 @@ function parseInline(src: string, start: { bold: boolean; italic: boolean }, hre
     if (token.kind === 'bold') bold = !bold;
     else if (token.kind === 'italic') italic = !italic;
     else if (token.kind === 'text') out.push({ text: token.value, bold, italic, href });
+    else if (token.kind === 'scripture') out.push({ text: '', bold: false, italic: false, href: null, ref: token.reference });
     else out.push(...parseInline(token.label, { bold, italic }, token.url));
   }
   return mergeInline(out);
+}
+
+/** A heading from the text after the #s: plain text, so emphasis markers are dropped, a link keeps its label and a reference its written form. Null when nothing is left. */
+function headingNode(level: number, src: string): RichTextNode | null {
+  const text = parseInline(src.trim(), { bold: false, italic: false }, null)
+    .map((item) => (item.ref ? describeScriptureReference(item.ref) : item.text))
+    .join('')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return text === '' ? null : { type: 'heading', attrs: { level }, content: [{ type: 'text', text }] };
 }
 
 function paragraphNode(items: Inline[]): RichTextNode {
@@ -412,12 +525,29 @@ export function editorTextToRichText(text: string): RichTextContent {
 
   const content: RichTextNode[] = [];
   for (const block of blocks) {
-    if (LIST_LINE.test(block[0])) {
-      content.push(...parseListBlock(block));
-    } else {
-      const items = parseInline(block.join('\n'), { bold: false, italic: false }, null);
-      if (hasContent(items)) content.push(paragraphNode(items));
+    // A heading is a line of its own: it ends the paragraph or list above it and the lines below it start a new one.
+    let chunk: string[] = [];
+    const flush = () => {
+      if (chunk.length === 0) return;
+      if (LIST_LINE.test(chunk[0])) {
+        content.push(...parseListBlock(chunk));
+      } else {
+        const items = parseInline(chunk.join('\n'), { bold: false, italic: false }, null);
+        if (hasContent(items)) content.push(paragraphNode(items));
+      }
+      chunk = [];
+    };
+    for (const line of block) {
+      const heading = HEADING_LINE.exec(line);
+      const node = heading ? headingNode(heading[1].length, heading[2]) : null;
+      if (node) {
+        flush();
+        content.push(node);
+      } else {
+        chunk.push(line);
+      }
     }
+    flush();
   }
   return { body: { type: 'doc', content } };
 }
@@ -426,6 +556,10 @@ export function editorTextToRichText(text: string): RichTextContent {
 
 function canonicalNode(node: unknown): unknown {
   if (!isObject(node)) return node;
+  if (node.type === 'scriptureRef') {
+    const ref = readRefNode(node);
+    return ref ? { type: 'scriptureRef', attrs: { reference: ref } } : { type: 'scriptureRef', attrs: node.attrs };
+  }
   if (node.type === 'text') {
     const marks = Array.isArray(node.marks)
       ? [...node.marks].sort((a, b) => MARK_ORDER.indexOf(String((a as RichTextMark).type)) - MARK_ORDER.indexOf(String((b as RichTextMark).type)))
@@ -433,7 +567,8 @@ function canonicalNode(node: unknown): unknown {
     return marks && marks.length > 0 ? { type: 'text', text: node.text, marks } : { type: 'text', text: node.text };
   }
   const children = Array.isArray(node.content) ? mergeCanonicalText(node.content.map(canonicalNode)) : undefined;
-  return children && children.length > 0 ? { type: node.type, content: children } : { type: node.type };
+  const attrs = node.type === 'heading' && isObject(node.attrs) ? { attrs: { level: node.attrs.level } } : {};
+  return children && children.length > 0 ? { type: node.type, ...attrs, content: children } : { type: node.type, ...attrs };
 }
 
 function mergeCanonicalText(nodes: unknown[]): unknown[] {

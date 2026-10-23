@@ -1,4 +1,4 @@
-import type { ContentStatus } from '../../../shared-kernel/index.js';
+import type { ContentStatus, CourseBook } from '../../../shared-kernel/index.js';
 
 export interface Course {
   id: string;
@@ -7,6 +7,8 @@ export interface Course {
   status: ContentStatus;
   /** Working cover image (media asset id), or null. */
   coverMediaId: string | null;
+  /** The Bible book this course is the dedicated Home entry for, or null (the usual case). */
+  book: CourseBook | null;
   /** 1-based place in the manual course order. Changing it is not a content edit: status and version do not move. */
   position: number;
   /** Incremented on every content change; used to detect conflicting edits. */

@@ -12,7 +12,21 @@
 export type ProgressLevel = 'BEGINNER' | 'INTERMEDIATE' | 'ADVANCED';
 
 export type LessonRef = { lessonId: string; level: ProgressLevel; courseId: string | null; title: string };
-export type LessonPosition = LessonRef & { offset: number; savedAt: number };
+
+/**
+ * Where the learner was in a lesson in terms of its CONTENT, not of pixels (LESS-004, APP-011): the lesson block the top of the screen was in, and how far down that
+ * block it was. Block ids are the published snapshot's own and stay the same when the lesson is republished, so the position survives changed content, images that
+ * finish loading, a different font size or screen size. `index` is that block's place among the lesson's blocks when this was saved (0-based): it is only used to land
+ * next to the neighbours when the block itself no longer exists.
+ */
+export type ReadingAnchor = { blockId: string; fraction: number; index: number };
+
+/**
+ * `offset` (the scroll offset in pixels) is the original position and stays the fallback: a value saved before anchors existed has only that. `anchor` and
+ * `contentHash` (the published version of the lesson the position was recorded in) are added by newer saves and are optional, so every older value still loads
+ * and an older build that reads a newer value simply ignores them.
+ */
+export type LessonPosition = LessonRef & { offset: number; savedAt: number; anchor?: ReadingAnchor; contentHash?: string };
 export type LastOpened = LessonRef & { openedAt: number };
 export type CompletedLesson = { title: string; completedAt: number };
 
@@ -80,14 +94,106 @@ export const MAX_POSITIONS = 200;
 
 export const lessonKey = (lessonId: string, level: ProgressLevel) => `${lessonId}:${level}`;
 
-/** Records where the learner is in a lesson. Offsets are whole, non-negative pixels; anything else is stored as 0. */
-export function withPosition(positions: Record<string, LessonPosition>, lesson: LessonRef, offset: number, now: number): Record<string, LessonPosition> {
+const MAX_ANCHOR_TEXT = 128;
+
+/** A usable anchor (block id, fraction kept within 0 to 1 and to three decimals, whole non-negative index), or null. */
+export function cleanAnchor(raw: unknown): ReadingAnchor | null {
+  if (!isRecord(raw) || typeof raw.blockId !== 'string' || raw.blockId.length === 0 || raw.blockId.length > MAX_ANCHOR_TEXT) return null;
+  if (typeof raw.fraction !== 'number' || !Number.isFinite(raw.fraction)) return null;
+  if (typeof raw.index !== 'number' || !Number.isInteger(raw.index) || raw.index < 0) return null;
+  return { blockId: raw.blockId, fraction: Math.round(Math.min(1, Math.max(0, raw.fraction)) * 1000) / 1000, index: raw.index };
+}
+
+const cleanHash = (raw: unknown): string | undefined => (typeof raw === 'string' && raw.length > 0 && raw.length <= MAX_ANCHOR_TEXT ? raw : undefined);
+
+/** What a save adds to the pixel offset: where in the content it was, and which published version of the lesson that was. */
+export type PositionExtra = { anchor?: ReadingAnchor | null; contentHash?: string | null };
+
+/**
+ * Records where the learner is in a lesson. Offsets are whole, non-negative pixels; anything else is stored as 0. An anchor and a content hash are kept only when
+ * given (and usable), so a save without them is exactly what it always was.
+ */
+export function withPosition(positions: Record<string, LessonPosition>, lesson: LessonRef, offset: number, now: number, extra?: PositionExtra): Record<string, LessonPosition> {
   const safe = Number.isFinite(offset) && offset > 0 ? Math.round(offset) : 0;
-  const next: Record<string, LessonPosition> = { ...positions, [lessonKey(lesson.lessonId, lesson.level)]: { ...lesson, offset: safe, savedAt: now } };
+  const entry: LessonPosition = { ...lesson, offset: safe, savedAt: now };
+  const anchor = cleanAnchor(extra?.anchor);
+  if (anchor) entry.anchor = anchor;
+  const hash = cleanHash(extra?.contentHash);
+  if (hash !== undefined) entry.contentHash = hash;
+  const next: Record<string, LessonPosition> = { ...positions, [lessonKey(lesson.lessonId, lesson.level)]: entry };
   const keys = Object.keys(next);
   if (keys.length <= MAX_POSITIONS) return next;
   keys.sort((a, b) => next[a].savedAt - next[b].savedAt);
   for (const key of keys.slice(0, keys.length - MAX_POSITIONS)) delete next[key];
+  return next;
+}
+
+/** How far the offset or the fraction may drift before a new save counts as a different position (so scrolling a little does not rewrite the saved progress). */
+const SAME_PIXELS = 48;
+const SAME_FRACTION = 0.02;
+
+/**
+ * Whether a save would only repeat the position that is already kept. Without an anchor this is exactly "the same rounded offset"; with one, "the same block, about
+ * the same place in it, in the same published version", however many pixels that is on this screen.
+ */
+export function isSamePosition(saved: LessonPosition, lesson: LessonRef, offset: number, extra?: PositionExtra): boolean {
+  if (saved.title !== lesson.title || saved.courseId !== lesson.courseId) return false;
+  const rounded = Number.isFinite(offset) && offset > 0 ? Math.round(offset) : 0;
+  const anchor = cleanAnchor(extra?.anchor);
+  const hash = cleanHash(extra?.contentHash);
+  if (anchor === null && saved.anchor === undefined) return saved.offset === rounded && (hash === undefined || saved.contentHash === hash);
+  if (anchor === null || saved.anchor === undefined) return false;
+  return (
+    saved.anchor.blockId === anchor.blockId &&
+    saved.anchor.index === anchor.index &&
+    Math.abs(saved.anchor.fraction - anchor.fraction) < SAME_FRACTION &&
+    saved.contentHash === hash &&
+    Math.abs(saved.offset - rounded) < SAME_PIXELS
+  );
+}
+
+/** A lesson and the title the published catalog gives it now (at one level: the same lesson can be titled differently at another). */
+export type TitledLesson = { lessonId: string; level: ProgressLevel; title: string };
+
+/**
+ * Brings the title kept with the learner's records of a lesson up to date after the CMS renamed it: the completion mark, the saved position, the last lesson
+ * opened and the quiz results taken in it. ONLY titles change. When the lesson was completed, where the learner was in it, when it was last opened, a quiz score
+ * and every other field stay exactly as they were, so a rename never moves a completion date, never marks a completed lesson as started again and never makes a
+ * saved quiz result look like another attempt. A blank title is ignored (the saved one stays as the fallback). Returns `progress` itself, the very same object,
+ * when every title already matches, so nothing is written for it.
+ */
+export function withCurrentTitles<T extends ProgressState & { quizResults?: Record<string, QuizResult> }>(progress: T, lessons: readonly TitledLesson[]): T {
+  const titles = new Map<string, string>();
+  for (const lesson of lessons) {
+    if (typeof lesson.title === 'string' && lesson.title.trim().length > 0) titles.set(lessonKey(lesson.lessonId, lesson.level), lesson.title);
+  }
+  if (titles.size === 0) return progress;
+
+  let next: T = progress;
+  let completed: Record<string, CompletedLesson> | null = null;
+  let positions: Record<string, LessonPosition> | null = null;
+  for (const [key, title] of titles) {
+    const done = progress.completed[key];
+    if (done && done.title !== title) (completed ??= { ...progress.completed })[key] = { ...done, title };
+    const position = progress.positions[key];
+    if (position && position.title !== title) (positions ??= { ...progress.positions })[key] = { ...position, title };
+  }
+  if (completed) next = { ...next, completed };
+  if (positions) next = { ...next, positions };
+
+  const last = progress.lastOpened;
+  const lastTitle = last ? titles.get(lessonKey(last.lessonId, last.level)) : undefined;
+  if (last && lastTitle !== undefined && last.title !== lastTitle) next = { ...next, lastOpened: { ...last, title: lastTitle } };
+
+  const results = progress.quizResults;
+  if (results) {
+    let changed: Record<string, QuizResult> | null = null;
+    for (const [key, result] of Object.entries(results)) {
+      const title = titles.get(lessonKey(result.lessonId, result.level));
+      if (title !== undefined && result.lessonTitle !== title) (changed ??= { ...results })[key] = { ...result, lessonTitle: title };
+    }
+    if (changed) next = { ...next, quizResults: changed };
+  }
   return next;
 }
 
@@ -193,7 +299,7 @@ export function parseProgress(raw: unknown): (ProgressState & { version: 1; quiz
         value.offset >= 0 &&
         typeof value.savedAt === 'number'
       ) {
-        positions[lessonKey(value.lessonId, value.level)] = {
+        const position: LessonPosition = {
           lessonId: value.lessonId,
           level: value.level,
           courseId: typeof value.courseId === 'string' ? value.courseId : null,
@@ -201,6 +307,12 @@ export function parseProgress(raw: unknown): (ProgressState & { version: 1; quiz
           offset: value.offset,
           savedAt: value.savedAt,
         };
+        // Added after anchors were introduced: an entry saved before has neither, and a damaged one loses only these, never the position itself.
+        const anchor = cleanAnchor(value.anchor);
+        if (anchor) position.anchor = anchor;
+        const hash = cleanHash(value.contentHash);
+        if (hash !== undefined) position.contentHash = hash;
+        positions[lessonKey(value.lessonId, value.level)] = position;
       }
     }
   }

@@ -1,4 +1,5 @@
 import { api } from './api';
+import type { UploadRules } from './media-kinds';
 import type { MediaAsset } from './types';
 
 export interface MediaPage {
@@ -8,7 +9,23 @@ export interface MediaPage {
   offset: number;
 }
 
-/** One page of the media library, optionally filtered by part of the file name. */
+let rulesRequest: Promise<UploadRules> | null = null;
+
+/** The upload rules the server is configured with (largest file, accepted types). Asked once per page load; a failure is not remembered. */
+export function getUploadRules(): Promise<UploadRules> {
+  rulesRequest ??= api.request<UploadRules>('/admin/media/settings').catch((error) => {
+    rulesRequest = null;
+    throw error;
+  });
+  return rulesRequest;
+}
+
+/** One asset of the library (name, type, size). */
+export function getMedia(id: string): Promise<MediaAsset> {
+  return api.request<MediaAsset>(`/admin/media/${id}`);
+}
+
+/** One page of the media library, optionally filtered by part of the file name. `contentType`: one stored type, or `image/*` for any image. */
 export function listMedia(offset: number, limit: number, search: string, contentType?: string): Promise<MediaPage> {
   const q = search.trim() ? `&q=${encodeURIComponent(search.trim())}` : '';
   const type = contentType ? `&contentType=${encodeURIComponent(contentType)}` : '';

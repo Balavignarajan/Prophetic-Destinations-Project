@@ -56,7 +56,7 @@ export class LocalMediaStorage implements MediaStorage {
     await rm(temporary, { force: true }).catch(() => undefined);
   }
 
-  async open(key: string): Promise<Readable> {
+  async open(key: string, range?: { start: number; end: number }): Promise<Readable> {
     const target = this.pathFor(key);
     try {
       const info = await stat(target);
@@ -70,7 +70,7 @@ export class LocalMediaStorage implements MediaStorage {
       }
       throw new StorageFailureError('open', error);
     }
-    return createReadStream(target);
+    return createReadStream(target, range ? { start: range.start, end: range.end } : undefined);
   }
 
   async delete(key: string): Promise<void> {

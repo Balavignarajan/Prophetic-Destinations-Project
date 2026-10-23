@@ -98,7 +98,7 @@ export class PublishedCatalogService {
     const covers = await this.lessonPublications.findActiveCovers(level, [...eligible]);
     return active.flatMap((a) => {
       const view = toCourseView(a.content, a.catalogVersion, eligible);
-      return view ? [withLessonCovers(view, covers)] : [];
+      return view ? [{ ...withLessonCovers(view, covers), book: a.book }] : [];
     });
   }
 
@@ -230,7 +230,7 @@ export class PublishedCatalogService {
     );
     const view = toCourseView(active.content, active.catalogVersion, eligible);
     if (!view) return null;
-    return withLessonCovers(view, await this.lessonPublications.findActiveCovers(level, [...eligible]));
+    return { ...withLessonCovers(view, await this.lessonPublications.findActiveCovers(level, [...eligible])), book: active.book };
   }
 
   /**

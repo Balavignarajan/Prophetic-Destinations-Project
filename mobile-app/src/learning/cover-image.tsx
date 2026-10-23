@@ -3,7 +3,7 @@ import { Animated, View } from 'react-native';
 
 import { useReduceMotion } from '@/accessibility/use-reduce-motion';
 import { API_BASE_URL } from '@/config/api';
-import { reportBrokenAsset, useAssetUri } from '@/features/offline/offline-media';
+import { canSwitchToSavedWebCopy, reportBrokenAsset, switchToSavedWebCopy, useAssetUri } from '@/features/offline/offline-media';
 import type { LearningLevel } from '@/learning/levels';
 import { useTheme } from '@/theme';
 import { NATIVE_DRIVER, motion } from '@/theme/motion';
@@ -80,7 +80,11 @@ export function CoverImage({
           onError={() => {
             // a saved file that cannot be shown is forgotten (and downloaded again later); the placeholder stays quiet
             if (uri !== remoteUri) reportBrokenAsset(mediaId);
-            else setFailed(true);
+            else if (canSwitchToSavedWebCopy(mediaId)) {
+              void switchToSavedWebCopy(mediaId).then((shown) => {
+                if (!shown) setFailed(true);
+              });
+            } else setFailed(true);
           }}
         />
       )}

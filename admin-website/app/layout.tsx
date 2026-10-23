@@ -16,7 +16,8 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="h-full">
-      <body className="min-h-full flex flex-col bg-slate-50 text-slate-900 antialiased">
+      {/* Browser extensions (ColorZilla's cz-shortcut-listen, password managers, ...) add attributes to <body> before React hydrates; that is not an app mismatch. Applies to this element's own attributes only, not to anything inside it. */}
+      <body suppressHydrationWarning className="min-h-full flex flex-col bg-slate-50 text-slate-900 antialiased">
         <Suspense fallback={null}>
           <AuthProvider>
             <AdminLayout>{children}</AdminLayout>

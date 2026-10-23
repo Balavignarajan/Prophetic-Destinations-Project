@@ -8,6 +8,7 @@ import {
 } from '../../../shared-kernel/index.js';
 import { MEDIA_METADATA_LIMITS, cleanMetadataText, cleanTags, sameMetadata } from '../domain/metadata.js';
 import { newStorageKey, sanitizeFilename } from '../domain/filename.js';
+import { lottieProblem, looksLikeJsonObject } from '../domain/lottie.js';
 import { detectMediaType, findSupportedType } from '../domain/media-types.js';
 import type { MediaAsset, StoredMediaAsset } from '../domain/models.js';
 import { MediaAssetRepository } from '../persistence/media-asset.repository.js';
@@ -54,6 +55,11 @@ export class MediaService {
     @Inject(MEDIA_SETTINGS) private readonly settings: MediaSettings,
   ) {}
 
+  /** What an upload may be, as configured: shown to authors so they are told the real limits before they choose a file. */
+  uploadRules(): { maxBytes: number; allowedTypes: string[] } {
+    return { maxBytes: this.settings.maxBytes, allowedTypes: [...this.settings.allowedTypes] };
+  }
+
   async upload(
     actorId: string,
     file: UploadedMediaFile | undefined,
@@ -78,6 +84,10 @@ export class MediaService {
     }
     // The type comes from the bytes. The client's Content-Type and extension are not consulted at all.
     const detected = detectMediaType(bytes);
+    if (!detected && looksLikeJsonObject(bytes)) {
+      // Someone meant to upload a JSON file (a Lottie animation): say what is wrong with it instead of a bare "type not accepted".
+      throw new BusinessRuleError(lottieProblem(bytes) ?? 'This file type is not accepted', { code: 'LOTTIE_INVALID' });
+    }
     if (!detected || !this.settings.allowedTypes.has(detected.mime)) {
       throw new BusinessRuleError('This file type is not accepted', {
         code: 'UNSUPPORTED_TYPE',
@@ -154,11 +164,11 @@ export class MediaService {
     return { items: items.map(toPublic), total };
   }
 
-  /** The asset and a stream of its bytes. 404 if either the row or the stored file is missing. */
-  async openContent(id: string): Promise<MediaContent> {
+  /** The asset and a stream of its bytes (or of the given inclusive byte range). 404 if either the row or the stored file is missing. */
+  async openContent(id: string, range?: { start: number; end: number }): Promise<MediaContent> {
     const asset = await this.require(id);
     try {
-      const stream = await this.storage.open(asset.storageKey);
+      const stream = await this.storage.open(asset.storageKey, range);
       return {
         asset: toPublic(asset),
         stream,

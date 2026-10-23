@@ -46,8 +46,10 @@ export class CatalogDeliveryService {
         title: view.title,
         description: view.description,
         coverMediaId: view.coverMediaId,
+        book: view.book ?? null,
         moduleCount: view.moduleCount,
         lessonCount: view.lessonCount,
+        lessonIds: [...(view.directLessons ?? []), ...view.modules.flatMap((module) => module.lessons)].map((lesson) => lesson.lessonId),
       })),
     };
     return represent('course-list', [level], body, ifNoneMatch);
@@ -140,6 +142,7 @@ function toCourseBody(view: PublishedCourseView): CourseResponseDto {
     title: view.title,
     description: view.description,
     coverMediaId: view.coverMediaId,
+    book: view.book ?? null,
     moduleCount: view.moduleCount,
     lessonCount: view.lessonCount,
     modules: view.modules.map((module) => ({

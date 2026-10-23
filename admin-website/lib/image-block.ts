@@ -57,9 +57,17 @@ export function friendlyMediaError(error: unknown, fallback: string): string {
   const code = e?.payload?.details?.code ?? e?.payload?.code;
   switch (code) {
     case 'UNSUPPORTED_TYPE':
-      return 'This file type is not accepted. Use a PNG, JPEG or WEBP image.';
-    case 'FILE_TOO_LARGE':
-      return 'This image is larger than 5 MB. Choose a smaller one.';
+      return 'This file type is not accepted by this server. Images (PNG, JPEG, WEBP) are; MP4 video and Lottie animations only when the server has been set up for them.';
+    case 'FILE_TOO_LARGE': {
+      const limit = (e?.payload?.details as { maxBytes?: unknown } | undefined)?.maxBytes;
+      return typeof limit === 'number' ? `This file is larger than the ${formatBytes(limit)} this server accepts. Choose a smaller one.` : 'This file is larger than the server accepts. Choose a smaller one.';
+    }
+    case 'LOTTIE_INVALID':
+      return e?.payload?.message ?? 'This is not an acceptable Lottie animation.';
+    case 'MEDIA_NOT_A_VIDEO':
+      return 'The selected file is not an MP4 video. Choose an MP4 video from the Media Library.';
+    case 'MEDIA_NOT_LOTTIE':
+      return 'The selected file is not a Lottie animation. Choose a Lottie JSON file from the Media Library.';
     case 'EMPTY_FILE':
       return 'This file is empty.';
     case 'MEDIA_NOT_FOUND':
@@ -67,7 +75,7 @@ export function friendlyMediaError(error: unknown, fallback: string): string {
     case 'MEDIA_IN_USE':
       return e?.payload?.message ?? 'This image is used by a lesson, so it cannot be deleted.';
   }
-  if (e?.status === 413) return 'This image is larger than 5 MB. Choose a smaller one.';
+  if (e?.status === 413) return 'This file is larger than the server accepts. Choose a smaller one.';
   if (e?.status === 403) return 'You do not have permission to do that.';
   return e?.payload?.message || e?.message || fallback;
 }

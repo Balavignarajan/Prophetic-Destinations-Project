@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { readHotspotContent } from '../lib/hotspot-block';
+import { restrictedLevelsText } from '../lib/item-levels';
 import MediaImage from './MediaImage';
 import ScriptureEntriesView from './ScriptureEntriesView';
 
@@ -66,6 +67,7 @@ export default function HotspotBlockView({ content, variant = 'interactive' }: {
                   <span className="min-w-0 text-sm font-medium text-slate-900 break-words">
                     {h.label || <em className="text-slate-600">No label yet</em>}
                     {h.x === null && <span className="ml-2 text-xs font-medium text-amber-800">(not placed on the image yet)</span>}
+                    {restrictedLevelsText(h.levels) && <span className="ml-2 rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-800">Only at: {restrictedLevelsText(h.levels)}</span>}
                   </span>
                 </button>
                 {open && (

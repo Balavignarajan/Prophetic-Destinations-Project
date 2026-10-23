@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { fillIfEmpty } from '../lib/media-api';
+import { ANIMATION_KINDS, type AnimationKind } from '../lib/media-kinds';
 import {
   ANIMATION_LIMITS,
   EMPTY_ANIMATION,
@@ -96,8 +97,10 @@ function SceneBody({ mode, lessonLevels, initial, saving, error, onSave, request
         )}
         <div>
           <label htmlFor="ns-narrative" className={LABEL}>Narrative</label>
-          <textarea id="ns-narrative" rows={4} maxLength={SCENE_LIMITS.narrative} value={draft.narrative} onChange={(e) => patch({ narrative: e.target.value })} className={FIELD} />
-          <p className={HELP}>Concise text in your own words ({draft.narrative.length} of {SCENE_LIMITS.narrative}). Required before publishing.</p>
+          <textarea id="ns-narrative" rows={6} maxLength={SCENE_LIMITS.narrative} value={draft.narrative} onChange={(e) => patch({ narrative: e.target.value })} aria-describedby="ns-narrative-help" className={FIELD} />
+          <p id="ns-narrative-help" className={HELP}>
+            Concise text in your own words ({draft.narrative.length} of {SCENE_LIMITS.narrative}). Leave a blank line between paragraphs: learners see each paragraph on its own. Required before publishing.
+          </p>
         </div>
         <ScriptureRefList
           itemLabel="this scene"
@@ -145,18 +148,57 @@ function AnimationBody({ mode, lessonLevels, initial, saving, error, onSave, req
     >
       <ErrorNote error={error} />
       <p className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-900">
-        Only <strong>animated WebP</strong> files can be used. Video and Lottie files are not supported in this version of the app, and a still image is refused when you save. The
-        animation never starts by itself: learners press Play.
+        {draft.mediaType === 'VIDEO' ? (
+          <>
+            An <strong>MP4 video</strong> from the Media Library. It never starts by itself: learners press Play. Videos are played over the internet and are <strong>not saved
+            for offline reading</strong>, so a learner without a connection sees a message instead of the video. The poster is saved with the lesson.
+          </>
+        ) : draft.mediaType === 'LOTTIE' ? (
+          <>
+            A <strong>Lottie animation</strong> (plain .json, without expressions or links to other files). It never starts by itself: learners press Play. It is loaded over the
+            internet when played and is <strong>not saved for offline reading</strong>. The poster is saved with the lesson.
+          </>
+        ) : (
+          <>
+            An <strong>animated WebP</strong> file; a still image is refused when you save. The animation never starts by itself: learners press Play. It is saved for offline
+            reading with the lesson.
+          </>
+        )}
       </p>
       <fieldset className="space-y-4" disabled={saving}>
-        <legend className="sr-only">Animated image</legend>
-        <CoverImageField subject="animation" contentType="image/webp" value={draft.mediaId || null} onChange={(mediaId, asset) => patch(mediaId ? { mediaId, altText: fillIfEmpty(draft.altText, asset?.altText), caption: fillIfEmpty(draft.caption, asset?.caption) } : { mediaId: '' })} disabled={saving} />
+        <legend className="sr-only">Media or animation</legend>
+        <div>
+          <label htmlFor="ma-type" className={LABEL}>Kind of media</label>
+          <select
+            id="ma-type"
+            value={draft.mediaType}
+            onChange={(e) => patch({ mediaType: e.target.value as AnimationKind, mediaId: '' })}
+            aria-describedby="ma-type-help"
+            className={FIELD}
+          >
+            {ANIMATION_KINDS.map((kind) => (
+              <option key={kind.value} value={kind.value}>{kind.label}</option>
+            ))}
+          </select>
+          <p id="ma-type-help" className={HELP}>Changing the kind clears the chosen file, because a file only fits its own kind.</p>
+        </div>
+        <CoverImageField
+          key={draft.mediaType}
+          subject={draft.mediaType === 'VIDEO' ? 'video' : draft.mediaType === 'LOTTIE' ? 'lottie' : 'animation'}
+          contentType={ANIMATION_KINDS.find((kind) => kind.value === draft.mediaType)?.contentType}
+          value={draft.mediaId || null}
+          onChange={(mediaId, asset) => patch(mediaId ? { mediaId, altText: fillIfEmpty(draft.altText, asset?.altText), caption: fillIfEmpty(draft.caption, asset?.caption) } : { mediaId: '' })}
+          disabled={saving}
+        />
         <CoverImageField subject="poster" value={draft.posterMediaId || null} onChange={(mediaId) => patch({ posterMediaId: mediaId ?? '' })} disabled={saving} />
-        <p className={HELP}>The poster is the still picture learners see before they press Play. Without one, the first frame of the animation is shown.</p>
+        <p className={HELP}>
+          The poster is the still picture learners see before they press Play.{' '}
+          {draft.mediaType === 'ANIMATED_IMAGE' ? 'Without one, the first frame of the animation is shown.' : 'Without one, learners see a plain play button.'}
+        </p>
         <div>
           <label htmlFor="ma-alt" className={LABEL}>Accessibility text</label>
           <textarea id="ma-alt" rows={2} maxLength={ANIMATION_LIMITS.altText} value={draft.altText} onChange={(e) => patch({ altText: e.target.value })} className={FIELD} />
-          <p className={HELP}>Describe what the animation shows, for people who cannot see it. Required before publishing.</p>
+          <p className={HELP}>Describe what the {draft.mediaType === 'VIDEO' ? 'video' : 'animation'} shows, for people who cannot see it. Required before publishing.</p>
         </div>
         <div>
           <label htmlFor="ma-caption" className={LABEL}>Caption (optional)</label>
@@ -164,8 +206,8 @@ function AnimationBody({ mode, lessonLevels, initial, saving, error, onSave, req
         </div>
       </fieldset>
       <Missing items={animationReadiness(draft)} />
-      {mode === 'create' && <LevelChoice lessonLevels={lessonLevels} levels={levels} setLevels={setLevels} disabled={saving} legend="Show this animation at" />}
-      <Actions saving={saving} canSave={canSave} createLabel="Add animation to lesson" editLabel="Save animation" mode={mode} requestClose={requestClose} />
+      {mode === 'create' && <LevelChoice lessonLevels={lessonLevels} levels={levels} setLevels={setLevels} disabled={saving} legend="Show this at" />}
+      <Actions saving={saving} canSave={canSave} createLabel="Add to lesson" editLabel="Save" mode={mode} requestClose={requestClose} />
     </form>
   );
 }
@@ -173,7 +215,7 @@ function AnimationBody({ mode, lessonLevels, initial, saving, error, onSave, req
 export function AnimationDialog({ isOpen, onClose, initial, ...rest }: CommonProps & { initial: AnimationContent | null }) {
   const { dirtyRef, requestClose } = useGuardedClose(rest.saving, onClose);
   return (
-    <Modal isOpen={isOpen} onClose={requestClose} title={rest.mode === 'create' ? 'Add an animated image' : 'Edit animated image'} description="An animated WebP from your Media Library that learners start themselves." maxWidth="xl">
+    <Modal isOpen={isOpen} onClose={requestClose} title={rest.mode === 'create' ? 'Add a video or animation' : 'Edit video or animation'} description="An animated WebP, an MP4 video or a Lottie animation from your Media Library that learners start themselves." maxWidth="xl">
       <AnimationBody {...rest} initial={initial} requestClose={requestClose} dirtyRef={dirtyRef} />
     </Modal>
   );

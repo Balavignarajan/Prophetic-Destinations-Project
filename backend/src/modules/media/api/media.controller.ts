@@ -82,6 +82,14 @@ export class MediaController {
     };
   }
 
+  /** The upload rules as configured (largest file, accepted types). Declared before ':mediaId' so it is never read as an id. */
+  @Get('settings')
+  @Roles(...READ_ROLES)
+  @Header('Cache-Control', 'no-store')
+  settings(): { maxBytes: number; allowedTypes: string[] } {
+    return this.media.uploadRules();
+  }
+
   @Get(':mediaId')
   @Roles(...READ_ROLES)
   @Header('Cache-Control', 'no-store')

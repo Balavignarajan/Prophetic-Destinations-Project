@@ -21,18 +21,20 @@ import { validateScriptureEntries } from './scripture-refs.js';
  * MEDIA_ANIMATION ("Asset; media type; caption; poster/thumbnail; accessibility text"; "render supported video/animation/Lottie-type asset ... CMS integrates
  * asset; does not create animations"):
  *
- *   { "mediaType": "ANIMATED_IMAGE", "mediaId": "<animated WebP in the media library>", "posterMediaId": "<still image, optional>",
+ *   { "mediaType": "ANIMATED_IMAGE" | "VIDEO" | "LOTTIE", "mediaId": "<the file in the media library>", "posterMediaId": "<still image, optional>",
  *     "caption": "optional", "altText": "accessibility text" }
  *
- *   - ONLY "ANIMATED_IMAGE" (an animated WebP file) is accepted: it is the one animation format the mobile app can play with the packages already installed
- *     (expo-image). VIDEO and LOTTIE are NOT supported: the app has no video or Lottie player installed, and adding one needs a dependency and a hosting /
- *     format decision (D9), so the block refuses them rather than store content it cannot play. The asset must really be an animated WebP (checked from the
- *     file's bytes when the block is saved); a still image is refused.
- *   - It is never autoplayed: the learner presses Play. `posterMediaId` is the still shown before play. Publishing needs the asset and the accessibility text.
+ *   - ANIMATED_IMAGE: an animated WebP, played with expo-image. VIDEO: an MP4 file, played with expo-video. LOTTIE: a Lottie animation in its plain JSON form,
+ *     played with lottie-react-native. The file's real type is checked from its own bytes when it is uploaded (media-types.ts, lottie.ts) AND again here when
+ *     the block is saved: a block never names a file of another kind. The block holds only the media library id: no address, no code.
+ *   - Nothing autoplays: the learner presses Play. `posterMediaId` (an image) is shown before play. Publishing needs the asset and the accessibility text.
+ *   - Offline: an animated WebP and the poster are saved with the lesson. A video is NEVER downloaded for offline use and a Lottie file is not saved either
+ *     (their hosting and size policy is not decided, D9): both play only while the app can reach the server.
  */
 export const SCENE_LIMITS = { title: 200, narrative: 600, altText: 500 } as const;
 export const ANIMATION_LIMITS = { caption: 500, altText: 500 } as const;
-export const MEDIA_TYPES = ['ANIMATED_IMAGE'] as const;
+export const MEDIA_TYPES = ['ANIMATED_IMAGE', 'VIDEO', 'LOTTIE'] as const;
+export type MediaKind = (typeof MEDIA_TYPES)[number];
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -104,7 +106,7 @@ export function validateAnimationShape(content: unknown): ContentProblem[] {
   const problems: ContentProblem[] = [];
   checkKeys(content, ['mediaType', 'mediaId', 'posterMediaId', 'caption', 'altText'], problems);
   if (content.mediaType !== undefined && !(MEDIA_TYPES as readonly unknown[]).includes(content.mediaType)) {
-    problems.push({ path: 'mediaType', message: 'Only animated images (animated WebP) are supported. Video and Lottie are not available in this version of the app.' });
+    problems.push({ path: 'mediaType', message: `The media type must be one of: ${MEDIA_TYPES.join(', ')}` });
   }
   for (const key of ['mediaId', 'posterMediaId'] as const) {
     const value = content[key];
@@ -118,15 +120,16 @@ export function validateAnimationShape(content: unknown): ContentProblem[] {
 export function validateAnimationComplete(content: unknown): ContentProblem[] {
   const c = isPlainObject(content) ? content : {};
   const problems: ContentProblem[] = [];
-  if (c.mediaType !== 'ANIMATED_IMAGE') problems.push({ path: 'mediaType', message: 'Choose the media type (animated image)' });
-  if (typeof c.mediaId !== 'string') problems.push({ path: 'mediaId', message: 'Choose the animated image' });
+  if (!(MEDIA_TYPES as readonly unknown[]).includes(c.mediaType)) problems.push({ path: 'mediaType', message: 'Choose the media type (animated image, video or Lottie animation)' });
+  if (typeof c.mediaId !== 'string') problems.push({ path: 'mediaId', message: 'Choose the media file' });
   if (blank(c.altText)) problems.push({ path: 'altText', message: 'The animation needs accessibility text (a description of what it shows)' });
   return problems;
 }
 
-/** The animated asset and its optional poster (well-formed ids only). */
-export function animationMedia(content: unknown): { mediaId: string | null; posterMediaId: string | null } {
-  if (!isPlainObject(content)) return { mediaId: null, posterMediaId: null };
+/** The media asset, its kind (null when the block does not say) and its optional poster (well-formed ids only). */
+export function animationMedia(content: unknown): { mediaId: string | null; posterMediaId: string | null; mediaType: MediaKind | null } {
+  if (!isPlainObject(content)) return { mediaId: null, posterMediaId: null, mediaType: null };
   const ok = (v: unknown) => (typeof v === 'string' && UUID.test(v) ? v : null);
-  return { mediaId: ok(content.mediaId), posterMediaId: ok(content.posterMediaId) };
+  const mediaType = (MEDIA_TYPES as readonly unknown[]).includes(content.mediaType) ? (content.mediaType as MediaKind) : null;
+  return { mediaId: ok(content.mediaId), posterMediaId: ok(content.posterMediaId), mediaType };
 }

@@ -23,9 +23,9 @@ export class ListMediaQueryDto {
   @MaxLength(100)
   q?: string;
 
-  /** Only assets of this exact stored type (for pickers that accept one kind of file, such as animated WebP). */
+  /** Only assets of this exact stored type (for pickers that accept one kind of file, such as animated WebP, MP4 video or Lottie JSON), or `image/*` for any image. */
   @IsOptional()
-  @IsIn(['image/webp'])
+  @IsIn(['image/webp', 'video/mp4', 'application/json', 'image/*'])
   contentType?: string;
 }
 

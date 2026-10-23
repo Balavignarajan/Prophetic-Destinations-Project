@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
-import type { LearningLevel } from '../../../shared-kernel/index.js';
+import { type CourseBook, type LearningLevel, isCourseBook } from '../../../shared-kernel/index.js';
 import type { CatalogLevelContent } from '../domain/catalog-snapshot.js';
 
 /** The active catalog snapshot of one course at one level. */
@@ -9,6 +9,8 @@ export interface ActiveCatalogLevel {
   courseId: string;
   catalogVersion: number;
   content: CatalogLevelContent;
+  /** The course's CMS-managed Bible book (live, like the course order), or null. Only ever read for a course that has an active publication. */
+  book: CourseBook | null;
 }
 
 /** An active catalog snapshot and the moment its course was first published (the listing order). */
@@ -26,15 +28,17 @@ export class PublishedCatalogRepository {
 
   /** Every course's active catalog snapshot at `level`, in the administrators' manual course order
    * (`courses.position`), then first publication, then course id. Only courses with an ACTIVE publication are
-   * selected, so ordering can never bring an unpublished course into the list. */
+   * selected, so ordering can never bring an unpublished course into the list. The course's `book` (Daniel / Revelation
+   * entry) is read from the same live row and is subject to the same rule. */
   async listActive(level: LearningLevel): Promise<ListedCatalogLevel[]> {
     const rows: {
       course_id: string;
       version: number;
       content: CatalogLevelContent;
       first_published_at: Date;
+      book: string | null;
     }[] = await this.dataSource.query(
-      `SELECT p."course_id", p."version", l."content",
+      `SELECT p."course_id", p."version", l."content", c."book",
               (SELECT min(x."published_at") FROM "course_publications" x
                 WHERE x."course_id" = p."course_id") AS "first_published_at"
          FROM "course_publications" p
@@ -48,6 +52,7 @@ export class PublishedCatalogRepository {
       courseId: row.course_id,
       catalogVersion: row.version,
       content: row.content,
+      book: isCourseBook(row.book) ? row.book : null,
       firstPublishedAt: row.first_published_at,
     }));
   }
@@ -57,11 +62,12 @@ export class PublishedCatalogRepository {
     courseId: string,
     level: LearningLevel,
   ): Promise<ActiveCatalogLevel | null> {
-    const rows: { version: number; content: CatalogLevelContent }[] =
+    const rows: { version: number; content: CatalogLevelContent; book: string | null }[] =
       await this.dataSource.query(
-        `SELECT p."version", l."content"
+        `SELECT p."version", l."content", c."book"
            FROM "course_publications" p
            JOIN "course_publication_levels" l ON l."publication_id" = p."id" AND l."level" = $2
+           JOIN "courses" c ON c."id" = p."course_id"
           WHERE p."course_id" = $1 AND p."ended_at" IS NULL`,
         [courseId, level],
       );
@@ -70,6 +76,7 @@ export class PublishedCatalogRepository {
           courseId,
           catalogVersion: rows[0].version,
           content: rows[0].content,
+          book: isCourseBook(rows[0].book) ? rows[0].book : null,
         }
       : null;
   }
@@ -87,8 +94,9 @@ export class PublishedCatalogRepository {
       course_id: string;
       version: number;
       content: CatalogLevelContent;
+      book: string | null;
     }[] = await this.dataSource.query(
-      `SELECT cp."course_id", cp."version", cl."content"
+      `SELECT cp."course_id", cp."version", cl."content", co."book"
          FROM "lesson_publications" lp
          JOIN "lesson_publication_levels" ll
            ON ll."publication_id" = lp."id" AND ll."level" = $2
@@ -96,6 +104,7 @@ export class PublishedCatalogRepository {
            ON cp."course_id" = lp."course_id" AND cp."ended_at" IS NULL
          JOIN "course_publication_levels" cl
            ON cl."publication_id" = cp."id" AND cl."level" = $2
+         JOIN "courses" co ON co."id" = cp."course_id"
         WHERE lp."lesson_id" = $1 AND lp."ended_at" IS NULL
           AND ((lp."module_id" IS NULL AND cl."content" @> jsonb_build_object('directLessons', jsonb_build_array(jsonb_build_object('id', lp."lesson_id"::text))))
             OR (lp."module_id" IS NOT NULL AND EXISTS (SELECT 1 FROM "course_publication_modules" m WHERE m."publication_id" = cp."id" AND m."module_id" = lp."module_id") AND cl."content" @> jsonb_build_object('modules', jsonb_build_array(jsonb_build_object('id', lp."module_id"::text, 'lessons', jsonb_build_array(jsonb_build_object('id', lp."lesson_id"::text)))))))`,
@@ -106,6 +115,7 @@ export class PublishedCatalogRepository {
           courseId: rows[0].course_id,
           catalogVersion: rows[0].version,
           content: rows[0].content,
+          book: isCourseBook(rows[0].book) ? rows[0].book : null,
         }
       : null;
   }

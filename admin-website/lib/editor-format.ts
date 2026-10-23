@@ -1,9 +1,12 @@
 /**
  * Pure text transforms behind the editor toolbar (components/RichTextEditor.tsx). They only ever insert the editor syntax that
- * rich-text.ts parses, so whatever the toolbar produces becomes the matching bold/italic/link/list marks on save, and is shown
+ * rich-text.ts parses, so whatever the toolbar produces becomes the matching bold/italic/link/list/heading/reference nodes on save, and is shown
  * by the same renderer. Each returns the new text and the selection to restore.
- * No runtime imports: unit-tested with plain Node.
+ * The only import is rich-text.ts (for the written form of a reference): unit-tested with plain Node.
  */
+import { scriptureToken } from './rich-text.ts';
+import type { ScriptureReference } from './scripture.ts';
+
 export interface EditResult {
   value: string;
   selectionStart: number;
@@ -62,4 +65,35 @@ export function toggleList(value: string, start: number, end: number, kind: 'bul
   const head = before + (needBefore ? '\n' : '');
   const tail = (needAfter ? '\n' : '') + after;
   return { value: head + body + tail, selectionStart: head.length, selectionEnd: head.length + body.length };
+}
+
+/**
+ * Makes the line holding the cursor a heading of `level` ("## text"), changes it to that level if it is another heading, or turns it back into plain text
+ * when it is already a heading of that level. A heading is always a line of its own; only the first line of a selection is changed.
+ */
+export function toggleHeading(value: string, start: number, end: number, level: 1 | 2 | 3): EditResult {
+  const lineStart = value.lastIndexOf('\n', start - 1) + 1;
+  const nl = value.indexOf('\n', start);
+  const lineEnd = nl === -1 ? value.length : nl;
+  const line = value.slice(lineStart, lineEnd);
+  const existing = /^(#{1,3}) /.exec(line);
+  const bare = existing ? line.slice(existing[0].length) : line;
+  const changed = existing && existing[1].length === level ? bare : `${'#'.repeat(level)} ${bare}`;
+  const shift = changed.length - line.length;
+  return {
+    value: value.slice(0, lineStart) + changed + value.slice(lineEnd),
+    selectionStart: Math.max(lineStart, start + shift),
+    selectionEnd: Math.max(lineStart, end + shift),
+  };
+}
+
+/** Replaces the selection (or inserts at the cursor) with an inline Scripture reference, "{{Daniel 2:31-35}}", spaced from the words around it. */
+export function insertScriptureReference(value: string, start: number, end: number, reference: ScriptureReference): EditResult {
+  const before = value.slice(0, start);
+  const after = value.slice(end);
+  const lead = before !== '' && !/[\s([]$/.test(before) ? ' ' : '';
+  const trail = after !== '' && !/^[\s.,;:!?)\]]/.test(after) ? ' ' : '';
+  const token = `${lead}${scriptureToken(reference)}${trail}`;
+  const caret = start + lead.length + scriptureToken(reference).length;
+  return { value: before + token + after, selectionStart: caret, selectionEnd: caret };
 }

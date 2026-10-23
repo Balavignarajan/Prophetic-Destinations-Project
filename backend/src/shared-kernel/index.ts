@@ -12,6 +12,11 @@ export {
   isLearningLevel,
 } from './learning-level.js';
 export {
+  COURSE_BOOKS,
+  type CourseBook,
+  isCourseBook,
+} from './course-book.js';
+export {
   checkReorder,
   positionsFor,
   resolveInsertPosition,

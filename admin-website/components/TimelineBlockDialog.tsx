@@ -3,8 +3,10 @@
 import React, { useRef, useState } from 'react';
 import { TIMELINE_LIMITS, type TimelineContent, buildTimelineContent, newEventId } from '../lib/timeline-block';
 import type { LearningLevel } from '../lib/types';
+import { hasEmptyLevelChoice } from '../lib/item-levels';
 import { fillIfEmpty } from '../lib/media-api';
 import CoverImageField from './CoverImageField';
+import ItemLevelsField from './ItemLevelsField';
 import ScriptureRefList from './ScriptureRefList';
 import { Modal } from './ui';
 
@@ -38,7 +40,7 @@ function Body({ mode, lessonLevels, initial, saving, error, onSave, requestClose
   const [levels, setLevels] = useState<LearningLevel[]>(lessonLevels);
 
   dirtyRef.current = JSON.stringify(buildTimelineContent({ heading, events })) !== JSON.stringify(buildTimelineContent(start));
-  const canSave = !saving && (mode === 'edit' || levels.length > 0);
+  const canSave = !saving && !hasEmptyLevelChoice(events) && (mode === 'edit' || levels.length > 0);
 
   const patch = (id: string, changes: Partial<TimelineContent['events'][number]>) => setEvents((list) => list.map((e) => (e.id === id ? { ...e, ...changes } : e)));
   const move = (index: number, delta: -1 | 1) =>
@@ -137,11 +139,12 @@ function Body({ mode, lessonLevels, initial, saving, error, onSave, requestClose
                   onChange={(scripture) => patch(event.id, { scripture })}
                   disabled={saving}
                 />
+                <ItemLevelsField idPrefix={`tl-lv-${event.id}`} itemLabel={`Event ${index + 1}`} plural="events" value={event.levels} onChange={(next) => patch(event.id, { levels: next })} disabled={saving} />
               </li>
             ))}
           </ol>
         )}
-        <button type="button" className={BTN} disabled={events.length >= TIMELINE_LIMITS.maxEvents} onClick={() => setEvents((list) => [...list, { id: newEventId(list), dateLabel: '', title: '', explanation: '', mediaId: '', altText: '', caption: '', source: '', scripture: [] }])}>
+        <button type="button" className={BTN} disabled={events.length >= TIMELINE_LIMITS.maxEvents} onClick={() => setEvents((list) => [...list, { id: newEventId(list), dateLabel: '', title: '', explanation: '', mediaId: '', altText: '', caption: '', source: '', scripture: [], levels: null }])}>
           Add event
         </button>
         {events.length >= TIMELINE_LIMITS.maxEvents && <p className="text-xs text-slate-700">A timeline can have at most {TIMELINE_LIMITS.maxEvents} events.</p>}

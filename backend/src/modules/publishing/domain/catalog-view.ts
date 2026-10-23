@@ -1,4 +1,4 @@
-import type { LearningLevel } from '../../../shared-kernel/index.js';
+import type { CourseBook, LearningLevel } from '../../../shared-kernel/index.js';
 import type {
   CatalogLessonEntry,
   CatalogLevelContent,
@@ -44,6 +44,8 @@ export interface PublishedCourseView {
   description: string | null;
   /** Published cover image of the course, or null (also for snapshots written before covers existed). */
   coverMediaId: string | null;
+  /** The course's CMS-managed Bible book (the dedicated Daniel / Revelation Home entry), or null. Set by the catalog service from the live course row. */
+  book?: CourseBook | null;
   moduleCount: number;
   lessonCount: number;
   modules: PublishedModuleView[];

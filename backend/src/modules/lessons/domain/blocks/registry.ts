@@ -53,6 +53,8 @@ export interface BlockReference {
   targetId: string;
   /** MEDIA only: the asset must be an animated WebP (checked from its bytes when the block is saved). */
   animated?: boolean;
+  /** MEDIA only: the asset must be a stored MP4 video or Lottie JSON file (the type detected from its bytes at upload). Absent = an image. */
+  mediaKind?: 'video' | 'lottie';
 }
 
 /** Everything the application needs to know about one block type. */
@@ -299,9 +301,11 @@ const MEDIA_ANIMATION: BlockTypeDefinition = {
   validateShape: validateAnimationShape,
   validateComplete: validateAnimationComplete,
   extractReferences: (content) => {
-    const { mediaId, posterMediaId } = animationMedia(content);
+    const { mediaId, posterMediaId, mediaType } = animationMedia(content);
+    // The kind of the main file decides what it must be: an MP4 video, a Lottie file, or (as before, also when the block names no kind) an animated WebP.
+    const rule = mediaType === 'VIDEO' ? { mediaKind: 'video' as const } : mediaType === 'LOTTIE' ? { mediaKind: 'lottie' as const } : { animated: true };
     return [
-      ...(mediaId ? [{ kind: 'MEDIA' as const, targetId: mediaId, animated: true }] : []),
+      ...(mediaId ? [{ kind: 'MEDIA' as const, targetId: mediaId, ...rule }] : []),
       ...(posterMediaId ? [{ kind: 'MEDIA' as const, targetId: posterMediaId }] : []),
     ];
   },

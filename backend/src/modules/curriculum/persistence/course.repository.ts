@@ -5,6 +5,8 @@ import { isForeignKeyViolation } from '../../../database/pg-errors.js';
 import {
   ConflictError,
   type ContentStatus,
+  type CourseBook,
+  isCourseBook,
 } from '../../../shared-kernel/index.js';
 import type { Course } from '../domain/models.js';
 import { CourseEntity } from './course.entity.js';
@@ -13,6 +15,7 @@ export interface NewCourse {
   title: string;
   description: string | null;
   coverMediaId?: string | null;
+  book?: CourseBook | null;
   position: number;
 }
 
@@ -20,6 +23,7 @@ export interface CourseChanges {
   title?: string;
   description?: string | null;
   coverMediaId?: string | null;
+  book?: CourseBook | null;
   status?: ContentStatus;
 }
 
@@ -166,6 +170,8 @@ function toCourse(row: CourseEntity): Course {
     description: row.description,
     status: row.status as ContentStatus,
     coverMediaId: row.coverMediaId,
+    // The database CHECK only allows the approved values; anything else would be corruption and is read as "no book".
+    book: isCourseBook(row.book) ? row.book : null,
     position: row.position,
     version: row.version,
     createdAt: row.createdAt,

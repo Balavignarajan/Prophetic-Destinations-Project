@@ -16,7 +16,18 @@
  *
  * What it does NOT change: which actions exist, what they record, and the progress model itself (progress-model.ts).
  */
-import { type LessonRef, type ProgressState, type QuizResult, lessonKey, withPosition, withQuizResult } from './progress-model.ts';
+import {
+  type LessonRef,
+  type PositionExtra,
+  type ProgressState,
+  type QuizResult,
+  type TitledLesson,
+  isSamePosition,
+  lessonKey,
+  withCurrentTitles,
+  withPosition,
+  withQuizResult,
+} from './progress-model.ts';
 
 export type SessionProgress = ProgressState & { version: 1; quizResults: Record<string, QuizResult> };
 
@@ -58,13 +69,32 @@ export type ProgressSession = {
   retryLoad: () => Promise<boolean>;
   /** Writes the latest state again after a failed write. Resolves to whether it is stored. */
   retrySave: () => Promise<boolean>;
-  recordOpened: (lesson: LessonRef) => void;
-  savePosition: (lesson: LessonRef, offset: number) => void;
   /**
-   * Marks a lesson complete (or takes the mark back). Resolves to whether the change is stored: true also when nothing needed to change; false when it could not
-   * be stored, when the saved progress is unavailable, or when progress was reset meanwhile. The change is applied in memory at once either way.
+   * Notes the lesson being read as the resume point and, when its title is the current one (`liveTitle`, the default), brings the title kept with its other records
+   * up to date. A lesson shown from a saved copy passes `liveTitle: false`: that copy can be older than a title already refreshed from the live catalog, so it
+   * must not write its title over a newer one.
    */
-  setCompleted: (lesson: LessonRef, completed: boolean) => Promise<boolean>;
+  recordOpened: (lesson: LessonRef, options?: { liveTitle?: boolean }) => void;
+  /**
+   * Brings the title kept with the records of these lessons up to date with the published catalog (see `withCurrentTitles`). Only titles change; completion
+   * dates, positions and quiz scores are untouched, and nothing is written when the titles already match.
+   */
+  syncTitles: (lessons: readonly TitledLesson[]) => void;
+  /**
+   * Remembers where the learner is in an unfinished lesson: the scroll offset (always) and, when known, the content anchor and published version
+   * (`extra`). A save that only repeats the kept position changes and writes nothing.
+   */
+  savePosition: (lesson: LessonRef, offset: number, extra?: PositionExtra) => void;
+  /**
+   * Marks a lesson complete (or takes the mark back). Resolves to whether the change is stored: false when it could not be stored, when the saved progress is
+   * unavailable, or when progress was reset meanwhile. When nothing needed to change it resolves true only if the latest state really IS stored: a write that is still
+   * running is waited for, and one that failed earlier is tried again, so "nothing to do" never claims more than is on the device. The change is applied in memory
+   * at once either way.
+   *
+   * `completedAt` is for putting back a completion that was taken away but could not be stored (the stored progress still has it): the lesson keeps the time it was
+   * originally completed instead of getting a new one.
+   */
+  setCompleted: (lesson: LessonRef, completed: boolean, completedAt?: number) => Promise<boolean>;
   /** Resolves to whether the result was stored on this device (false: it could not be stored, or progress was reset or unavailable meanwhile). */
   recordQuizResult: (result: QuizResult) => Promise<boolean>;
   /** The learner's explicit "erase my progress". Resolves to whether the saved progress is gone. */
@@ -179,11 +209,14 @@ export function createProgressSession(io: SessionIo, empty: SessionProgress): Pr
     return true;
   };
 
-  /** Routes a change by status. Resolves to whether it ended up stored. */
-  const submit = (run: Action): Promise<boolean> => {
+  /**
+   * Routes a change by status. Resolves to whether it ended up stored. `confirmNoop`: a change that finds nothing to change still answers only once the latest state
+   * is stored (used by completion, whose callers tell the learner whether it was saved).
+   */
+  const submit = (run: Action, confirmNoop = false): Promise<boolean> => {
     if (status === 'ready') {
       const startedIn = generation;
-      if (!apply(run)) return Promise.resolve(true);
+      if (!apply(run)) return confirmNoop && unsaved ? flush().then((stored) => stored && startedIn === generation) : Promise.resolve(true);
       return flush().then((stored) => stored && startedIn === generation);
     }
     if (status === 'loading') return new Promise<boolean>((resolve) => queued.push({ run, settle: resolve }));
@@ -309,29 +342,36 @@ export function createProgressSession(io: SessionIo, empty: SessionProgress): Pr
     retryLoad,
     retrySave: () => flush(),
 
-    recordOpened: (lesson) => {
+    recordOpened: (lesson, options) => {
       const now = Date.now();
+      const liveTitle = options?.liveTitle !== false;
       void submit((current) => {
         const last = current.lastOpened;
-        if (last && last.lessonId === lesson.lessonId && last.level === lesson.level && last.courseId === lesson.courseId && last.title === lesson.title) return current;
-        return { ...current, lastOpened: { ...lesson, openedAt: now } };
+        const repeats =
+          last !== null && last.lessonId === lesson.lessonId && last.level === lesson.level && last.courseId === lesson.courseId && (!liveTitle || last.title === lesson.title);
+        const opened = repeats ? current : { ...current, lastOpened: { ...lesson, openedAt: now } };
+        // Opening a lesson also brings the title kept with its other records (completion, position, quiz results) up to date, without touching anything else of them.
+        return liveTitle ? withCurrentTitles(opened, [lesson]) : opened;
       });
     },
 
-    savePosition: (lesson, offset) => {
+    syncTitles: (lessons) => {
+      void submit((current) => withCurrentTitles(current, lessons));
+    },
+
+    savePosition: (lesson, offset, extra) => {
       const now = Date.now();
       void submit((current) => {
         const key = lessonKey(lesson.lessonId, lesson.level);
         if (key in current.completed) return current; // a completed lesson opens at the top: its position is not kept
         const saved = current.positions[key];
-        const rounded = Number.isFinite(offset) && offset > 0 ? Math.round(offset) : 0;
-        if (saved && saved.offset === rounded && saved.title === lesson.title && saved.courseId === lesson.courseId) return current;
-        return { ...current, positions: withPosition(current.positions, lesson, offset, now) };
+        if (saved && isSamePosition(saved, lesson, offset, extra)) return current;
+        return { ...current, positions: withPosition(current.positions, lesson, offset, now, extra) };
       });
     },
 
-    setCompleted: (lesson, completed) => {
-      const now = Date.now();
+    setCompleted: (lesson, completed, completedAt) => {
+      const now = completedAt !== undefined && Number.isFinite(completedAt) ? completedAt : Date.now();
       return submit((current) => {
         const key = lessonKey(lesson.lessonId, lesson.level);
         const done = key in current.completed;
@@ -340,7 +380,7 @@ export function createProgressSession(io: SessionIo, empty: SessionProgress): Pr
         if (completed) next[key] = { title: lesson.title, completedAt: now };
         else delete next[key];
         return { ...current, completed: next };
-      });
+      }, true);
     },
 
     recordQuizResult: (result) => submit((current) => ({ ...current, quizResults: withQuizResult(current.quizResults, result) })),

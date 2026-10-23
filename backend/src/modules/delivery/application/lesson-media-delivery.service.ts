@@ -5,11 +5,39 @@ import {
 } from '../../../shared-kernel/index.js';
 import { MediaFacade, type MediaContent } from '../../media/index.js';
 import { PublishingFacade } from '../../publishing/index.js';
+import { type ByteRange, parseByteRange } from '../domain/byte-range.js';
 import { ifNoneMatchMatches } from '../domain/etag.js';
+
+/** A course cover: the whole image, or "unchanged". */
+export type CoverRepresentation = { kind: 'NOT_MODIFIED'; etag: string } | { kind: 'OK'; etag: string; content: MediaContent };
 
 export type LessonMediaRepresentation =
   | { kind: 'NOT_MODIFIED'; etag: string }
-  | { kind: 'OK'; etag: string; content: MediaContent };
+  /** `range` is set when only part of the file is sent (a video being played or sought): the bytes `start` to `end` of `size`. */
+  | { kind: 'OK'; etag: string; content: MediaContent; range?: ByteRange & { size: number } }
+  | { kind: 'UNSATISFIABLE'; etag: string; size: number };
+
+/** The file type each playable media kind must have. A MEDIA_ANIMATION block names its kind; the asset's own stored (byte-detected) type must agree. */
+const PLAYABLE_TYPES: Record<string, string> = { VIDEO: 'video/mp4', LOTTIE: 'application/json' };
+
+/**
+ * The video and Lottie assets an active published snapshot actually names: the `mediaId` of a MEDIA_ANIMATION block whose `mediaType` is VIDEO or LOTTIE,
+ * with the one file type that kind may be. A poster is an image and is covered by `publishedImageIds`. Nothing else in the snapshot can make a video or a
+ * JSON file servable.
+ */
+export function publishedPlayableMedia(snapshot: Record<string, unknown>): Map<string, string> {
+  const playable = new Map<string, string>();
+  const blocks = snapshot.blocks;
+  if (!Array.isArray(blocks)) return playable;
+  for (const block of blocks) {
+    if (typeof block !== 'object' || block === null) continue;
+    const { type, content } = block as { type?: unknown; content?: unknown };
+    if (type !== 'MEDIA_ANIMATION' || typeof content !== 'object' || content === null) continue;
+    const { mediaType, mediaId } = content as { mediaType?: unknown; mediaId?: unknown };
+    if (typeof mediaType === 'string' && typeof mediaId === 'string' && PLAYABLE_TYPES[mediaType]) playable.set(mediaId, PLAYABLE_TYPES[mediaType]);
+  }
+  return playable;
+}
 
 /** The image ids an active published snapshot actually uses: IMAGE, INTERACTIVE_IMAGE and MAP blocks and TIMELINE event images and HISTORICAL_EVIDENCE, SECTION_INTRO, SYMBOL_STUDY and NARRATIVE_SCENE images and MEDIA_ANIMATION assets and posters, and the images of the blocks nested inside an EXPLORE_DEEPER block, only; nothing else in the snapshot is trusted as a reference. */
 export function publishedImageIds(snapshot: Record<string, unknown>): Set<string> {
@@ -91,7 +119,7 @@ export class LessonMediaDeliveryService {
     mediaId: string,
     level: LearningLevel,
     ifNoneMatch?: string,
-  ): Promise<LessonMediaRepresentation> {
+  ): Promise<CoverRepresentation> {
     const view = await this.publishing.findPublishedCourse(courseId, level);
     if (!view || view.coverMediaId !== mediaId) throw notFound();
     const asset = await this.media.find(mediaId);
@@ -101,11 +129,17 @@ export class LessonMediaDeliveryService {
     return { kind: 'OK', etag, content: await this.media.openContent(mediaId) };
   }
 
+  /**
+   * One media file of a published lesson: an image of any image block, or the video / Lottie file of a MEDIA_ANIMATION block that names it. A video may be
+   * asked for in parts (`range`, `ifRange`): a player seeks by requesting the bytes it needs.
+   */
   async getImage(
     lessonId: string,
     mediaId: string,
     level: LearningLevel,
     ifNoneMatch?: string,
+    range?: string,
+    ifRange?: string,
   ): Promise<LessonMediaRepresentation> {
     const info = await this.publishing.findActiveSnapshotInfo(lessonId, level);
     if (!info) throw notFound();
@@ -116,12 +150,21 @@ export class LessonMediaDeliveryService {
     if (!snapshot || !publishedImageIds(snapshot).has(mediaId)) throw notFound();
 
     const asset = await this.media.find(mediaId);
-    if (!asset || !asset.contentType.startsWith('image/')) throw notFound();
+    if (!asset) throw notFound();
+    // An image is served for any block that uses it. A video or JSON file is served only as the asset of a MEDIA_ANIMATION block of that kind, and only
+    // when the stored type agrees with the kind (a file of another type cannot be passed off as one).
+    if (!asset.contentType.startsWith('image/') && publishedPlayableMedia(snapshot).get(mediaId) !== asset.contentType) throw notFound();
 
     // Stored files never change, so the content hash identifies the bytes; the checks above still run on every revalidation.
     const etag = `"${asset.sha256}"`;
     if (ifNoneMatchMatches(ifNoneMatch, etag)) {
       return { kind: 'NOT_MODIFIED', etag };
+    }
+    // A range is honoured unless `If-Range` names a different version of the file (then the whole, current file is sent).
+    const wanted = ifRange && ifRange.trim() !== etag ? { kind: 'NONE' as const } : parseByteRange(range, asset.sizeBytes);
+    if (wanted.kind === 'UNSATISFIABLE') return { kind: 'UNSATISFIABLE', etag, size: asset.sizeBytes };
+    if (wanted.kind === 'RANGE') {
+      return { kind: 'OK', etag, content: await this.media.openContent(mediaId, wanted.range), range: { ...wanted.range, size: asset.sizeBytes } };
     }
     return { kind: 'OK', etag, content: await this.media.openContent(mediaId) };
   }

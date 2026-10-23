@@ -2,7 +2,7 @@ import { type ReactNode, createContext, useContext, useEffect, useMemo, useState
 
 import type { LearningLevel } from '@/learning/levels';
 
-import { type LessonPosition, type QuizIdentity, type QuizResult, matchingQuizResult } from './progress-model';
+import { type LessonPosition, type PositionExtra, type QuizIdentity, type QuizResult, type TitledLesson, matchingQuizResult } from './progress-model';
 import { type SessionStatus, createProgressSession } from './progress-session';
 import { type LearningProgress, type LessonRef, clearLearningProgress, completionKey, emptyLearningProgress, loadLearningProgress, saveLearningProgress } from './store';
 
@@ -25,12 +25,18 @@ type LearningContextValue = {
   retrySave: () => Promise<boolean>;
   /**
    * Notes the lesson being read as the resume point. Writes only when it differs from what is saved. While the saved progress is still being
-   * read, the change is queued and applied after it; if the read fails it is dropped (never written against an unknown baseline).
+   * read, the change is queued and applied after it; if the read fails it is dropped (never written against an unknown baseline). Unless `liveTitle` is false (the
+   * lesson is shown from a saved copy), it also brings the title kept with the lesson's other records up to date (titles only).
    */
-  recordOpened: (lesson: LessonRef) => void;
+  recordOpened: (lesson: LessonRef, options?: { liveTitle?: boolean }) => void;
+  /**
+   * Brings the saved title of these lessons up to date with the published catalog (a lesson renamed in the CMS). Changes only titles: completion dates, positions and
+   * quiz scores stay as they are, and nothing is written when the titles already match. The saved title stays the fallback when the catalog is not available.
+   */
+  syncTitles: (lessons: readonly TitledLesson[]) => void;
   isCompleted: (lessonId: string, level: LearningLevel) => boolean;
-  /** Remembers where the learner is in an unfinished lesson (a scroll offset). Ignored for completed lessons. */
-  savePosition: (lesson: LessonRef, offset: number) => void;
+  /** Remembers where the learner is in an unfinished lesson (a scroll offset, plus the content anchor and published version when known). Ignored for completed lessons. */
+  savePosition: (lesson: LessonRef, offset: number, extra?: PositionExtra) => void;
   /** The saved position of a lesson, or null. */
   positionOf: (lessonId: string, level: LearningLevel) => LessonPosition | null;
   /** The saved result of a quiz block for exactly this content (lesson, level, block, quiz and published version), or null. */
@@ -41,7 +47,7 @@ type LearningContextValue = {
    */
   recordQuizResult: (result: QuizResult) => Promise<boolean>;
   /** The explicit "mark complete / undo" action. Resolves to whether the change was stored (see ProgressSession.setCompleted). */
-  setCompleted: (lesson: LessonRef, completed: boolean) => Promise<boolean>;
+  setCompleted: (lesson: LessonRef, completed: boolean, completedAt?: number) => Promise<boolean>;
   /**
    * Forgets the resume point, all completion marks, saved positions and saved quiz results. The only thing that ever removes saved progress, and
    * only on the learner's own confirmed request. Resolves to whether the saved progress is really gone.
@@ -58,6 +64,7 @@ const LearningContext = createContext<LearningContextValue>({
   retryLoad: () => Promise.resolve(false),
   retrySave: () => Promise.resolve(false),
   recordOpened: () => undefined,
+  syncTitles: () => undefined,
   savePosition: () => undefined,
   positionOf: () => null,
   isCompleted: () => false,
@@ -89,6 +96,7 @@ export function LearningProgressProvider({ children }: { children: ReactNode }) 
       retryLoad: session.retryLoad,
       retrySave: session.retrySave,
       recordOpened: session.recordOpened,
+      syncTitles: session.syncTitles,
       savePosition: session.savePosition,
       positionOf: (lessonId, level) => snapshot.progress.positions[completionKey(lessonId, level)] ?? null,
       isCompleted: (lessonId, level) => completionKey(lessonId, level) in snapshot.progress.completed,

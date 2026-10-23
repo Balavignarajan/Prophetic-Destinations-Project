@@ -33,6 +33,8 @@ export class CourseResponseDto {
   description: string | null;
   /** Published cover image id, or null. Fetch it with GET /courses/:courseId/media/:coverMediaId?level=. */
   coverMediaId: string | null;
+  /** The Bible book this course is the dedicated Home entry for ('DANIEL' | 'REVELATION'), or null. */
+  book: string | null;
   moduleCount: number;
   lessonCount: number;
   modules: CatalogModuleDto[];
@@ -46,8 +48,12 @@ export class CourseListItemDto {
   description: string | null;
   /** Published cover image id, or null. Fetch it with GET /courses/:courseId/media/:coverMediaId?level=. */
   coverMediaId: string | null;
+  /** The Bible book this course is the dedicated Home entry for ('DANIEL' | 'REVELATION'), or null. */
+  book: string | null;
   moduleCount: number;
   lessonCount: number;
+  /** The ids of the lessons counted in `lessonCount` (published and deliverable at this level), so a client can tell which of its saved results are for lessons that are available now. */
+  lessonIds: string[];
 }
 
 /** Response of `GET /api/v1/courses?level=`. */

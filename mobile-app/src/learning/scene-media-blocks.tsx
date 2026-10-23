@@ -4,9 +4,10 @@ import { Pressable, View } from 'react-native';
 
 import { AppText, BlockNotice, Reveal } from '@/components/ui';
 import { useReduceMotion } from '@/accessibility/use-reduce-motion';
-import { offlineMediaEnabled, reportBrokenAsset, useAssetUri } from '@/features/offline/offline-media';
+import { canSaveImages, canSwitchToSavedWebCopy, reportBrokenAsset, switchToSavedWebCopy, useAssetUri } from '@/features/offline/offline-media';
 import { LessonImage, lessonImageUrl } from '@/learning/lesson-image';
 import type { LearningLevel } from '@/learning/levels';
+import { LottieBlock, VideoBlock } from '@/learning/played-media-blocks';
 import { ScriptureLinks } from '@/learning/scripture-links';
 import { useTheme } from '@/theme';
 import { motion } from '@/theme/motion';
@@ -14,16 +15,18 @@ import { motion } from '@/theme/motion';
 /**
  * Renders published NARRATIVE_SCENE and MEDIA_ANIMATION blocks (backend/src/modules/lessons/domain/blocks/scene-media.ts; PROPOSED schemas):
  *   NARRATIVE_SCENE: { title?, image?: { mediaId, altText }, narrative, scripture?: FROZEN passages }
- *   MEDIA_ANIMATION: { mediaType: 'ANIMATED_IMAGE', mediaId, posterMediaId?, caption?, altText }
+ *   MEDIA_ANIMATION: { mediaType: 'ANIMATED_IMAGE' | 'VIDEO' | 'LOTTIE', mediaId, posterMediaId?, caption?, altText }
  *
  * NARRATIVE_SCENE is a still composition: the visual (the shared image component, saved copy first), the title as a heading, the author's narrative and
- * the frozen Scripture apart from it. The workbook's "predefined transition/effect" has no defined values (D8), so no motion is applied.
+ * the frozen Scripture apart from it. The workbook's "predefined transition/effect" has no defined values (D8), so no effect and no sequence is applied:
+ * the only motion is the quiet fade-in every educational block already has, which Reduce Motion switches off. The narrative is set for reading: a blank line in
+ * the author's text starts a new paragraph, and each paragraph has room around it.
  *
- * MEDIA_ANIMATION plays ONLY animated WebP, with expo-image (already installed). Video and Lottie have no player installed and are shown as
- * "not supported in this version" instead of a placeholder that pretends to play. Nothing autoplays and there is no audio: the learner presses Play
- * (also when the device asks to reduce motion). Before Play the poster is shown, or the first frame if there is none; Stop returns to that. The animated
- * file and the poster are saved for offline use through the normal lesson asset list (a lesson is not "saved" while either is missing). If a block is
- * incomplete or malformed only that block says so; the rest of the lesson is unaffected.
+ * MEDIA_ANIMATION: an animated WebP plays with expo-image (below); a VIDEO (MP4) and a LOTTIE animation are played by played-media-blocks.tsx. Nothing autoplays and
+ * there is no sound until the learner presses Play (also when the device asks to reduce motion). Before Play the poster is shown, or for an animated WebP the first
+ * frame if there is none; Stop returns to that. An animated WebP and the poster are saved for offline use through the normal lesson asset list (a lesson is not
+ * "saved" while either is missing); a video and a Lottie file are not (see played-media-blocks.tsx). If a block is incomplete or malformed only that block says
+ * so; the rest of the lesson is unaffected.
  */
 const isText = (value: unknown): value is string => typeof value === 'string' && value.trim() !== '';
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -51,22 +54,38 @@ export function NarrativeSceneBlock({ lessonId, level, content }: { lessonId: st
           </AppText>
         ) : null}
         {/* The author's text, a blank line starting a new paragraph (as the lesson introduction does), so a longer scene reads as paragraphs, not one block. */}
-        {content.narrative
-          .split(/\n\s*\n/)
-          .map((paragraph) => paragraph.trim())
-          .filter((paragraph) => paragraph.length > 0)
-          .map((paragraph, index) => (
-            <AppText key={index} variant="body" style={{ fontSize: 17, lineHeight: 28 }}>
-              {paragraph}
-            </AppText>
-          ))}
+        <View style={{ gap: spacing.lg }}>
+          {content.narrative
+            .split(/\n\s*\n/)
+            .map((paragraph) => paragraph.trim())
+            .filter((paragraph) => paragraph.length > 0)
+            .map((paragraph, index) => (
+              <AppText key={index} variant="body" style={{ fontSize: 17, lineHeight: 28 }}>
+                {paragraph}
+              </AppText>
+            ))}
+        </View>
       </Reveal>
       <ScriptureLinks entries={content.scripture} presentation="standalone" />
     </View>
   );
 }
 
+/**
+ * A MEDIA_ANIMATION block: an animated WebP, an MP4 video or a Lottie animation, by its `mediaType`. A block that is missing what it needs says so (only itself);
+ * a type this version does not know is said plainly, never shown as a placeholder that pretends to play.
+ */
 export function AnimatedImageBlock({ lessonId, level, content }: { lessonId: string; level: LearningLevel; content: Record<string, unknown> }) {
+  if (content.mediaType === 'VIDEO' || content.mediaType === 'LOTTIE') {
+    if (!isText(content.mediaId) || !isText(content.altText) || (content.caption !== undefined && typeof content.caption !== 'string') || (content.posterMediaId !== undefined && typeof content.posterMediaId !== 'string')) {
+      return <Note title="Media is incomplete" message="Part of this block could not be read, so it is not shown. The rest of the lesson is not affected." />;
+    }
+    return content.mediaType === 'VIDEO' ? <VideoBlock lessonId={lessonId} level={level} content={content} /> : <LottieBlock lessonId={lessonId} level={level} content={content} />;
+  }
+  return <AnimatedWebpBlock lessonId={lessonId} level={level} content={content} />;
+}
+
+function AnimatedWebpBlock({ lessonId, level, content }: { lessonId: string; level: LearningLevel; content: Record<string, unknown> }) {
   const { spacing, colors, radius } = useTheme();
   const reduceMotion = useReduceMotion();
   const [playing, setPlaying] = useState(false);
@@ -81,9 +100,8 @@ export function AnimatedImageBlock({ lessonId, level, content }: { lessonId: str
   const posterUri = useAssetUri(posterId, posterRemote);
 
   if (content.mediaType !== undefined && content.mediaType !== 'ANIMATED_IMAGE') {
-    // Said plainly and without pretending: this version has no video or Lottie player, so nothing is shown in its place and nothing is downloaded.
-    const kind = content.mediaType === 'VIDEO' ? 'video' : content.mediaType === 'LOTTIE' ? 'Lottie animation' : 'kind of animation';
-    return <Note variant="unsupported" title="Animation not supported" message={`This ${kind} cannot be played in this version of the app yet. The rest of the lesson is not affected.`} />;
+    // A type this version of the app does not know (a newer one may): said plainly and without pretending, nothing is shown in its place and nothing is downloaded.
+    return <Note variant="unsupported" title="Media not supported" message="This kind of media cannot be played in this version of the app yet. The rest of the lesson is not affected." />;
   }
   if (content.mediaType !== 'ANIMATED_IMAGE' || !mediaId || !isText(content.altText) || (content.caption !== undefined && typeof content.caption !== 'string')) {
     return <Note title="Animation is incomplete" message="Part of this block could not be read, so it is not shown. The rest of the lesson is not affected." />;
@@ -98,9 +116,9 @@ export function AnimatedImageBlock({ lessonId, level, content }: { lessonId: str
           variant="offline"
           title={`Animation: ${alt}`}
           message={
-            offlineMediaEnabled
+            canSaveImages()
               ? 'This animation is not saved on this device yet, or could not be loaded. It is saved when you open the lesson with an internet connection.'
-              : 'This animation could not be loaded. Check your internet connection and try again. The web version does not keep animations for offline use.'
+              : 'This animation could not be loaded. Check your internet connection and try again. This browser cannot keep animations for offline use.'
           }
         />
         {uri ? (
@@ -135,8 +153,13 @@ export function AnimatedImageBlock({ lessonId, level, content }: { lessonId: str
             if (width > 0 && height > 0) setRatio(width / height);
           }}
           onError={() => {
-            if (shownUri !== remote && shownUri !== posterRemote) reportBrokenAsset(showPoster ? posterId : mediaId);
-            else setFailed(true);
+            const shownId = showPoster ? posterId : mediaId;
+            if (shownUri !== remote && shownUri !== posterRemote) reportBrokenAsset(shownId);
+            else if (canSwitchToSavedWebCopy(shownId)) {
+              void switchToSavedWebCopy(shownId).then((shown) => {
+                if (!shown) setFailed(true);
+              });
+            } else setFailed(true);
           }}
         />
       </View>

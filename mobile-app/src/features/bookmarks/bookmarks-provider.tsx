@@ -1,6 +1,8 @@
 import { type ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
-import type { Bookmark } from './model';
+import type { TitledLesson } from '@/features/learning/progress-model';
+
+import { type Bookmark, withCurrentBookmarkTitles } from './model';
 import { type BookmarksState, loadBookmarks, saveBookmarks } from './store';
 
 type BookmarksContextValue = {
@@ -13,6 +15,12 @@ type BookmarksContextValue = {
   remove: (id: string) => void;
   /** Records whether the backend currently reports a saved lesson as unavailable. Writes only when that changes. */
   setUnavailable: (id: string, unavailable: boolean) => void;
+  /**
+   * Brings the saved title of these lessons up to date with the live published catalog (a lesson renamed in the CMS). Changes only the title of the saved lessons it
+   * names, in place: ids, saved times, order and everything else stay, and nothing is written when the titles already match. Ignored until the saved list has been
+   * read, so it can never be written over a list that is not known yet. The saved title stays the fallback when the catalog is not available.
+   */
+  syncTitles: (lessons: readonly TitledLesson[]) => void;
 };
 
 const BookmarksContext = createContext<BookmarksContextValue>({
@@ -22,6 +30,7 @@ const BookmarksContext = createContext<BookmarksContextValue>({
   toggle: () => undefined,
   remove: () => undefined,
   setUnavailable: () => undefined,
+  syncTitles: () => undefined,
 });
 
 /** Loads the saved list once (migrating legacy Daniel 2 bookmarks) and shares it with every screen. */
@@ -29,12 +38,15 @@ export function BookmarksProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<BookmarksState>({ items: [], migratedLegacy: false });
   const [ready, setReady] = useState(false);
   const latest = useRef(state);
+  // True once the saved list has been read: a change that is not the learner's own never writes before that.
+  const read = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
     loadBookmarks().then((loaded) => {
       if (cancelled) return;
       latest.current = loaded;
+      read.current = true;
       setState(loaded);
       setReady(true);
     });
@@ -90,6 +102,16 @@ export function BookmarksProvider({ children }: { children: ReactNode }) {
     [commit],
   );
 
+  const syncTitles = useCallback(
+    (lessons: readonly TitledLesson[]) => {
+      if (!read.current) return;
+      const current = latest.current;
+      const items = withCurrentBookmarkTitles(current.items, lessons);
+      if (items !== current.items) commit({ ...current, items });
+    },
+    [commit],
+  );
+
   const value = useMemo<BookmarksContextValue>(
     () => ({
       items: [...state.items].sort((a, b) => b.savedAt - a.savedAt),
@@ -98,8 +120,9 @@ export function BookmarksProvider({ children }: { children: ReactNode }) {
       toggle,
       remove,
       setUnavailable,
+      syncTitles,
     }),
-    [state.items, ready, toggle, remove, setUnavailable],
+    [state.items, ready, toggle, remove, setUnavailable, syncTitles],
   );
 
   return <BookmarksContext.Provider value={value}>{children}</BookmarksContext.Provider>;

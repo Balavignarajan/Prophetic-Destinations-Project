@@ -4,11 +4,12 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { api } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
-import { Course } from '../../lib/types';
+import { COURSE_BOOK_OPTIONS, Course, CourseBook } from '../../lib/types';
 import { LoadingSpinner, StatusBadge, EmptyState, Modal, ConfirmDialog } from '../../components/ui';
 import { friendlyError } from '../../lib/ui-messages';
 import CoverThumb from '../../components/CoverThumb';
 import CoverImageField from '../../components/CoverImageField';
+import CourseBookField from '../../components/CourseBookField';
 
 export default function CoursesPage() {
   const { user } = useAuth();
@@ -27,6 +28,7 @@ export default function CoursesPage() {
   const [newTitle, setNewTitle] = useState('');
   const [newDescription, setNewDescription] = useState('');
   const [newCoverMediaId, setNewCoverMediaId] = useState<string | null>(null);
+  const [newBook, setNewBook] = useState<CourseBook | null>(null);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
@@ -140,6 +142,7 @@ export default function CoursesPage() {
           title: newTitle.trim(),
           description: newDescription.trim() || null,
           ...(newCoverMediaId ? { coverMediaId: newCoverMediaId } : {}),
+          ...(newBook ? { book: newBook } : {}),
         }),
       });
 
@@ -147,6 +150,7 @@ export default function CoursesPage() {
       setNewTitle('');
       setNewDescription('');
       setNewCoverMediaId(null);
+      setNewBook(null);
       setSuccessMessage('Course created.');
       fetchCourses();
     } catch (err: unknown) {
@@ -158,7 +162,7 @@ export default function CoursesPage() {
 
   const closeCreateCourse = () => {
     if (creating) return;
-    const dirty = Boolean(newTitle.trim() || newDescription.trim() || newCoverMediaId);
+    const dirty = Boolean(newTitle.trim() || newDescription.trim() || newCoverMediaId || newBook);
     if (!dirty || window.confirm('Discard your unsaved changes?')) setCreateModalOpen(false);
   };
 
@@ -398,6 +402,11 @@ export default function CoursesPage() {
                             {course.description}
                           </p>
                         )}
+                        {course.book && (
+                          <span className="mt-1 inline-block rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-900">
+                            Home entry: {COURSE_BOOK_OPTIONS.find((option) => option.value === course.book)?.label ?? course.book}
+                          </span>
+                        )}
                       </div>
                       </div>
                     </td>
@@ -485,6 +494,8 @@ export default function CoursesPage() {
           </div>
 
           <CoverImageField subject="course" mode="create" saveLabel="Create Course" value={newCoverMediaId} onChange={setNewCoverMediaId} disabled={creating} />
+
+          <CourseBookField id="new-course-book" value={newBook} onChange={setNewBook} disabled={creating} />
 
           <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
             <button

@@ -1,20 +1,25 @@
+import { useState } from 'react';
 import { Linking, Text, View, type TextStyle } from 'react-native';
 
-import { AppText } from '@/components/ui';
+import { AppText, Reveal } from '@/components/ui';
+import { ScripturePassage, isReferenceOnly } from '@/learning/scripture-passage';
 import { useTheme } from '@/theme';
 
 /**
  * Renders the backend's RICH_TEXT content (backend/src/modules/lessons/domain/blocks/rich-text.ts):
- *   { body: { type: 'doc', content: [paragraph | bulletList | orderedList ...] } }
- * list items hold paragraphs and nested lists; text carries the marks bold, italic and link.
+ *   { body: { type: 'doc', content: [paragraph | heading | bulletList | orderedList ...] } }
+ * list items hold paragraphs and nested lists; text carries the marks bold, italic and link; a heading is { type: 'heading', attrs: { level: 1 | 2 | 3 }, content: [text] }.
  * Text is rendered strictly as text. The backend validates the document; this renderer is still defensive and shows
  * nothing for any node it does not know, and stops descending where the backend's own depth limit says a document cannot go. Links open only with http(s) and mailto.
  *
- * NOT in the contract today, and therefore not rendered for any published lesson: headings and inline Scripture references. The backend states that
- * there are deliberately no heading nodes (headings return only through an explicit content-contract decision; major transitions use SECTION_INTRO),
- * and it accepts nothing but `body` at the top level, so there is no reference field either. A heading renderer is prepared below for the node shape
- * the rest of this document already mirrors (ProseMirror / TipTap); it only starts to do anything if the backend contract adds that node. Inline
- * references are NOT prepared: guessing which words are Scripture references would be inventing a contract.
+ * HEADINGS (BLK-001): drawn in the theme's own heading faces (level 1 `sectionHeading`, level 2 `heading`, level 3 the bold reading face), as screen-reader headings.
+ * A heading is plain text; the backend gives it no marks. A level that is not 1 to 3, or a heading with no text, shows nothing.
+ *
+ * SCRIPTURE REFERENCES (BLK-001): a `scriptureRef` node inside a paragraph is a STRUCTURED reference, never found by looking at the words. In a published lesson its attrs are the
+ * FROZEN passage { reference, display, source, verses } (backend scripture-embed.service.ts), so everything is read from the lesson itself: it needs no Bible service and no
+ * Bible text in the app, and it works offline through the lesson cache. The reference is drawn in the sentence by its label ("Daniel 2:31-35"). When the passage carries its
+ * verse text, the label opens that frozen passage directly under the paragraph and closes it again (the supporting-reference convention of ScriptureLinks; Scripture a
+ * lesson depends on belongs in a Scripture passage block, which is never hidden). A reference without verse text is just its label. A reference that cannot be read shows nothing.
  */
 type Mark = { type?: unknown; attrs?: { href?: unknown } };
 type RichNode = { type?: unknown; text?: unknown; marks?: unknown; content?: unknown; attrs?: unknown };
@@ -28,6 +33,7 @@ const LINK_SCHEMES = /^(https?:|mailto:)/i;
 const MAX_DEPTH = 8;
 
 const asNodes = (value: unknown): RichNode[] => (Array.isArray(value) ? (value as RichNode[]) : []);
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 
 export function RichTextContent({ content }: { content: Record<string, unknown> }) {
   const body = content.body as RichNode | undefined;
@@ -73,39 +79,88 @@ function List({ node, ordered, depth }: { node: RichNode; ordered: boolean; dept
 }
 
 /**
- * PREPARED, NOT YET IN THE CONTRACT (see the note at the top): { type: 'heading', attrs: { level }, content: [text] }. A heading is plain text (its marks are
- * not applied), set in the theme's own heading faces so there is no second heading design: levels 1 and 2 use `heading`; deeper levels use the bold body face.
- * It is a screen-reader heading. A level that is not a whole number from 1 to 6 is treated as the deepest; a heading with no text shows nothing.
+ * { type: 'heading', attrs: { level }, content: [text] }. A heading is plain text (its marks are not applied), set in the theme's own heading faces so there is no
+ * second heading design: level 1 uses `sectionHeading`, level 2 `heading`, level 3 the bold body face. It is a screen-reader heading. A level that is not 1, 2 or 3 shows
+ * nothing (the backend does not accept one), and neither does a heading with no text.
  */
 function Heading({ node }: { node: RichNode }) {
-  const attrs: { level?: unknown } = typeof node.attrs === 'object' && node.attrs !== null ? (node.attrs as { level?: unknown }) : {};
-  const level = typeof attrs.level === 'number' && Number.isInteger(attrs.level) && attrs.level >= 1 && attrs.level <= 6 ? attrs.level : 6;
+  const attrs: { level?: unknown } = isRecord(node.attrs) ? (node.attrs as { level?: unknown }) : {};
+  const level = attrs.level;
+  if (level !== 1 && level !== 2 && level !== 3) return null;
   const text = asNodes(node.content)
     .map((child) => (child.type === 'text' && typeof child.text === 'string' ? child.text : ''))
     .join('')
     .trim();
   if (!text) return null;
-  if (level <= 2) {
+  if (level === 3) {
     return (
-      <AppText variant="heading" accessibilityRole="header">
+      <AppText variant="body" accessibilityRole="header" style={[READING, { fontWeight: '700' }]}>
         {text}
       </AppText>
     );
   }
   return (
-    <AppText variant="body" accessibilityRole="header" style={[READING, { fontWeight: '700' }]}>
+    <AppText variant={level === 1 ? 'sectionHeading' : 'heading'} accessibilityRole="header">
       {text}
     </AppText>
   );
 }
 
+/** An inline Scripture reference as the lesson snapshot carries it: the frozen passage in `attrs`, with the label to draw. Null when there is no label to draw. */
+type InlineReference = { node: RichNode; passage: Record<string, unknown>; label: string; hasText: boolean };
+
+function readInlineReference(node: RichNode): InlineReference | null {
+  if (node.type !== 'scriptureRef' || !isRecord(node.attrs)) return null;
+  const label = typeof node.attrs.display === 'string' ? node.attrs.display.trim() : '';
+  if (!label) return null;
+  return { node, passage: node.attrs, label, hasText: !isReferenceOnly(node.attrs) };
+}
+
 function Paragraph({ node }: { node: RichNode }) {
-  const { typography, colors } = useTheme();
-  return (
+  const { typography, colors, spacing } = useTheme();
+  const [open, setOpen] = useState<number | null>(null);
+  const children = asNodes(node.content);
+  const references = children.map(readInlineReference).filter((reference): reference is InlineReference => reference !== null);
+
+  const text = (
     <Text style={[typography.body, READING, { color: colors.textPrimary }]}>
-      {asNodes(node.content).map((child, index) => (
-        <Inline key={index} node={child} />
-      ))}
+      {children.map((child, index) => {
+        const referenceIndex = references.findIndex((reference) => reference.node === child);
+        if (referenceIndex >= 0) {
+          return <Reference key={index} reference={references[referenceIndex]} open={open === referenceIndex} onToggle={() => setOpen(open === referenceIndex ? null : referenceIndex)} />;
+        }
+        return <Inline key={index} node={child} />;
+      })}
+    </Text>
+  );
+
+  const shown = open === null ? null : references[open];
+  if (!shown) return text;
+  return (
+    <View style={{ gap: spacing.md }}>
+      {text}
+      <Reveal>
+        <ScripturePassage content={shown.passage} embedded />
+      </Reveal>
+    </View>
+  );
+}
+
+/** The reference's label inside the sentence. With verse text it opens and closes the frozen passage under the paragraph; without, it is the label alone. */
+function Reference({ reference, open, onToggle }: { reference: InlineReference; open: boolean; onToggle: () => void }) {
+  const { colors, fontFamilies } = useTheme();
+  const style: TextStyle = { color: colors.primaryHighlight, fontFamily: fontFamilies.sansMedium };
+  if (!reference.hasText) {
+    return <Text style={style}>{reference.label}</Text>;
+  }
+  return (
+    <Text
+      accessibilityRole="link"
+      accessibilityLabel={`Scripture: ${reference.label}`}
+      accessibilityHint={open ? 'Hides this passage' : 'Shows this passage below'}
+      onPress={onToggle}
+      style={[style, { textDecorationLine: 'underline' }]}>
+      {reference.label}
     </Text>
   );
 }
