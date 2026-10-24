@@ -146,7 +146,7 @@ export function SettingsScreen() {
           </Card>
         </ScreenSection>
 
-        <ScreenSection title="On this device" description="Everything the app keeps stays on this device. Saved items (stars) and Daniel 2 progress are not affected by these buttons.">
+        <ScreenSection title="On this device" description="Everything the app keeps stays on this device. Saved items (stars) are not affected by these buttons.">
           <Card>
             <View style={{ gap: spacing.md }}>
               <View style={{ gap: spacing.xs }}>

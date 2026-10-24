@@ -4,7 +4,7 @@ import { type ContentProblem, isMarkupLikeKey } from './rich-text.js';
  * HISTORICAL_EVIDENCE content contract (feature register BLK-020 / CMS-018: "Title; date/period; explanation; source/reference; optional
  * media"). The identifier is NEW: no historical-evidence type existed (the type list is the guide's 19; BLK-020 is workbook-only, open
  * decision D1), so it is added with its own migration. D1 (which component list governs) and D3 (per-level variants, "depth can vary by
- * level") remain OPEN: variants stay disabled.
+ * level") remain OPEN. Level variants are enabled PROVISIONALLY (variant-types.ts): a level's version is another complete object of this same contract.
  *
  * PROPOSED, NOT APPROVED. Minimum schema covering the requirement, meant to be revised:
  *

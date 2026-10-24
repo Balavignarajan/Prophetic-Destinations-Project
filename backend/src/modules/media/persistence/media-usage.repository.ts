@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { isUndefinedTable } from '../../../database/pg-errors.js';
 import { MediaAssetEntity } from './media-asset.entity.js';
 
 export interface MediaUsage {
@@ -12,6 +13,8 @@ export interface MediaUsage {
   draftCourses: number;
   /** Courses whose ACTIVE catalog version publishes the asset as its cover. */
   publishedCourses: number;
+  /** Reusable blocks (CMS-014 templates) whose saved content or level versions point at the asset. Not published anywhere, but a copy inserted later would. */
+  reusableBlocks: number;
 }
 
 /** Where a lesson uses the image: a block type, 'COVER' (the lesson's cover) or 'LEVEL_VARIANT' (a per-level variant's content). */
@@ -93,7 +96,7 @@ export class MediaUsageRepository {
              AND jsonb_path_exists("shared_content", ('$.blocks[*] ? (' || $2::text || ')')::jsonpath, jsonb_build_object('id', $1::text))
          UNION ALL
          SELECT "lesson_id" FROM "lesson_block_levels"
-           WHERE "content"->>'mediaId' = $1
+           WHERE "content"->>'mediaId' = $1 OR "content"->'image'->>'mediaId' = $1
          UNION ALL
          SELECT "id" FROM "lessons" WHERE "cover_media_id"::text = $1
        ) AS refs`,
@@ -132,7 +135,29 @@ export class MediaUsageRepository {
       publishedLessons: published?.n ?? 0,
       draftCourses: draftCourses?.n ?? 0,
       publishedCourses: publishedCourses?.n ?? 0,
+      reusableBlocks: await this.reusableBlocksUsing(id),
     };
+  }
+
+  /**
+   * How many reusable blocks (templates) hold this asset's id anywhere in their saved content or level versions. The match is an exact value match on the id
+   * (`$.**` visits every value of the stored JSON), so it follows each block type's own media field without listing them: an image, a timeline event, a section
+   * picture, an Explore Deeper child and a poster are all found. The `reusable_blocks` table comes from a migration; before it has been applied no template can
+   * exist, so its absence counts as none (this check must not break media deletion or the usage view on a database that does not have the table yet).
+   */
+  private async reusableBlocksUsing(id: string): Promise<number> {
+    try {
+      const [row]: { n: number }[] = await this.assets.query(
+        `SELECT count(*)::int AS n FROM "reusable_blocks"
+          WHERE jsonb_path_exists("shared_content", '$.** ? (@ == $id)', jsonb_build_object('id', $1::text))
+             OR jsonb_path_exists("levels", '$.** ? (@ == $id)', jsonb_build_object('id', $1::text))`,
+        [id],
+      );
+      return row?.n ?? 0;
+    } catch (error) {
+      if (isUndefinedTable(error)) return 0;
+      throw error;
+    }
   }
 
   /**
@@ -161,7 +186,7 @@ export class MediaUsageRepository {
            WHERE "type" = 'EXPLORE_DEEPER'
              AND jsonb_path_exists("shared_content", ('$.blocks[*] ? (' || $3::text || ')')::jsonpath, jsonb_build_object('id', $1::text))
          UNION ALL
-         SELECT "lesson_id", 'LEVEL_VARIANT' FROM "lesson_block_levels" WHERE "content"->>'mediaId' = $1
+         SELECT "lesson_id", 'LEVEL_VARIANT' FROM "lesson_block_levels" WHERE "content"->>'mediaId' = $1 OR "content"->'image'->>'mediaId' = $1
          UNION ALL
          SELECT "id", 'COVER' FROM "lessons" WHERE "cover_media_id"::text = $1
        )

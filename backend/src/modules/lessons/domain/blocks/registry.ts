@@ -39,11 +39,13 @@ import { validateScripturePassageComplete, validateScripturePassageShape } from 
 import { timelineMediaIds, validateTimelineComplete, validateTimelineShape } from './timeline.js';
 import { quizIdOf, validateQuizComplete, validateQuizShape } from './quiz.js';
 import { validateSummaryComplete, validateSummaryShape } from './summary.js';
+import { variantSupportOf } from './variant-types.js';
 
 /**
  * Whether a block type may have per-level variant content.
  * UNCONFIRMED means the guide's content contract for the type has not settled it,
  * so it must be treated as "no variants" until it does.
+ * Which types are SUPPORTED is decided in ONE place, `VARIANT_BLOCK_TYPES` (variant-types.ts); the six definitions below read it.
  */
 export type VariantSupport = 'SUPPORTED' | 'NOT_SUPPORTED' | 'UNCONFIRMED';
 
@@ -71,8 +73,8 @@ export interface BlockTypeDefinition {
 
 const RICH_TEXT: BlockTypeDefinition = {
   type: 'RICH_TEXT',
-  // The guide's content contract for RICH_TEXT does not confirm variants yet.
-  variants: 'UNCONFIRMED',
+  // Provisionally enabled (VARIANT_BLOCK_TYPES): a Beginner/Intermediate/Advanced version is another full rich-text document, validated like the shared one.
+  variants: variantSupportOf('RICH_TEXT'),
   validateShape: validateRichTextShape,
   validateComplete: validateRichTextComplete,
   extractReferences: () => [], // links are external URLs, not references to our data
@@ -122,8 +124,8 @@ const SCRIPTURE_PASSAGE: BlockTypeDefinition = {
 
 const HISTORICAL_EVIDENCE: BlockTypeDefinition = {
   type: 'HISTORICAL_EVIDENCE',
-  // "Depth can vary by level" (D3) is undecided, so no variants (visibility per level still works).
-  variants: 'UNCONFIRMED',
+  // "Depth can vary by level" (D3): provisionally enabled (VARIANT_BLOCK_TYPES), pending the client's approval of the list.
+  variants: variantSupportOf('HISTORICAL_EVIDENCE'),
   validateShape: validateHistoricalEvidenceShape,
   validateComplete: validateHistoricalEvidenceComplete,
   extractReferences: (content) => {
@@ -146,7 +148,8 @@ const SECTION_INTRO: BlockTypeDefinition = {
 
 const CALLOUT: BlockTypeDefinition = {
   type: 'CALLOUT',
-  variants: 'UNCONFIRMED',
+  // Provisionally enabled (VARIANT_BLOCK_TYPES).
+  variants: variantSupportOf('CALLOUT'),
   validateShape: validateCalloutShape,
   validateComplete: validateCalloutComplete,
   extractReferences: () => [], // plain author text only: no media, no Scripture reference
@@ -154,8 +157,8 @@ const CALLOUT: BlockTypeDefinition = {
 
 const SCRIPTURE_CONNECTION: BlockTypeDefinition = {
   type: 'SCRIPTURE_CONNECTION',
-  // How a connection would differ by level is undecided, so no variants (visibility per level still works).
-  variants: 'UNCONFIRMED',
+  // Provisionally enabled (VARIANT_BLOCK_TYPES): a level's version is a whole set of connections, each with its own Scripture references (stamped on save like the shared ones).
+  variants: variantSupportOf('SCRIPTURE_CONNECTION'),
   validateShape: validateScriptureConnectionShape,
   validateComplete: validateScriptureConnectionComplete,
   extractReferences: () => [], // Scripture references are verified against the data set by the application, not media or quiz references
@@ -213,8 +216,8 @@ const EXPLORE_DEEPER: BlockTypeDefinition = {
 
 const WORD_STUDY: BlockTypeDefinition = {
   type: 'WORD_STUDY',
-  // Level-specific word studies are undecided (D3), so no variants (visibility per level still works).
-  variants: 'UNCONFIRMED',
+  // Level-specific word studies (D3): provisionally enabled (VARIANT_BLOCK_TYPES), pending the client's approval of the list.
+  variants: variantSupportOf('WORD_STUDY'),
   validateShape: validateWordStudyShape,
   validateComplete: validateWordStudyComplete,
   extractReferences: () => [], // author text and Scripture references only: no media, no quiz
@@ -222,7 +225,8 @@ const WORD_STUDY: BlockTypeDefinition = {
 
 const SYMBOL_STUDY: BlockTypeDefinition = {
   type: 'SYMBOL_STUDY',
-  variants: 'UNCONFIRMED',
+  // Provisionally enabled (VARIANT_BLOCK_TYPES). A version may name its own image: media references are checked and protected like the shared one's.
+  variants: variantSupportOf('SYMBOL_STUDY'),
   validateShape: validateSymbolStudyShape,
   validateComplete: validateSymbolStudyComplete,
   extractReferences: (content) => {

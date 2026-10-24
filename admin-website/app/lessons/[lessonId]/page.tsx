@@ -65,7 +65,7 @@ import QuizBlockDialog from '../../../components/QuizBlockDialog';
 import QuizBlockView from '../../../components/QuizBlockView';
 import { readQuizRef } from '../../../lib/quiz-block';
 import { readSummaryContent, summaryErrorMessage } from '../../../lib/summary-block';
-import MediaImage from '../../../components/MediaImage';
+import ImageBlockView from '../../../components/ImageBlockView';
 import { friendlyMediaError, readImageContent } from '../../../lib/image-block';
 import { supportsLevelVariants } from '../../../lib/block-capabilities';
 import { blockContentAtLevel, hasStoredLevelContent } from '../../../lib/block-level-state';
@@ -75,6 +75,15 @@ import { friendlyError, readableLevel, readinessMessage } from '../../../lib/ui-
 import DuplicateLessonDialog from '../../../components/DuplicateLessonDialog';
 import CoverImageField from '../../../components/CoverImageField';
 import LessonMetadataFields from '../../../components/LessonMetadataFields';
+import LessonTagsField from '../../../components/LessonTagsField';
+import LessonRevisionsDialog from '../../../components/LessonRevisionsDialog';
+import { sameTags } from '../../../lib/lesson-tags';
+import LevelContentSection from '../../../components/LevelContentSection';
+import LevelVersionDialogs, { type VersionTarget } from '../../../components/LevelVersionDialogs';
+import RichTextVersionDialog from '../../../components/RichTextVersionDialog';
+import InsertReusableBlockDialog from '../../../components/InsertReusableBlockDialog';
+import SaveAsReusableDialog from '../../../components/SaveAsReusableDialog';
+import { REUSABLE_PICKER_KEY, levelName } from '../../../lib/reusable-blocks';
 
 export default function LessonAuthoringPage() {
   const params = useParams();
@@ -122,6 +131,7 @@ export default function LessonAuthoringPage() {
   const [editIntroduction, setEditIntroduction] = useState('');
   const [editEstimatedMinutes, setEditEstimatedMinutes] = useState<string>('');
   const [editCoverMediaId, setEditCoverMediaId] = useState<string | null>(null);
+  const [editTags, setEditTags] = useState<string[]>([]);
   const [updatingMetadata, setUpdatingMetadata] = useState(false);
   const [updateMetaError, setUpdateMetaError] = useState<string | null>(null);
 
@@ -144,14 +154,27 @@ export default function LessonAuthoringPage() {
   const [updatingBlock, setUpdatingBlock] = useState(false);
   const [updateBlockError, setUpdateBlockError] = useState<string | null>(null);
 
-  // Block Level Variant editing
+  // Block visibility per level (show with the shared content / hide). A level's OWN content is edited separately, as a "version" (below).
   const [variantModalBlock, setVariantModalBlock] = useState<LessonBlock | null>(null);
   const [variantLevel, setVariantLevel] = useState<LearningLevel>('BEGINNER');
-  const [variantMode, setVariantMode] = useState<'shared' | 'variant' | 'hidden'>('shared');
-  const [variantText, setVariantText] = useState('');
-  const [variantLocked, setVariantLocked] = useState(false);
+  const [variantMode, setVariantMode] = useState<'shared' | 'hidden'>('shared');
   const [savingVariant, setSavingVariant] = useState(false);
   const [variantError, setVariantError] = useState<string | null>(null);
+
+  // Level-specific content: the version of one block for one level. `versionTarget` is the block and level being added or edited (its own editor opens),
+  // `removeVersionTarget` the one waiting for the author to confirm its removal.
+  const [versionTarget, setVersionTarget] = useState<VersionTarget | null>(null);
+  const [savingVersion, setSavingVersion] = useState(false);
+  const [versionError, setVersionError] = useState<string | null>(null);
+  const [removeVersionTarget, setRemoveVersionTarget] = useState<VersionTarget | null>(null);
+  const [removingVersion, setRemovingVersion] = useState(false);
+
+  // Draft history (CMS-029): earlier saved drafts of this lesson, and restoring one.
+  const [historyOpen, setHistoryOpen] = useState(false);
+
+  // Reusable blocks (copy-based): the block being saved to the library, and the "Insert from reusable blocks" window.
+  const [saveReusableBlock, setSaveReusableBlock] = useState<LessonBlock | null>(null);
+  const [insertReusableOpen, setInsertReusableOpen] = useState(false);
 
   // Image blocks: add or edit without leaving the lesson
   const [imageDialog, setImageDialog] = useState<{ mode: 'create' } | { mode: 'edit'; block: LessonBlock } | null>(null);
@@ -235,7 +258,7 @@ export default function LessonAuthoringPage() {
   // Scripture reference validator & helper
   const [scriptureModalOpen, setScriptureModalOpen] = useState(false);
   const [scriptureInput, setScriptureInput] = useState('');
-  const [scriptureTarget, setScriptureTarget] = useState<'create' | 'edit' | 'variant' | null>(null);
+  const [scriptureTarget, setScriptureTarget] = useState<'create' | 'edit' | null>(null);
   const [scriptureValidation, setScriptureValidation] = useState<ParseResult | null>(null);
 
   // Workflow transition
@@ -291,6 +314,7 @@ export default function LessonAuthoringPage() {
       setEditIntroduction(lessonRes.introduction || '');
       setEditEstimatedMinutes(lessonRes.estimatedMinutes ? String(lessonRes.estimatedMinutes) : '');
       setEditCoverMediaId(lessonRes.coverMediaId ?? null);
+      setEditTags(lessonRes.tags ?? []);
       setEditLevels(lessonRes.levels);
       setSelectedLevel((current) => lessonRes.levels.includes(current) ? current : lessonRes.levels[0] ?? current);
     } catch (err: unknown) {
@@ -332,7 +356,6 @@ export default function LessonAuthoringPage() {
     const isDirty = Boolean(
       (createBlockModalOpen && newBlockText.trim().length > 0) ||
       (editingBlock && editingContentText.trim().length > 0) ||
-      (variantModalBlock && variantMode === 'variant' && variantText.trim().length > 0) ||
       (editLessonModalOpen && lesson && (
         editTitle !== lesson.title ||
         editShortTitle !== (lesson.shortTitle || '') ||
@@ -356,9 +379,6 @@ export default function LessonAuthoringPage() {
     newBlockText,
     editingBlock,
     editingContentText,
-    variantModalBlock,
-    variantMode,
-    variantText,
     editLessonModalOpen,
     lesson,
     editTitle,
@@ -376,7 +396,7 @@ export default function LessonAuthoringPage() {
     if (!hasChanges || window.confirm('Discard your unsaved changes?')) close();
   };
 
-  const openScriptureModal = (target: 'create' | 'edit' | 'variant') => {
+  const openScriptureModal = (target: 'create' | 'edit') => {
     setScriptureTarget(target);
     setScriptureInput('');
     setScriptureValidation(null);
@@ -401,8 +421,6 @@ export default function LessonAuthoringPage() {
       setNewBlockText((prev) => (prev ? `${prev}\n\n${refText}` : refText));
     } else if (scriptureTarget === 'edit') {
       setEditingContentText((prev) => (prev ? `${prev}\n\n${refText}` : refText));
-    } else if (scriptureTarget === 'variant') {
-      setVariantText((prev) => (prev ? `${prev}\n\n${refText}` : refText));
     }
 
     setScriptureModalOpen(false);
@@ -428,6 +446,7 @@ export default function LessonAuthoringPage() {
           introduction: editIntroduction.trim() || null,
           estimatedMinutes: editEstimatedMinutes ? parseInt(editEstimatedMinutes, 10) : null,
           coverMediaId: editCoverMediaId,
+          tags: editTags,
           version: lesson.version,
         }),
       });
@@ -547,6 +566,9 @@ export default function LessonAuthoringPage() {
   /** Opens the existing editor of a content type. The picker is closed first, so only one dialog is ever open. */
   const openEditorFor = (type: string) => {
     switch (type) {
+      case REUSABLE_PICKER_KEY:
+        setInsertReusableOpen(true);
+        break;
       case 'RICH_TEXT':
         setNewBlockLevels([selectedLevel]);
         setCreateBlockModalOpen(true);
@@ -1206,30 +1228,80 @@ export default function LessonAuthoringPage() {
     void saveBlockOrder(next);
   };
 
+  /** Opens "Set visibility" for a level: show the block there with the shared content, or hide it. A level's own content is a "version" (below). */
   const openVariantEditor = (block: LessonBlock, level: LearningLevel) => {
     setVariantModalBlock(block);
     setVariantLevel(level);
-    const existingVariant = block.levels.find((l) => l.level === level);
-    // A variant seeded from content the editor cannot reproduce exactly is read-only (never silently rewritten).
-    setVariantLocked(!isEditable(existingVariant?.content ?? block.sharedContent));
-    if (!existingVariant) {
-      setVariantMode('hidden');
-      setVariantText(richTextDocToText(block.sharedContent));
-    } else if (existingVariant.content && supportsLevelVariants(block.type)) {
-      setVariantMode('variant');
-      setVariantText(richTextDocToText(existingVariant.content));
-    } else {
-      setVariantMode('shared');
-      setVariantText(richTextDocToText(block.sharedContent));
-    }
+    setVariantMode(block.levels.some((l) => l.level === level) ? 'shared' : 'hidden');
     setVariantError(null);
+  };
+
+  /** Opens the block's own editor on ONE level's version (a new version starts as a copy of the shared content). */
+  const openVersionEditor = (block: LessonBlock, level: LearningLevel) => {
+    setVersionError(null);
+    setVersionTarget({ block, level });
+  };
+
+  const closeVersionEditor = () => {
+    if (!savingVersion) setVersionTarget(null);
+  };
+
+  /**
+   * Saves the version of ONE level: PUT .../levels/:level with the finished content and the block version the editor last saw. Only that level's setting changes:
+   * the shared content, the other levels, the block's place and its id stay as they are. The server validates the version with the block type's own rules (media,
+   * Scripture, rich-text safety) and puts the lesson back to Draft; a refusal leaves the editor open with what was typed.
+   */
+  const handleSaveVersion = async (content: Record<string, unknown>) => {
+    if (!versionTarget || savingVersion) return;
+    const { block, level } = versionTarget;
+    setSavingVersion(true);
+    setVersionError(null);
+    try {
+      await api.request(`/admin/lessons/${lessonId}/blocks/${block.id}/levels/${level}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content, version: block.version }),
+      });
+      setVersionTarget(null);
+      setSuccessMessage(`${readableLevel(level)} version saved.`);
+      fetchLessonData();
+    } catch (err: unknown) {
+      setVersionError(summaryErrorMessage(err, `Could not save the ${readableLevel(level)} version.`));
+    } finally {
+      setSavingVersion(false);
+    }
+  };
+
+  /**
+   * Removes ONE level's version: PUT .../levels/:level with content null. The block stays shown at that level and uses the shared content again. (DELETE would hide the
+   * block, which is a different action with its own warning.) Nothing else changes.
+   */
+  const handleRemoveVersion = async () => {
+    if (!removeVersionTarget || removingVersion) return;
+    const { block, level } = removeVersionTarget;
+    setRemovingVersion(true);
+    try {
+      await api.request(`/admin/lessons/${lessonId}/blocks/${block.id}/levels/${level}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: null, version: block.version }),
+      });
+      setRemoveVersionTarget(null);
+      setSuccessMessage(`${readableLevel(level)} version removed. This level now shows the shared content.`);
+      fetchLessonData();
+    } catch (err: unknown) {
+      setRemoveVersionTarget(null);
+      setError(friendlyError(err, `Could not remove the ${readableLevel(level)} version.`));
+    } finally {
+      setRemovingVersion(false);
+    }
   };
 
   const handleSaveVariant = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!variantModalBlock) return;
     if (hasStoredLevelContent(variantModalBlock, variantLevel)) {
-      setVariantError('This level has existing custom content. Its visibility cannot be changed here without discarding that content.');
+      setVariantError('This level has its own version. Its visibility cannot be changed here without discarding it: remove the version first, under Level-specific content.');
       return;
     }
     setSavingVariant(true);
@@ -1251,15 +1323,14 @@ export default function LessonAuthoringPage() {
           );
         }
       } else {
-        const content = variantMode === 'variant' ? textToRichTextDoc(variantText) : null;
-
+        // Shown at this level with the shared content (no version).
         await api.request(
           `/admin/lessons/${lessonId}/blocks/${variantModalBlock.id}/levels/${variantLevel}`,
           {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              content,
+              content: null,
               version: variantModalBlock.version,
             }),
           }
@@ -1560,6 +1631,16 @@ export default function LessonAuthoringPage() {
                 </span>
               )}
             </div>
+            {(lesson.tags ?? []).length > 0 && (
+              <div className="flex items-center gap-2 flex-wrap" aria-label="Tags of this lesson">
+                <span className="text-xs text-slate-500 font-medium">Tags:</span>
+                {(lesson.tags ?? []).map((tag) => (
+                  <span key={tag.toLowerCase()} className="px-2 py-0.5 text-[11px] font-medium rounded-full bg-slate-100 text-slate-800 border border-slate-200">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )}
             {lesson.introduction && (
               <p className="text-xs text-slate-600 bg-slate-50 p-3 rounded-lg border border-slate-200/80 mt-2 max-w-3xl leading-relaxed whitespace-pre-line">
                 <strong className="text-slate-700 block mb-0.5">Introduction:</strong>
@@ -1578,6 +1659,13 @@ export default function LessonAuthoringPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
               </svg>
               Preview for {readableLevel(selectedLevel)}
+            </button>
+
+            <button
+              onClick={() => setHistoryOpen(true)}
+              className="px-3.5 py-2 text-xs font-medium bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-lg shadow-xs"
+            >
+              Draft history
             </button>
 
             {canWrite && (
@@ -1897,6 +1985,15 @@ export default function LessonAuthoringPage() {
                           {performingBlockAction ? 'Working…' : 'Duplicate block'}
                         </button>
                         <button
+                          onClick={() => setSaveReusableBlock(block)}
+                          disabled={performingBlockAction}
+                          className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                          title="Keep a copy of this block in the reusable block library"
+                          aria-label={`Save block ${index + 1} as a reusable block`}
+                        >
+                          Save as reusable block
+                        </button>
+                        <button
                           onClick={() => setDeleteBlockId(block.id)}
                           className="p-1 text-rose-500 hover:text-rose-700 rounded-lg"
                           aria-label="Delete block"
@@ -1909,6 +2006,21 @@ export default function LessonAuthoringPage() {
                       </div>
                     )}
                   </div>
+
+                  {/* Level-specific content: only for the block types that support it (lib/block-capabilities.ts). */}
+                  {supportsLevelVariants(block.type) && (
+                    <div className="mt-3">
+                      <LevelContentSection
+                        block={block}
+                        blockNumber={index + 1}
+                        lessonLevels={lesson.levels}
+                        canWrite={canWrite}
+                        busy={performingBlockAction || savingVersion || removingVersion}
+                        onEdit={(level) => openVersionEditor(block, level)}
+                        onRemove={(level) => setRemoveVersionTarget({ block, level })}
+                      />
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -1925,7 +2037,7 @@ export default function LessonAuthoringPage() {
 
       <Modal
         isOpen={editLessonModalOpen}
-        onClose={() => confirmDiscard(editTitle !== lesson.title || editShortTitle !== (lesson.shortTitle || '') || editSubtitle !== (lesson.subtitle || '') || editIntroduction !== (lesson.introduction || '') || editEstimatedMinutes !== (lesson.estimatedMinutes ? String(lesson.estimatedMinutes) : '') || editCoverMediaId !== (lesson.coverMediaId ?? null), () => setEditLessonModalOpen(false))}
+        onClose={() => confirmDiscard(editTitle !== lesson.title || editShortTitle !== (lesson.shortTitle || '') || editSubtitle !== (lesson.subtitle || '') || editIntroduction !== (lesson.introduction || '') || editEstimatedMinutes !== (lesson.estimatedMinutes ? String(lesson.estimatedMinutes) : '') || editCoverMediaId !== (lesson.coverMediaId ?? null) || !sameTags(editTags, lesson.tags ?? []), () => setEditLessonModalOpen(false))}
         title="Edit lesson details"
         description={lesson.status === 'DRAFT' ? 'Updates lesson title and descriptive properties.' : 'Saving changes will return this lesson to Draft for review before it can be published again.'}
       >
@@ -1961,12 +2073,14 @@ export default function LessonAuthoringPage() {
             disabled={updatingMetadata}
           />
 
+          <LessonTagsField value={editTags} onChange={setEditTags} disabled={updatingMetadata} />
+
           <CoverImageField subject="lesson" mode="edit" saveLabel="Save lesson details" value={editCoverMediaId} onChange={setEditCoverMediaId} disabled={updatingMetadata} />
 
           <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
             <button
               type="button"
-              onClick={() => confirmDiscard(editTitle !== lesson.title || editShortTitle !== (lesson.shortTitle || '') || editSubtitle !== (lesson.subtitle || '') || editIntroduction !== (lesson.introduction || '') || editEstimatedMinutes !== (lesson.estimatedMinutes ? String(lesson.estimatedMinutes) : '') || editCoverMediaId !== (lesson.coverMediaId ?? null), () => setEditLessonModalOpen(false))}
+              onClick={() => confirmDiscard(editTitle !== lesson.title || editShortTitle !== (lesson.shortTitle || '') || editSubtitle !== (lesson.subtitle || '') || editIntroduction !== (lesson.introduction || '') || editEstimatedMinutes !== (lesson.estimatedMinutes ? String(lesson.estimatedMinutes) : '') || editCoverMediaId !== (lesson.coverMediaId ?? null) || !sameTags(editTags, lesson.tags ?? []), () => setEditLessonModalOpen(false))}
               className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50"
             >
               Cancel
@@ -2195,8 +2309,8 @@ export default function LessonAuthoringPage() {
       <Modal
         isOpen={Boolean(variantModalBlock)}
         onClose={() => setVariantModalBlock(null)}
-        title={`Configure ${variantLevel} Level for Block`}
-        description="Choose how this block appears for this learning level."
+        title={`Set visibility for the ${readableLevel(variantLevel)} level`}
+        description="Choose whether this block is shown to learners at this level. A level's own content is added under Level-specific content on the block."
         maxWidth="lg"
       >
         <form onSubmit={handleSaveVariant} className="space-y-4">
@@ -2208,7 +2322,7 @@ export default function LessonAuthoringPage() {
 
           {variantModalBlock && hasStoredLevelContent(variantModalBlock, variantLevel) && (
             <p role="alert" className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs">
-              This level has existing custom content. Changing its visibility here would discard it, so this setting is read-only.
+              This level has its own version of this block. Changing its visibility here would discard the version, so this setting is read-only. To remove the version first, use Level-specific content on the block.
             </p>
           )}
 
@@ -2222,32 +2336,12 @@ export default function LessonAuthoringPage() {
                 className="mt-0.5 text-amber-600 focus:ring-amber-500"
               />
               <div>
-                <span className="text-xs font-semibold text-slate-800 block">Use Shared Content</span>
+                <span className="text-xs font-semibold text-slate-800 block">Show with the shared content</span>
                 <span className="text-[11px] text-slate-500">
-                  Learners at the {variantLevel} level will see the shared lesson block text.
+                  Learners at the {readableLevel(variantLevel)} level will see this block with its shared content.
                 </span>
               </div>
             </label>
-
-            {variantModalBlock && supportsLevelVariants(variantModalBlock.type) && (
-              <label className="flex items-start gap-2.5 p-3 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50 transition-colors">
-                <input
-                  type="radio"
-                  name="variantMode"
-                  checked={variantMode === 'variant'}
-                  onChange={() => setVariantMode('variant')}
-                  className="mt-0.5 text-amber-600 focus:ring-amber-500"
-                />
-                <div>
-                  <span className="text-xs font-semibold text-slate-800 block">
-                    Provide Dedicated {variantLevel} Variant
-                  </span>
-                  <span className="text-[11px] text-slate-500">
-                    Provide specialized content specifically rewritten or adapted for {variantLevel} learners.
-                  </span>
-                </div>
-              </label>
-            )}
 
             <label className="flex items-start gap-2.5 p-3 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50 transition-colors">
               <input
@@ -2259,10 +2353,10 @@ export default function LessonAuthoringPage() {
               />
               <div>
                 <span className="text-xs font-semibold text-rose-700 block">
-                  Hide Block at {variantLevel} Level
+                  Hide block at the {readableLevel(variantLevel)} level
                 </span>
                 <span className="text-[11px] text-slate-500">
-                  Exclude this block completely when this lesson is studied by a {variantLevel} learner.
+                  Exclude this block completely when this lesson is studied by a {readableLevel(variantLevel)} learner.
                 </span>
               </div>
             </label>
@@ -2270,31 +2364,9 @@ export default function LessonAuthoringPage() {
 
           {variantModalBlock && !supportsLevelVariants(variantModalBlock.type) && (
             <p className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-lg p-2.5">
-              Level-specific content is not available for {variantModalBlock.type.replace(/_/g, ' ').toLowerCase()} blocks yet
-              (pending a product decision), so a block shows the same shared text at every level it is visible at. You can still choose
-              here whether it is visible at {variantLevel}.
+              Level-specific content is not available for {variantModalBlock.type.replace(/_/g, ' ').toLowerCase()} blocks (pending a product decision), so a block shows
+              the same content at every level it is visible at. You can still choose here whether it is visible at {readableLevel(variantLevel)}.
             </p>
-          )}
-
-          {variantMode === 'variant' && (
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700">
-                  Variant Content for {variantLevel} Level:
-                </label>
-                <button
-                  type="button"
-                  onClick={() => openScriptureModal('variant')}
-                  className="text-xs font-semibold text-amber-700 hover:text-amber-800 flex items-center gap-1"
-                >
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-                  </svg>
-                  Insert Scripture Ref
-                </button>
-              </div>
-              <RichTextEditor rows={6} value={variantText} onChange={setVariantText} placeholder="Enter variant text..." locked={variantLocked} />
-            </div>
           )}
 
           <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
@@ -2307,7 +2379,7 @@ export default function LessonAuthoringPage() {
             </button>
             <button
               type="submit"
-              disabled={savingVariant || Boolean(variantModalBlock && hasStoredLevelContent(variantModalBlock, variantLevel)) || (variantMode === 'variant' && (variantLocked || !supportsLevelVariants(variantModalBlock?.type ?? '')))}
+              disabled={savingVariant || Boolean(variantModalBlock && hasStoredLevelContent(variantModalBlock, variantLevel))}
               className="px-4 py-2 text-sm font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-lg flex items-center gap-2 disabled:opacity-50"
             >
               {savingVariant && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
@@ -2316,6 +2388,78 @@ export default function LessonAuthoringPage() {
           </div>
         </form>
       </Modal>
+
+      {/* Draft history: earlier saved drafts. A restore replaces the working draft only (the lesson returns to Draft); nothing is published and no published snapshot is touched. */}
+      <LessonRevisionsDialog
+        isOpen={historyOpen}
+        lessonId={lessonId}
+        canWrite={canWrite}
+        onClose={() => setHistoryOpen(false)}
+        onRestored={(result) => {
+          setHistoryOpen(false);
+          setSuccessMessage(
+            `Revision ${result.restoredFromRevision} (“${result.title || 'Untitled lesson'}”) is now the current draft. The draft it replaced is kept as revision ${result.keptRevision}. The lesson is a Draft again; nothing was published.`,
+          );
+          // The lesson, its blocks, its workflow state and the readiness check are all read again, so no form or list keeps showing the replaced draft.
+          fetchLessonData();
+        }}
+      />
+
+      {/* Reusable blocks (copy-based). Saving reads the STORED block on the server and changes nothing here; inserting creates a new, independent block through the normal block creation (a draft edit of this lesson). */}
+      <SaveAsReusableDialog
+        block={saveReusableBlock}
+        lessonId={lessonId}
+        onClose={() => setSaveReusableBlock(null)}
+        onSaved={(saved) => {
+          setSaveReusableBlock(null);
+          setSuccessMessage(`Saved as the reusable block "${saved.name}". The block in this lesson is unchanged.`);
+        }}
+      />
+      <InsertReusableBlockDialog
+        isOpen={insertReusableOpen}
+        lessonId={lessonId}
+        lessonLevels={lesson.levels}
+        blocks={blocks}
+        onClose={() => setInsertReusableOpen(false)}
+        onInserted={({ leftOut, templateName }) => {
+          setInsertReusableOpen(false);
+          setSuccessMessage(
+            `Inserted "${templateName}" as a new block in this lesson. It is an independent copy, and the lesson is now a draft edit (nothing was published).${
+              leftOut.length > 0 ? ` Left out, as you agreed: ${leftOut.map((item) => `${levelName(item.level)}${item.hadVariant ? ' (and its own version)' : ''}`).join(', ')}.` : ''
+            }`,
+          );
+          fetchLessonData();
+        }}
+      />
+
+      {/* Level-specific content: one level's version of a block, edited with the block's own editor (rich text has its own dialog). */}
+      <RichTextVersionDialog
+        target={versionTarget && versionTarget.block.type === 'RICH_TEXT' ? versionTarget : null}
+        saving={savingVersion}
+        error={versionError}
+        onClose={closeVersionEditor}
+        onSave={(content) => void handleSaveVersion(content)}
+      />
+      <LevelVersionDialogs
+        target={versionTarget && versionTarget.block.type !== 'RICH_TEXT' ? versionTarget : null}
+        lessonLevels={lesson.levels}
+        saving={savingVersion}
+        error={versionError}
+        onClose={closeVersionEditor}
+        onSave={(content) => void handleSaveVersion(content)}
+      />
+      <ConfirmDialog
+        isOpen={removeVersionTarget !== null}
+        onClose={() => {
+          if (!removingVersion) setRemoveVersionTarget(null);
+        }}
+        onConfirm={() => void handleRemoveVersion()}
+        title={`Remove the ${readableLevel(removeVersionTarget?.level)} version?`}
+        message={`Learners at the ${readableLevel(removeVersionTarget?.level)} level will see the shared content again. The block stays visible at this level, and the shared content and the other levels are not changed. This returns the lesson to Draft.`}
+        confirmLabel="Remove version"
+        isDestructive
+        isLoading={removingVersion}
+      />
 
       <ImageBlockDialog
         isOpen={imageDialog !== null}
@@ -2661,7 +2805,7 @@ export default function LessonAuthoringPage() {
                       <RichTextView content={blk.content} className="font-serif text-sm leading-relaxed text-slate-800" />
                     )}
                     <div className="mt-2 text-[10px] text-slate-400 font-mono">
-                      Block #{blk.ordinal} · Source: {blk.source || 'default'}
+                      Block #{blk.ordinal} · {blk.source === 'VARIANT' ? `${readableLevel(selectedLevel)} version` : blk.source === 'SHARED' ? 'Shared content' : 'Source: default'}
                     </div>
                   </div>
                 );
@@ -2821,21 +2965,5 @@ export default function LessonAuthoringPage() {
         </div>
       </Modal>
     </div>
-  );
-}
-
-/** An image block as the author sees it in the lesson: the picture, its caption and source, and a note when it has no description yet. */
-function ImageBlockView({ content }: { content: unknown }) {
-  const image = readImageContent(content);
-  if (!image.mediaId) {
-    return <span className="text-slate-600 italic font-sans text-xs">(No image chosen yet)</span>;
-  }
-  return (
-    <figure className="font-sans">
-      <MediaImage mediaId={image.mediaId} alt={image.altText} className="max-h-72 w-full rounded-lg border border-slate-200" fit="contain" />
-      {image.caption && <figcaption className="mt-2 text-sm text-slate-800">{image.caption}</figcaption>}
-      {image.source && <p className="text-xs text-slate-600">Source: {image.source}</p>}
-      {!image.altText && <p className="mt-1 text-xs font-medium text-amber-800">No description yet: add alternative text before publishing.</p>}
-    </figure>
   );
 }

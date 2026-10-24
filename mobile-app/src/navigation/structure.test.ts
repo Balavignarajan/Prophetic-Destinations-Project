@@ -27,7 +27,7 @@ describe('primary navigation: Home, Learn, Progress, More', () => {
     for (const kind of ['about', 'privacy', 'terms']) assert.match(read(`${kind}.tsx`), new RegExp(`DocumentScreen kind="${kind}"`));
   });
   it('existing screens are still present', () => {
-    for (const file of ['saved.tsx', 'settings.tsx', 'course/[courseId].tsx', 'lesson/[lessonId].tsx', 'daniel-2.tsx', 'daniel-2-lesson.tsx']) {
+    for (const file of ['saved.tsx', 'settings.tsx', 'course/[courseId].tsx', 'lesson/[lessonId].tsx']) {
       assert.ok(existsSync(join(app, file)), file);
     }
   });

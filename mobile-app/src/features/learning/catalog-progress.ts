@@ -1,5 +1,5 @@
 import type { CourseListItem } from '@/api/types';
-import { LEVEL_LABELS, type LearningLevel } from '@/learning/levels';
+import { LEARNING_LEVELS, LEVEL_LABELS, type LearningLevel } from '@/learning/levels';
 
 import type { CompletedEntry } from './progress-model';
 
@@ -68,6 +68,21 @@ export function levelProgressOf(done: readonly CompletedEntry[], level: Learning
 }
 
 const lessons = (count: number) => (count === 1 ? 'lesson' : 'lessons');
+
+/**
+ * How many lessons are completed at each learning level, straight from what this device recorded (no catalog, no request), so it is true offline and never a guess.
+ * Completion is kept per lesson AND level, so a lesson completed at Beginner is not counted at Advanced and the three counts add up to the all-levels total.
+ */
+export function completedByLevel(done: readonly CompletedEntry[]): Record<LearningLevel, number> {
+  const counts: Record<LearningLevel, number> = { BEGINNER: 0, INTERMEDIATE: 0, ADVANCED: 0 };
+  for (const lesson of done) if (lesson.level in counts) counts[lesson.level] += 1;
+  return counts;
+}
+
+/** "Completed by level: Beginner 3 · Intermediate 0 · Advanced 1". Counts of completed lessons only; no totals, no percentage. */
+export function completedByLevelLine(counts: Record<LearningLevel, number>): string {
+  return `Completed by level: ${LEARNING_LEVELS.map((level) => `${LEVEL_LABELS[level]} ${counts[level]}`).join(' · ')}`;
+}
 
 /** "Beginner level: 3 of 15 lessons completed · 12 remaining". States only what is known; never a percentage. */
 export function levelProgressLine(level: LearningLevel, progress: LevelProgress): string {

@@ -19,7 +19,8 @@ import { validateScriptureEntries } from './scripture-refs.js';
  *  - `scripture` is the shared structured reference list (scripture-refs.ts, up to 5 per connection): references only, never Bible text.
  *    The server stamps each with the installed text's fingerprint when saved; publication freezes the verified passages into the snapshot.
  *  - `display style` is NOT part of the contract: its values are an open decision (D8), so the unknown key is rejected rather than stored.
- *  - Plain text only. No level variants and no per-connection level flags.
+ *  - Plain text only. No per-connection level flags. Level variants are enabled PROVISIONALLY (variant-types.ts): a level's version is another complete
+ *    object of this same contract, so it has its own connections and references, stamped when saved like these.
  * A draft may be incomplete. Publishing requires at least two connections (a sequence or comparison needs two) and, for each, at least one
  * passage and an explanation. The label is optional ("can include"). The block cannot be verified or published while the Scripture text
  * is not installed; saved references are kept as they are.

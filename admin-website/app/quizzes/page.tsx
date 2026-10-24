@@ -7,7 +7,9 @@ import { QuizSummary, AdminQuiz, QuizQuestion } from '../../lib/types';
 import { LoadingSpinner, StatusBadge, EmptyState, Modal, ConfirmDialog } from '../../components/ui';
 import QuestionLevelsField, { levelsText, questionLevelSet } from '../../components/QuestionLevelsField';
 import QuizCreateForm from '../../components/QuizCreateForm';
+import QuizMoveButtons from '../../components/QuizMoveButtons';
 import { OptionFeedbackInput, QuestionScriptureField } from '../../components/QuizQuestionExtras';
+import { moveItem, newLocalId } from '../../lib/quiz-order';
 import { questionPayload } from '../../lib/quiz-question';
 import { describeReference, useScriptureInfo } from '../../lib/scripture-info';
 
@@ -42,6 +44,8 @@ export default function QuizzesPage() {
   const [editQuestions, setEditQuestions] = useState<QuizQuestion[]>([]);
   const [updating, setUpdating] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
+  // Read out by screen readers after each move (the order is saved with "Save Draft", like every other edit in this form).
+  const [orderAnnounce, setOrderAnnounce] = useState('');
 
   // Delete draft quiz
   const [deleteQuizId, setDeleteQuizId] = useState<string | null>(null);
@@ -115,7 +119,20 @@ export default function QuizzesPage() {
       }))
     );
     setUpdateError(null);
+    setOrderAnnounce('');
     setEditModalOpen(true);
+  };
+
+  // A move only changes the order in the list. Each question or option keeps all of its own content, including which option is the correct one (a flag on the option),
+  // and the saved positions are then written from the list order by the existing update (PUT /admin/quizzes/:id), so they stay 1..n with no gaps or repeats.
+  const moveEditQuestion = (from: number, to: number) => {
+    setEditQuestions((list) => moveItem(list, from, to));
+    setOrderAnnounce(`Question ${from + 1} moved to position ${to + 1} of ${editQuestions.length}. Not saved yet.`);
+  };
+  const moveEditOption = (qIndex: number, from: number, to: number) => {
+    const moved = editQuestions[qIndex]?.options[from];
+    setEditQuestions((list) => list.map((q, i) => (i === qIndex ? { ...q, options: moveItem(q.options, from, to) } : q)));
+    setOrderAnnounce(`Option ${from + 1} of question ${qIndex + 1} moved to position ${to + 1}.${moved?.correct ? ' It is still the correct answer.' : ''} Not saved yet.`);
   };
 
   const handleUpdateQuiz = async (e: React.FormEvent) => {
@@ -553,6 +570,7 @@ export default function QuizzesPage() {
         maxWidth="2xl"
       >
         <form onSubmit={handleUpdateQuiz} className="space-y-5">
+          <p role="status" aria-live="polite" className="sr-only">{orderAnnounce}</p>
           {updateError && (
             <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs">
               {updateError}
@@ -596,13 +614,14 @@ export default function QuizzesPage() {
                   setEditQuestions([
                     ...editQuestions,
                     {
-                      id: `q${editQuestions.length + 1}`,
+                      // the ids are only this form's own handles (they are not sent); unique, so a moved question keeps its identity
+                      id: newLocalId('q'),
                       type: 'SINGLE_CHOICE',
                       prompt: '',
                       explanation: '',
                       options: [
-                        { id: 'o1', text: '', correct: true },
-                        { id: 'o2', text: '', correct: false },
+                        { id: newLocalId('o'), text: '', correct: true },
+                        { id: newLocalId('o'), text: '', correct: false },
                       ],
                     },
                   ])
@@ -612,27 +631,33 @@ export default function QuizzesPage() {
                 + Add Question
               </button>
             </div>
+            {editQuestions.length > 1 && (
+              <p className="text-[11px] text-slate-600">Use the arrows to change the order of questions and of each question&rsquo;s options. The order is saved with Save Draft.</p>
+            )}
 
             {editQuestions.map((q, qIndex) => (
               <div
-                key={qIndex}
+                key={q.id}
                 className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3"
               >
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-700 font-mono">
                     Question #{qIndex + 1}
                   </span>
-                  {editQuestions.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setEditQuestions(editQuestions.filter((_, i) => i !== qIndex))
-                      }
-                      className="text-xs text-rose-600 hover:underline"
-                    >
-                      Remove
-                    </button>
-                  )}
+                  <div className="flex items-center gap-3">
+                    <QuizMoveButtons label={`question ${qIndex + 1}`} index={qIndex} count={editQuestions.length} disabled={updating} onMove={(to) => moveEditQuestion(qIndex, to)} />
+                    {editQuestions.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setEditQuestions(editQuestions.filter((_, i) => i !== qIndex))
+                        }
+                        className="text-xs text-rose-600 hover:underline"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <input
@@ -694,7 +719,7 @@ export default function QuizzesPage() {
                         onClick={() => {
                           const updated = [...editQuestions];
                           updated[qIndex].options.push({
-                            id: `o${updated[qIndex].options.length + 1}`,
+                            id: newLocalId('o'),
                             text: '',
                             correct: false,
                           });
@@ -708,11 +733,12 @@ export default function QuizzesPage() {
                   </div>
 
                   {q.options.map((opt, oIndex) => (
-                    <div key={oIndex} className="space-y-1">
+                    <div key={opt.id} className="space-y-1">
                     <div className="flex items-center gap-2">
                       <input
                         type="radio"
                         name={`edit-correct-opt-${qIndex}`}
+                        aria-label={`Option ${oIndex + 1} of question ${qIndex + 1} is the correct answer`}
                         checked={opt.correct}
                         onChange={() => {
                           const updated = [...editQuestions];
@@ -734,6 +760,7 @@ export default function QuizzesPage() {
                         }}
                         className="flex-1 px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs"
                       />
+                      <QuizMoveButtons label={`option ${oIndex + 1} of question ${qIndex + 1}`} index={oIndex} count={q.options.length} disabled={updating} onMove={(to) => moveEditOption(qIndex, oIndex, to)} />
                       {q.options.length > 2 && (
                         <button
                           type="button"

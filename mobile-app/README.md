@@ -17,7 +17,7 @@ The backend address comes from `EXPO_PUBLIC_API_URL` (see `.env.example`; Androi
 
 ```
 src/app/            Expo Router routes (thin: each file renders one screen). _layout.tsx = fonts, theme provider, status bar, navigation theme
-src/screens/        welcome, learn (catalog), course, lesson (reader), settings, daniel-2-intro
+src/screens/        welcome, learn (catalog), course, lesson (reader), settings, saved
 src/components/ui/  Design-system components (AppText, PrimaryButton, SecondaryButton, IconButton, ScreenContainer, ScreenHeader, Card,
                     OptionRow, SectionHeader, ProgressIndicator, Divider, LoadingState, ErrorState, EmptyState, ...)
 src/components/     hero-backdrop
@@ -30,30 +30,7 @@ src/config/         api.ts (backend base URL)
 scripts/check-theme.ts       Token parity + contrast of BOTH themes + stray-colour scan
 ```
 
-Flow: `/` Welcome → `/learn` (catalog, level selector) → `/course/:id?level=` (modules and lessons) → `/lesson/:id?level=` (reader, Continue to next lesson). `/settings` is reachable from Welcome and the catalog. `/daniel-2` is the cinematic introduction screen; it is reachable by deep link but is not listed as a course.
-
-## The Daniel 2 lesson (`src/features/daniel-2/`)
-
-A 14-scene interactive lesson: introduction, the dream, the great image (tap its parts), head of gold, chest of silver, belly of bronze, legs of iron, feet of iron and clay, the stone, the meaning of the stone, a timeline, Bible and history evidence, a quiz, and a summary. Entry: the "Built-in interactive lesson" card at the top of `/learn`, or `/daniel-2` (introduction with Start / Resume / Start over), then `/daniel-2-lesson`.
-
-**The content is CONFIGURED, built-in educational content, pending approval. It is not a backend course** and is shown separately from the catalog. No course ID is invented and no network response is faked.
-
-```
-types.ts            presentation model (Daniel2Lesson, Scene union, ScriptureRef, ...)
-content/            the configured content: scenes, statue sections, timeline, quiz  <- edit approved wording HERE
-assets.ts           every picture, in one place (all placeholders today)
-source.ts           Daniel2LessonSource: the seam between content retrieval and rendering
-progress.ts         device-local progress (AsyncStorage key pd.daniel2.progress.v1)
-use-lesson-progress.ts, use-daniel2-lesson.ts
-components/         scene views + scene-renderer.tsx, statue figure, scripture card, evidence card, timeline, quiz, summary
-```
-
-- **Bible vs interpretation vs history.** Every block is labelled: BIBLE TEXT / SCRIPTURE REFERENCE, BIBLICAL INTERPRETATION, HISTORICAL CONTEXT, HISTORICAL APPLICATION (each also has its own border style). Each identification is tagged *Stated in the passage*, *Traditional identification* or *Interpretations differ*.
-- **No Bible wording is bundled.** `ScriptureRef.text` is `null` until a licensed translation is approved; the UI shows the reference and says the verse text is not included. Supplying `text` requires an `attribution`.
-- **Moving to the backend later:** write a second `Daniel2LessonSource` that maps a published course (via `src/api/learner-api.ts`) into `Daniel2Lesson`, and change `activeLessonSource` in `source.ts`. Scenes need no changes. The backend does not yet carry the scene structure, statue, timeline or quiz, so that needs a content decision first.
-- **Progress.** A scene counts as completed only when the learner presses Continue (or finishes the quiz); opening a scene does not complete it. Saved on every completed or opened scene, quiz result and bookmark; restored on launch (Resume lesson); Start over clears it. Separate from the theme preference.
-- **Quiz.** Four local single-choice questions, one at a time: choose, submit, feedback, next, score, retake. Not a backend quiz; nothing is submitted.
-- **Artwork.** The picture is a generated placeholder, and the statue is a stylised drawing made of views (not a 3D model). Its material fills are tokens in `src/theme/colors.ts`.
+Flow: `/` Welcome → `/learn` (catalog, level selector) → `/course/:id?level=` (modules and lessons) → `/lesson/:id?level=` (reader, Continue to next lesson). `/settings` is reachable from Welcome and the catalog. Every lesson, including Daniel 2, is a published lesson from the Admin CMS.
 
 ## Offline, bookmarks and progress (all device-local, all separate)
 
@@ -61,25 +38,24 @@ components/         scene views + scene-renderer.tsx, statue figure, scripture c
 | --- | --- | --- |
 | Theme preference | `src/storage/preferences.ts` | `pd.preferences.theme` (and `.level`) |
 | Offline cache of published content | `src/features/offline/` | `pd.cache.v1:<kind>:<id>:<level>` + `pd.cache.v1.index` |
-| Bookmarks (lessons + Daniel 2 scenes) | `src/features/bookmarks/` | `pd.bookmarks.v1` |
+| Bookmarks (saved lessons) | `src/features/bookmarks/` | `pd.bookmarks.v1` |
 | Published-lesson progress | `src/features/learning/` | `pd.learning.progress.v1` |
-| Daniel 2 scene progress and quiz | `src/features/daniel-2/progress.ts` | `pd.daniel2.progress.v1` |
 
 - **Cache policy.** The backend is the source of truth. A successful, valid response replaces the saved copy. If the server cannot be reached (or times out, 429, 5xx, or the answer is malformed) the saved copy is shown under a "Saved copy" banner with its save time and a retry; with no saved copy the screen says the content is not available offline. A 404 deletes the saved copy and shows "not available": a stale copy is never proof that something is still published. Cached: catalog per level, course per level, lesson snapshot per lesson+level, lesson navigation. Retention: entries older than 30 days are deleted, at most 60 entries are kept (oldest removed first), invalid entries are deleted on read. ETag/conditional requests are not used (the shared API client does not send validators). "Clear offline lessons" is in Settings.
 - **Reconnect.** There is no network-status library; saved copies retry when the app returns to the foreground, when the browser reports `online`, and with the Try again button.
-- **Bookmarks.** One list; lesson ids are `lesson:<lessonId>:<level>`, scene ids `daniel2:<sceneId>`; titles are stored at save time. Saved items screen: `/saved` (star in the catalog header). A saved lesson that the backend reports unavailable is flagged and can be removed. Legacy Daniel 2 bookmarks (the `bookmarks` field of the Daniel 2 progress record) are copied into the list once on first load; the legacy field is left untouched.
+- **Bookmarks.** One list; lesson ids are `lesson:<lessonId>:<level>`; titles are stored at save time. Saved items screen: `/saved` (star in the catalog header). A saved lesson that the backend reports unavailable is flagged and can be removed. A saved item of a kind this version does not know (such as a scene saved by the removed built-in Daniel 2 preview) is skipped when the list is read.
 - **Progress.** The lesson reader records the last opened lesson ("Continue where you left off" on `/learn`) and has an explicit "Mark lesson as complete" action; opening never completes. Reset in Settings.
 
 ## Navigation map
 
-`/` Welcome (Enter, Saved items, Settings) → `/learn` (resume card, built-in Daniel 2 card, level selector, course catalog, Saved items, Settings) → `/course/:id?level=` → `/lesson/:id?level=` (bookmark, mark complete, previous/next, back to course).
-`/daniel-2` (Start / Resume / Start over) → `/daniel-2-lesson` (14 scenes; Back = previous scene (leaves from scene 1), ✕ on later scenes = leave with progress saved; `?scene=<id>` opens a saved scene). `/saved` lists saved lessons and Daniel 2 scenes. `/settings`: appearance, clear offline lessons, reset reading progress (each touches only its own data). Unknown links show a themed "Page not found"; a screen that crashes shows a themed error with retry.
+`/` Welcome (Enter, Saved items, Settings) → `/learn` (resume card, level selector, course catalog, Saved items, Settings) → `/course/:id?level=` → `/lesson/:id?level=` (bookmark, mark complete, previous/next, back to course).
+`/saved` lists saved lessons. `/settings`: appearance, clear offline lessons, reset reading progress (each touches only its own data). Unknown links show a themed "Page not found"; a screen that crashes shows a themed error with retry.
 
 Levels: links always carry `?level=`; a link without it uses the learner's saved level. Errors: a 404, or a 400 from the backend's id validation, is shown as "not available"; network failures, timeouts, 429 and 5xx are transient (retry, and a saved copy if there is one); a saved copy or a "cannot reach the server" screen retries automatically when the app returns to the foreground or the browser comes back online.
 
 Release readiness, native-test steps and open decisions: see `RELEASE-READINESS.md`. A release build has no default API URL (set `EXPO_PUBLIC_API_URL` when building).
 
-Pictures: all bundled imagery is registered in `src/config/images.ts` (Daniel 2 scene pictures in `src/features/daniel-2/assets.ts`); today that is one generated placeholder. A picture that fails to load falls back to a themed block.
+Pictures: all bundled imagery is registered in `src/config/images.ts`; today that is the generated Welcome cover. Lesson pictures come from the CMS. A picture that fails to load falls back to a themed block.
 
 ## Backend routes used (public, no authentication)
 
@@ -107,11 +83,8 @@ Text on the gold fill is dark (`onPrimary`, 5.4:1) in both themes; the pressed s
 
 ## What is placeholder
 
-- `assets/images/placeholder/daniel-2-hall-placeholder.jpg` is a generated, stylised illustration, not a photograph and not a depiction of a real place.
-- The Daniel 2 introduction text is original introductory copy, not Scripture. **No Bible text is bundled.**
-- "Start lesson" on the Daniel 2 introduction shows a note that the lesson scenes come in the next phase.
 - App icon and splash image are still the Expo defaults.
 
 ## Not built yet (on purpose)
 
-Approved Daniel 2 wording and artwork, a backend-published Daniel 2 course, Scripture navigation, quizzes (the backend's public quiz API exists), offline caching, device-local progress, audio,.
+Scripture navigation, quizzes (the backend's public quiz API exists), offline caching, device-local progress, audio,.

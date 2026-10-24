@@ -21,6 +21,8 @@ import type { BlockView, Lesson, LessonBlock } from '../domain/models.js';
 import { LessonBlockLevelRepository } from '../persistence/lesson-block-level.repository.js';
 import { LessonBlockRepository } from '../persistence/lesson-block.repository.js';
 import { LessonRepository } from '../persistence/lesson.repository.js';
+import { BlockService } from './block.service.js';
+import { LessonRevisionService } from './lesson-revision.service.js';
 
 export interface SetBlockLevelInput {
   /** null = visible, using the block's shared content. An object = the full-replacement variant for this level. */
@@ -49,6 +51,10 @@ export class BlockLevelService {
     private readonly levels: LessonBlockLevelRepository,
     private readonly registry: BlockTypeRegistry,
     private readonly transactions: TransactionRunner,
+    /** Prepares a variant's content with the same checks and Scripture stamping the shared content gets. */
+    private readonly blockContent: BlockService,
+    /** Stores the lesson's state as a draft revision before an edit replaces it. */
+    private readonly revisions: LessonRevisionService,
   ) {}
 
   /** Makes the block visible at the level, with a variant or with its shared content. */
@@ -65,13 +71,17 @@ export class BlockLevelService {
 
       checkLessonHasLevel(lesson.levels, level);
       const definition = this.registry.require(block.type);
+      const existing = await this.levels.find(blockId, level, manager);
       let content: BlockContent | null = null;
       if (input.content !== null) {
         checkVariantAllowed(definition);
-        content = checkBlockContent(definition, input.content);
+        const valid = checkBlockContent(definition, input.content);
+        // The same checks the shared content gets (media, quiz and Scripture references), so an invalid variant is refused here, never stored and never half-checked.
+        // `existing` is this level's current variant; a new variant starts from the shared content, whose references it may keep.
+        // (`input.content` is not null here, so `valid` is not null either; the check is only for the type.)
+        content = valid === null ? null : await this.blockContent.prepareLevelVariant(definition, lessonId, valid, existing?.content ?? block.sharedContent, manager);
       }
 
-      const existing = await this.levels.find(blockId, level, manager);
       if (existing && jsonContentEquals(existing.content, content)) {
         return this.view(block, manager); // already exactly this: nothing changes
       }
@@ -135,6 +145,8 @@ export class BlockLevelService {
   ): Promise<Lesson> {
     const lesson = await this.lessons.findByIdForUpdate(lessonId, manager);
     if (!lesson) throw new NotFoundError('Lesson not found');
+    // The lesson's editable state is stored as a draft revision (once per revision) before this edit can replace it.
+    await this.revisions.ensureCaptured(lesson, manager);
     return lesson;
   }
 

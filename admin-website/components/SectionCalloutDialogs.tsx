@@ -13,6 +13,7 @@ import {
   buildSection,
 } from '../lib/section-callout';
 import type { LearningLevel } from '../lib/types';
+import { versionWording } from '../lib/level-version';
 import { fillIfEmpty } from '../lib/media-api';
 import CoverImageField from './CoverImageField';
 import { Modal } from './ui';
@@ -31,6 +32,8 @@ interface CommonProps {
   error: string | null;
   onClose: () => void;
   onSave: (content: Record<string, unknown>, levels: LearningLevel[]) => void;
+  /** Set (with mode 'edit') when the dialog edits ONE level's version of the block instead of its shared content, e.g. "Beginner". */
+  levelLabel?: string;
 }
 
 export function LevelChoice({ lessonLevels, levels, setLevels, disabled, legend }: { lessonLevels: LearningLevel[]; levels: LearningLevel[]; setLevels: (l: LearningLevel[]) => void; disabled: boolean; legend: string }) {
@@ -136,7 +139,7 @@ export function SectionBlockDialog({ isOpen, onClose, initial, ...rest }: Common
 
 // ------------------------------------------------------------------------------------------------------------------ callout
 
-function CalloutBody({ mode, lessonLevels, initial, saving, error, onSave, requestClose, dirtyRef }: Omit<CommonProps, 'isOpen' | 'onClose'> & { initial: CalloutContent | null; requestClose: () => void; dirtyRef: React.MutableRefObject<boolean> }) {
+function CalloutBody({ mode, lessonLevels, initial, saving, error, onSave, levelLabel, requestClose, dirtyRef }: Omit<CommonProps, 'isOpen' | 'onClose'> & { initial: CalloutContent | null; requestClose: () => void; dirtyRef: React.MutableRefObject<boolean> }) {
   const start = initial ?? EMPTY_CALLOUT;
   const [draft, setDraft] = useState<CalloutContent>(start);
   const [levels, setLevels] = useState<LearningLevel[]>(lessonLevels);
@@ -179,15 +182,16 @@ function CalloutBody({ mode, lessonLevels, initial, saving, error, onSave, reque
         </div>
       </fieldset>
       {mode === 'create' && <LevelChoice lessonLevels={lessonLevels} levels={levels} setLevels={setLevels} disabled={saving} legend="Show this callout at" />}
-      <Actions saving={saving} canSave={canSave} createLabel="Add callout to lesson" editLabel="Save callout" mode={mode} requestClose={requestClose} />
+      <Actions saving={saving} canSave={canSave} createLabel="Add callout to lesson" editLabel={versionWording(levelLabel, 'callout')?.save ?? 'Save callout'} mode={mode} requestClose={requestClose} />
     </form>
   );
 }
 
 export function CalloutBlockDialog({ isOpen, onClose, initial, ...rest }: CommonProps & { initial: CalloutContent | null }) {
   const { dirtyRef, requestClose } = useGuardedClose(rest.saving, onClose);
+  const version = versionWording(rest.levelLabel, 'callout');
   return (
-    <Modal isOpen={isOpen} onClose={requestClose} title={rest.mode === 'create' ? 'Add a callout' : 'Edit callout'} description="A short highlighted note in your own words." maxWidth="xl">
+    <Modal isOpen={isOpen} onClose={requestClose} title={rest.mode === 'create' ? 'Add a callout' : version?.title ?? 'Edit callout'} description={version?.description ?? 'A short highlighted note in your own words.'} maxWidth="xl">
       <CalloutBody {...rest} initial={initial} requestClose={requestClose} dirtyRef={dirtyRef} />
     </Modal>
   );

@@ -1,13 +1,14 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, type NativeScrollEvent, type NativeSyntheticEvent, ScrollView, View } from 'react-native';
+import { AppState, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent, ScrollView, View } from 'react-native';
 
 import { useReduceMotion } from '@/accessibility/use-reduce-motion';
-import { ApiError } from '@/api/errors';
+import { ApiError, NetworkError } from '@/api/errors';
 import type { LessonSnapshotBlock } from '@/api/types';
 import { useResource } from '@/api/use-resource';
 import {
   AppText,
+  BlockNotice,
   Card,
   CompletionMark,
   Divider,
@@ -23,16 +24,18 @@ import { useBookmarks } from '@/features/bookmarks/bookmarks-provider';
 import { lessonBookmarkId } from '@/features/bookmarks/model';
 import { useLearningProgress } from '@/features/learning/learning-provider';
 import { type LessonRef, type ReadingAnchor, lessonKey, shouldRestore } from '@/features/learning/progress-model';
+import { reportBlockProblem } from '@/features/learning/block-diagnostics';
 import { type BlockBox, anchorAtOffset, hasAnchorBlock, planRestore } from '@/features/learning/reading-anchor';
 import { noteLessonAvailability } from '@/features/learning/continue-target';
-import { ProgressStatusNotice, isProgressUnavailable } from '@/features/learning/progress-notice';
+import { ProgressStatusNotice } from '@/features/learning/progress-notice';
 import { describeLoadError } from '@/features/offline/describe-offline';
 import { loadLesson, loadNavigation } from '@/features/offline/offline-api';
 import { OfflineBanner } from '@/features/offline/offline-banner';
 import { type OwnerStatus, mediaOwnerKey, useOfflineMedia } from '@/features/offline/offline-media';
 import { isRecoverable, useRetryOnReconnect } from '@/features/offline/use-retry-on-reconnect';
-import { LEVEL_LABELS, firstParam } from '@/learning/levels';
+import { LEVEL_LABELS, type LearningLevel, firstParam } from '@/learning/levels';
 import { useRouteLevel } from '@/learning/use-route-level';
+import { BlockBoundary } from '@/learning/block-boundary';
 import { CoverImage, lessonCoverUrl } from '@/learning/cover-image';
 import { LessonContents, MIN_SECTIONS_FOR_CONTENTS, lessonSections } from '@/learning/lesson-contents';
 import { LessonHeader } from '@/learning/lesson-header';
@@ -56,7 +59,7 @@ import { QuizContent } from '@/learning/quiz-block';
 import { SummaryContent } from '@/learning/summary-block';
 import { useTheme } from '@/theme';
 
-/** The block types this version of the app can show. The backend enables RICH_TEXT, IMAGE, SUMMARY, QUIZ, INTERACTIVE_IMAGE and TIMELINE today. */
+/** The block types this version of the app can show: every type of the backend's block registry. A type that is not in this set is left out of the lesson and reported (see `LessonBody`). */
 const SUPPORTED_BLOCKS = new Set(['RICH_TEXT', 'IMAGE', 'SUMMARY', 'QUIZ', 'INTERACTIVE_IMAGE', 'TIMELINE', 'SCRIPTURE_PASSAGE', 'HISTORICAL_EVIDENCE', 'SECTION_INTRO', 'CALLOUT', 'SCRIPTURE_CONNECTION', 'MAP', 'EXPLORE_DEEPER', 'WORD_STUDY', 'SYMBOL_STUDY', 'PROPHECY_EQUIVALENCE', 'PROPHECY_COMPARISON', 'PROPHECY_CALCULATION', 'REFLECTION_STUDY_ACTIVITY', 'GUIDED_DISCOVERY_QUESTION', 'CONTINUE_EXPLORING', 'NARRATIVE_SCENE', 'MEDIA_ANIMATION']);
 
 /** How long the lesson body must stay the same size before the reader stops being kept on the saved place (and a position beyond its end is clamped to the end; see `tryRestore`). */
@@ -71,19 +74,26 @@ const SAVE_MIN_INTERVAL_MS = 2000;
 /** Where a restore is trying to put the reader: the saved place (pixels, and the content anchor when there is one) and the published version it was saved in. */
 type RestoreRequest = { offset: number; anchor: ReadingAnchor | undefined; contentHash: string | null };
 
-/** What to tell the learner about offline saving of this lesson, or null when nothing needs saying. */
-function offlineNote(status: OwnerStatus, showingSavedCopy: boolean): string | null {
+/**
+ * What to tell the learner about offline saving of this lesson AT THIS LEVEL, or null when nothing needs saying. A lesson is saved separately for each learning level,
+ * so every sentence is about the level on screen and none of them says anything about another level. The states are kept apart: saved completely, text saved while the
+ * images are still being saved, some images not saved, and an older saved version kept while a newer one is saved.
+ */
+function offlineNote(status: OwnerStatus, showingSavedCopy: boolean, level: LearningLevel): string | null {
+  const name = LEVEL_LABELS[level];
   switch (status) {
+    case 'complete':
+      return `Saved for offline reading at the ${name} level.`;
     case 'saving':
-      return 'Saving images for offline reading…';
+      return `Text saved at the ${name} level. Saving images for offline reading…`;
     case 'updating':
       return showingSavedCopy
-        ? 'You are reading an older saved version. The newest version is still being saved for offline reading.'
-        : 'Saving the newest version for offline reading… Until it is finished, the older saved version is kept for offline use.';
+        ? `You are reading an older saved version at the ${name} level. The newest version is still being saved for offline reading.`
+        : `Saving the newest ${name} version for offline reading… Until it is finished, the older saved version is kept for offline use.`;
     case 'update-failed':
-      return 'Some images of the newest version are not saved yet, so the older saved version is still the one kept for offline reading. Open the lesson again with an internet connection to retry.';
+      return `Some images of the newest ${name} version are not saved yet, so the older saved version is still the one kept for offline reading. Open the lesson again with an internet connection to retry.`;
     case 'incomplete':
-      return 'Some images are not saved for offline reading. They are saved when you open the lesson with an internet connection.';
+      return `Some images are not saved for offline reading at the ${name} level. They are saved when you open the lesson with an internet connection.`;
     case 'text-only':
       // This browser cannot keep image files: say so rather than imply the whole lesson is available offline.
       return showingSavedCopy ? 'The text is saved for offline reading. This browser cannot keep the images, so they need an internet connection.' : null;
@@ -98,8 +108,8 @@ function offlineNote(status: OwnerStatus, showingSavedCopy: boolean): string | n
 
 /**
  * The lesson reader: the published snapshot of a lesson at one level, shown in its published order.
- * Nothing is added to the content: no invented text, no Bible text. Block types other than RICH_TEXT, IMAGE, SUMMARY, QUIZ, INTERACTIVE_IMAGE and TIMELINE are not shown,
- * and the reader says so rather than hiding it.
+ * Nothing is added to the content: no invented text, no Bible text. A block type this version of the app does not know is not shown, and the reader says so rather than
+ * hiding it; a block that cannot be drawn from its content is replaced by a notice, and the rest of the lesson is unaffected.
  */
 export function LessonScreen() {
   const router = useRouter();
@@ -113,9 +123,9 @@ export function LessonScreen() {
   // Previous / next are a convenience: if the navigation request fails (and nothing is saved) the lesson is still readable.
   const [navigation] = useResource(ready ? `lesson-nav:${lessonId}:${level}` : null, (signal) => loadNavigation(lessonId, level, signal));
   const { has, toggle, remove, setUnavailable, syncTitles: syncSavedTitles, ready: savedReady } = useBookmarks();
-  const { progress, recordOpened, isCompleted, setCompleted, savePosition, positionOf, ready: progressReady, status: progressStatus } = useLearningProgress();
-  // The saved progress could not be read: nothing is restored or saved until it can be, so completion is not offered (it would silently do nothing).
-  const progressUnavailable = isProgressUnavailable(progressStatus);
+  const { progress, recordOpened, isCompleted, setCompleted, savePosition, positionOf, ready: progressReady } = useLearningProgress();
+  // Completion can only be changed once the saved progress is KNOWN. Until it has been read (or when it cannot be read) the screen cannot tell a completed lesson from
+  // an unfinished one: it would show "not marked complete" for a lesson that is, and a tap could not be stored. The notice below the lesson says why when it cannot be read.
   useRetryOnReconnect(isRecoverable(lesson), reload);
 
   const goTo = (target: string) => router.replace({ pathname: '/lesson/[lessonId]', params: { lessonId: target, level } });
@@ -135,7 +145,7 @@ export function LessonScreen() {
       ? null
       : lesson.data.source === 'network' && lesson.data.saved === false
         ? 'This lesson could not be saved for offline reading on this device just now. It will be saved the next time you open it with an internet connection, if there is room.'
-        : offlineNote(offlineMedia.status(mediaOwnerKey('lesson', lessonId, level)), lesson.data.source === 'cache');
+        : offlineNote(offlineMedia.status(mediaOwnerKey('lesson', lessonId, level)), lesson.data.source === 'cache', level);
   const bookmarkId = lessonBookmarkId(lessonId, level);
   const saved = has(bookmarkId);
   const completed = isCompleted(lessonId, level);
@@ -178,6 +188,9 @@ export function LessonScreen() {
   // Where each block of the lesson body sits (measured as it is laid out), for turning an offset into an anchor and back.
   const layoutY = useRef({ column: 0, body: 0, sections: {} as Record<string, number> });
   const blockBoxes = useRef(new Map<string, { y: number; height: number }>());
+  // The same places as the list `boxes()` hands out. It is built when first asked for after something moved and dropped (set to null) whenever a block, the body or the
+  // column is measured again, so a scroll event reads it instead of rebuilding it ten times a second.
+  const boxList = useRef<BlockBox[] | null>(null);
   const latest = useRef<{ lesson: LessonRef; offset: number; anchor: ReadingAnchor | null; contentHash: string | null } | null>(null);
   const liveAnchor = useRef<ReadingAnchor | null>(null);
   const restore = useRef<RestoreRequest | null>(null);
@@ -228,8 +241,11 @@ export function LessonScreen() {
     clearRestoreTimer();
   }, [clearRestoreTimer]);
   const boxes = useCallback((): BlockBox[] => {
-    const origin = layoutY.current.column + layoutY.current.body;
-    return [...blockBoxes.current].map(([blockId, box]) => ({ blockId, top: origin + box.y, height: box.height }));
+    if (boxList.current === null) {
+      const origin = layoutY.current.column + layoutY.current.body;
+      boxList.current = [...blockBoxes.current].map(([blockId, box]) => ({ blockId, top: origin + box.y, height: box.height })).sort((a, b) => a.top - b.top);
+    }
+    return boxList.current;
   }, []);
 
   // Puts the reader on the saved place once the lesson is laid out far enough to reach it. Text and images keep changing the lesson's height while it loads, so the place is
@@ -285,6 +301,7 @@ export function LessonScreen() {
     shownHash.current = null;
     liveAnchor.current = null;
     blockBoxes.current.clear();
+    boxList.current = null;
     programmatic.current = null;
     clearRestoreTimer();
     return () => {
@@ -417,7 +434,7 @@ export function LessonScreen() {
   const celebrate = shownCompleted && celebratedKey === restoreKey;
   const removed = !shownCompleted && removedKey === restoreKey;
   const markComplete = async () => {
-    if (!lessonRef || completed || progressUnavailable || completionBusy.current) return;
+    if (!lessonRef || completed || !progressReady || completionBusy.current) return;
     completionBusy.current = true;
     const key = restoreKey;
     setCompletion({ key, action: 'mark', state: 'saving' });
@@ -436,7 +453,7 @@ export function LessonScreen() {
     }
   };
   const undoComplete = async () => {
-    if (!lessonRef || !completed || progressUnavailable || completionBusy.current) return;
+    if (!lessonRef || !completed || !progressReady || completionBusy.current) return;
     completionBusy.current = true;
     const key = restoreKey;
     const completedAt = progress.completed[lessonKey(lessonId, level)]?.completedAt;
@@ -458,6 +475,7 @@ export function LessonScreen() {
   };
   const onBodyLayout = useCallback((y: number) => {
     layoutY.current.body = y;
+    boxList.current = null;
   }, []);
   // Every block reports where it sits as it is laid out (and again whenever its place or size changes, for instance when an image above it loads). The contents sheet,
   // "reveal in block" and the reading position all read from this one record.
@@ -465,6 +483,7 @@ export function LessonScreen() {
     (blockId: string, y: number, height: number) => {
       layoutY.current.sections[blockId] = y;
       blockBoxes.current.set(blockId, { y, height });
+      boxList.current = null;
       lastLayoutChange.current = Date.now();
       if (restore.current !== null) {
         tryRestore(false);
@@ -478,6 +497,7 @@ export function LessonScreen() {
     const present = new Set(ids);
     for (const id of [...blockBoxes.current.keys()]) if (!present.has(id)) blockBoxes.current.delete(id);
     for (const id of Object.keys(layoutY.current.sections)) if (!present.has(id)) delete layoutY.current.sections[id];
+    boxList.current = null;
   }, []);
   const jumpToSection = (blockId: string) => {
     const y = layoutY.current.sections[blockId];
@@ -552,6 +572,7 @@ export function LessonScreen() {
       <View
         onLayout={(event) => {
           layoutY.current.column = event.nativeEvent.layout.y;
+          boxList.current = null;
         }}
         style={{ gap: spacing.xl }}>
         {lesson.status === 'loading' ? <LoadingState message="Loading lesson…" /> : null}
@@ -568,7 +589,15 @@ export function LessonScreen() {
           <SecondaryButton label="Remove from saved items" onPress={() => remove(bookmarkId)} />
         ) : null}
 
-        {lesson.status === 'error' && !notFound ? <ErrorState {...describeLoadError(lesson.error, 'lesson')} onRetry={reload} /> : null}
+        {lesson.status === 'error' && !notFound ? (
+          <>
+            <ErrorState {...describeLoadError(lesson.error, 'lesson', level)} onRetry={reload} />
+            {/* Not saved at this level and no connection: nothing else is shown in its place. The way back is where the learner came from (or the course list). */}
+            {lesson.error instanceof NetworkError ? (
+              <SecondaryButton label={router.canGoBack() ? 'Go back' : 'Back to courses'} onPress={() => (router.canGoBack() ? router.back() : router.replace('/learn'))} />
+            ) : null}
+          </>
+        ) : null}
 
         {lesson.status === 'success' && lesson.data.source === 'cache' ? <OfflineBanner loaded={lesson.data} onRetry={reload} /> : null}
 
@@ -584,7 +613,7 @@ export function LessonScreen() {
           </AppText>
         ) : null}
 
-        {lesson.status === 'success' ? <LessonBody lessonId={lessonId} contentHash={lesson.data.value.contentHash} lessonBlocks={lesson.data.value.snapshot.blocks} snapshotLesson={lesson.data.value.snapshot.lesson} level={level} onBodyLayout={onBodyLayout} onBlockLayout={onBlockLayout} onBlocks={onBlocks} onRevealInBlock={revealInBlock} onBlockStep={scrollToBlockTop} /> : null}
+        {lesson.status === 'success' ? <LessonBody lessonId={lessonId} contentHash={lesson.data.value.contentHash} publicationVersion={lesson.data.value.publicationVersion} lessonBlocks={lesson.data.value.snapshot.blocks} snapshotLesson={lesson.data.value.snapshot.lesson} level={level} onBodyLayout={onBodyLayout} onBlockLayout={onBlockLayout} onBlocks={onBlocks} onRevealInBlock={revealInBlock} onBlockStep={scrollToBlockTop} /> : null}
 
         {lesson.status === 'success' ? <RelatedLessons lessonId={lessonId} level={level} contentHash={lesson.data.value.contentHash} /> : null}
 
@@ -598,7 +627,7 @@ export function LessonScreen() {
               </Card>
             ) : shownCompleted ? (
               <AppText variant="bodySmall" color="success" align="center" style={{ fontWeight: '700' }}>
-                ✓ This lesson is marked complete
+                ✓ This lesson is marked complete at the {LEVEL_LABELS[level]} level
               </AppText>
             ) : null}
             {removed ? (
@@ -613,25 +642,37 @@ export function LessonScreen() {
                   : "Your progress couldn't be saved, so this lesson is not marked complete. Please try again."}
               </AppText>
             ) : null}
+            {/* The state of an unfinished lesson is stated too (once the saved progress is known, so a completed lesson is never called unfinished). Completion is the learner's own tap: scrolling to the end and taking a quiz never do it. */}
+            {lessonRef && progressReady && !shownCompleted && !savingCompletion && !removed && completionState === null ? (
+              <AppText variant="bodySmall" color="textMuted" align="center">
+                Not marked complete yet at the {LEVEL_LABELS[level]} level. You choose when you have finished: reaching the end or taking a quiz does not mark a lesson complete.
+              </AppText>
+            ) : null}
             {/* Manual completion is unchanged. It is the dominant action only when there is no next lesson to continue to. */}
             {lessonRef ? (
               !next && !shownCompleted ? (
                 <PrimaryButton
                   label={savingCompletion ? 'Saving…' : 'Mark lesson as complete'}
-                  accessibilityLabel={savingCompletion ? 'Saving your progress' : `Mark ${title ?? 'this lesson'} as complete`}
-                  accessibilityHint="Saves on this device that you have finished this lesson. You can undo it."
+                  accessibilityLabel={savingCompletion ? 'Saving your progress' : `Mark ${title ?? 'this lesson'} as complete at the ${LEVEL_LABELS[level]} level`}
+                  accessibilityHint="Saves on this device that you have finished this lesson at this level. You can undo it."
                   loading={savingCompletion}
-                  disabled={progressUnavailable}
+                  disabled={!progressReady}
                   onPress={() => void markComplete()}
                 />
               ) : (
                 <SecondaryButton
                   size="medium"
                   label={savingCompletion ? 'Saving…' : shownCompleted ? 'Completed. Tap to undo' : 'Mark lesson as complete'}
-                  accessibilityLabel={savingCompletion ? 'Saving your progress' : shownCompleted ? `${title ?? 'This lesson'} is marked complete. Undo` : `Mark ${title ?? 'this lesson'} as complete`}
-                  accessibilityHint={shownCompleted ? 'Removes the completion mark on this device.' : 'Saves on this device that you have finished this lesson. You can undo it.'}
+                  accessibilityLabel={
+                    savingCompletion
+                      ? 'Saving your progress'
+                      : shownCompleted
+                        ? `${title ?? 'This lesson'} is marked complete at the ${LEVEL_LABELS[level]} level. Undo`
+                        : `Mark ${title ?? 'this lesson'} as complete at the ${LEVEL_LABELS[level]} level`
+                  }
+                  accessibilityHint={shownCompleted ? 'Removes the completion mark for this level on this device.' : 'Saves on this device that you have finished this lesson at this level. You can undo it.'}
                   accessibilityState={{ busy: savingCompletion }}
-                  disabled={progressUnavailable || savingCompletion}
+                  disabled={!progressReady || savingCompletion}
                   onPress={() => void (shownCompleted ? undoComplete() : markComplete())}
                 />
               )
@@ -676,6 +717,7 @@ export function LessonScreen() {
 const LessonBody = memo(function LessonBody({
   lessonId,
   contentHash,
+  publicationVersion,
   lessonBlocks,
   snapshotLesson,
   level,
@@ -688,6 +730,8 @@ const LessonBody = memo(function LessonBody({
   lessonId: string;
   /** Identifies the published version shown, so quiz answers never carry over to another publication. */
   contentHash: string;
+  /** The publication number of the version shown: only named in developer diagnostics. */
+  publicationVersion: number;
   lessonBlocks: LessonSnapshotBlock[];
   snapshotLesson: { title: string; subtitle: string | null; introduction: string | null; estimatedMinutes: number | null; coverMediaId: string | null };
   level: keyof typeof LEVEL_LABELS;
@@ -702,67 +746,31 @@ const LessonBody = memo(function LessonBody({
   onBlockStep: (blockId: string) => void;
 }) {
   const { spacing, colors } = useTheme();
-  const ordered = [...lessonBlocks].sort((a, b) => a.ordinal - b.ordinal);
-  const shown = ordered.filter((block) => SUPPORTED_BLOCKS.has(block.type));
-  const skipped = ordered.length - shown.length;
-  // The lesson cover is shown only when no block already shows the same picture.
-  const showCover = !ordered.some((block) => blockMediaIds(block.content).includes(snapshotLesson.coverMediaId ?? ''));
-  const introduction = snapshotLesson.introduction?.split(/\n\s*\n/).filter((part) => part.trim().length > 0) ?? [];
+  // Worked out again only when the lesson's blocks (or its cover) change, not every time this body draws again. A block type this version does not know is set aside
+  // (`unsupported`); the others keep the published order.
+  const { shown, unsupported, showCover, shownIds } = useMemo(() => {
+    const ordered = [...lessonBlocks].sort((a, b) => a.ordinal - b.ordinal);
+    const supported = ordered.filter((block) => SUPPORTED_BLOCKS.has(block.type));
+    return {
+      shown: supported,
+      unsupported: ordered.filter((block) => !SUPPORTED_BLOCKS.has(block.type)),
+      // The lesson cover is shown only when no block already shows the same picture.
+      showCover: !ordered.some((block) => blockMediaIds(block.content).includes(snapshotLesson.coverMediaId ?? '')),
+      shownIds: supported.map((block) => block.blockId).join('|'),
+    };
+  }, [lessonBlocks, snapshotLesson.coverMediaId]);
+  const skipped = unsupported.length;
+  const introduction = useMemo(() => snapshotLesson.introduction?.split(/\n\s*\n/).filter((part) => part.trim().length > 0) ?? [], [snapshotLesson.introduction]);
 
   // The reader is told which blocks this body shows, so a block that is no longer in the lesson stops counting as a place to return to.
-  const shownIds = shown.map((block) => block.blockId).join('|');
   useEffect(() => {
     onBlocks(shownIds ? shownIds.split('|') : []);
   }, [shownIds, onBlocks]);
-
-  const renderBlock = (block: LessonSnapshotBlock) =>
-    block.type === 'SECTION_INTRO' ? (
-      <SectionIntroBlock lessonId={lessonId} level={level} content={block.content} />
-    ) : block.type === 'IMAGE' ? (
-      <LessonImage lessonId={lessonId} level={level} content={block.content} />
-    ) : block.type === 'PROPHECY_EQUIVALENCE' ? (
-      <EquivalenceBlock content={block.content} />
-    ) : block.type === 'PROPHECY_COMPARISON' ? (
-      <ComparisonBlock content={block.content} />
-    ) : block.type === 'PROPHECY_CALCULATION' ? (
-      <CalculationBlock content={block.content} />
-    ) : block.type === 'REFLECTION_STUDY_ACTIVITY' ? (
-      <StudyActivityBlock content={block.content} />
-    ) : block.type === 'GUIDED_DISCOVERY_QUESTION' ? (
-      <GuidedQuestionBlock content={block.content} />
-    ) : block.type === 'CONTINUE_EXPLORING' ? (
-      <ContinueExploringBlock lessonId={lessonId} blockId={block.blockId} level={level} contentHash={contentHash} content={block.content} />
-    ) : block.type === 'NARRATIVE_SCENE' ? (
-      <NarrativeSceneBlock lessonId={lessonId} level={level} content={block.content} />
-    ) : block.type === 'MEDIA_ANIMATION' ? (
-      <AnimatedImageBlock lessonId={lessonId} level={level} content={block.content} />
-    ) : block.type === 'WORD_STUDY' ? (
-      <WordStudyBlock content={block.content} />
-    ) : block.type === 'SYMBOL_STUDY' ? (
-      <SymbolStudyBlock lessonId={lessonId} level={level} content={block.content} />
-    ) : block.type === 'MAP' ? (
-      <HotspotImage lessonId={lessonId} level={level} content={block.content} variant="map" onReveal={(y, height) => onRevealInBlock(block.blockId, y, height)} />
-    ) : block.type === 'EXPLORE_DEEPER' ? (
-      <ExploreDeeperBlock lessonId={lessonId} level={level} content={block.content} />
-    ) : block.type === 'SCRIPTURE_CONNECTION' ? (
-      <ScriptureConnectionBlock content={block.content} />
-    ) : block.type === 'CALLOUT' ? (
-      <CalloutBlock content={block.content} />
-    ) : block.type === 'HISTORICAL_EVIDENCE' ? (
-      <EvidenceBlock lessonId={lessonId} level={level} content={block.content} />
-    ) : block.type === 'SCRIPTURE_PASSAGE' ? (
-      <ScripturePassage content={block.content} />
-    ) : block.type === 'TIMELINE' ? (
-      <TimelineContent lessonId={lessonId} level={level} content={block.content} />
-    ) : block.type === 'INTERACTIVE_IMAGE' ? (
-      <HotspotImage lessonId={lessonId} level={level} content={block.content} onReveal={(y, height) => onRevealInBlock(block.blockId, y, height)} />
-    ) : block.type === 'QUIZ' ? (
-      <QuizContent content={block.content} lessonId={lessonId} lessonTitle={snapshotLesson.title} level={level} blockId={block.blockId} contentHash={contentHash} onStepChange={() => onBlockStep(block.blockId)} />
-    ) : block.type === 'SUMMARY' ? (
-      <SummaryContent content={block.content} />
-    ) : (
-      <RichTextContent content={block.content} />
-    );
+  // A block type this version of the app does not know is left out (and the lesson says so, below). Developers are told once in development builds: the type, the lesson,
+  // the block and the publication, never the content (see features/learning/block-diagnostics.ts).
+  useEffect(() => {
+    for (const block of unsupported) reportBlockProblem({ kind: 'unsupported-type', lessonId, blockId: block.blockId, type: block.type, publicationVersion });
+  }, [unsupported, lessonId, publicationVersion]);
 
   return (
     <View style={{ gap: spacing.xl }} onLayout={(event) => onBodyLayout(event.nativeEvent.layout.y)}>
@@ -797,12 +805,19 @@ const LessonBody = memo(function LessonBody({
       </View>
 
       {shown.map((block) => (
-        // One wrapper per block reports where the block sits, so the reader can remember (and find again) the block being read. A quiz is keyed by its published version too, so its answers never carry over.
-        <View
+        // A quiz is keyed by its published version too, so its answers never carry over.
+        <LessonBlockView
           key={block.type === 'QUIZ' ? `${block.blockId}:${contentHash}` : block.blockId}
-          onLayout={(event) => onBlockLayout(block.blockId, event.nativeEvent.layout.y, event.nativeEvent.layout.height)}>
-          {renderBlock(block)}
-        </View>
+          block={block}
+          lessonId={lessonId}
+          lessonTitle={snapshotLesson.title}
+          level={level}
+          contentHash={contentHash}
+          publicationVersion={publicationVersion}
+          onBlockLayout={onBlockLayout}
+          onRevealInBlock={onRevealInBlock}
+          onBlockStep={onBlockStep}
+        />
       ))}
 
       {shown.length === 0 && introduction.length === 0 ? (
@@ -810,17 +825,133 @@ const LessonBody = memo(function LessonBody({
       ) : null}
 
       {skipped > 0 ? (
-        <AppText variant="bodySmall" color="textMuted" accessibilityLiveRegion="polite">
-          {skipped === 1 ? 'One part' : `${skipped} parts`} of this lesson cannot be shown in this version of the app yet.
-        </AppText>
+        <BlockNotice
+          variant="unsupported"
+          title={skipped === 1 ? 'One part is not shown' : `${skipped} parts are not shown`}
+          message={`This version of the app cannot show ${skipped === 1 ? 'it' : 'them'} yet. The rest of the lesson is not affected. Updating the app may fix this.`}
+        />
       ) : null}
     </View>
   );
 });
 
-/** Every media id a block refers to (its own image, a nested image, a poster), so the cover is not shown twice. */
+/**
+ * One block of the lesson body: its wrapper (which reports where the block sits, so the reader can remember and find again the block being read), a boundary that keeps a
+ * block that cannot be drawn from taking the rest of the lesson with it, and the block itself. Memoised on props that only change when this block, the lesson or the level
+ * does (the block object is the published one, the callbacks are the screen's stable ones), so the other blocks do not draw again when one thing in the body changes. The block
+ * is NOT unmounted while it is off screen: its answers, open panels and measured size stay, which is what keeps the reading position and Contents jumps exact.
+ */
+const LessonBlockView = memo(function LessonBlockView({
+  block,
+  lessonId,
+  lessonTitle,
+  level,
+  contentHash,
+  publicationVersion,
+  onBlockLayout,
+  onRevealInBlock,
+  onBlockStep,
+}: {
+  block: LessonSnapshotBlock;
+  lessonId: string;
+  lessonTitle: string;
+  level: keyof typeof LEVEL_LABELS;
+  contentHash: string;
+  publicationVersion: number;
+  onBlockLayout: (blockId: string, y: number, height: number) => void;
+  onRevealInBlock: (blockId: string, localY: number, height: number) => void;
+  onBlockStep: (blockId: string) => void;
+}) {
+  const { blockId, type } = block;
+  // The published content is an object; anything else (a block published without it) is not drawn, rather than left to fail inside the renderer.
+  const hasContent = typeof block.content === 'object' && block.content !== null && !Array.isArray(block.content);
+  useEffect(() => {
+    if (!hasContent) reportBlockProblem({ kind: 'missing-content', lessonId, blockId, type, publicationVersion });
+  }, [hasContent, lessonId, blockId, type, publicationVersion]);
+  const onError = useCallback(
+    (error: unknown) => {
+      reportBlockProblem({ kind: 'render-failed', lessonId, blockId, type, publicationVersion, errorName: error instanceof Error ? error.name : undefined });
+    },
+    [lessonId, blockId, type, publicationVersion],
+  );
+  const placed = useCallback(
+    (event: LayoutChangeEvent) => onBlockLayout(blockId, event.nativeEvent.layout.y, event.nativeEvent.layout.height),
+    [onBlockLayout, blockId],
+  );
+  const reveal = useCallback((y: number, height: number) => onRevealInBlock(blockId, y, height), [onRevealInBlock, blockId]);
+  const step = useCallback(() => onBlockStep(blockId), [onBlockStep, blockId]);
+
+  const content = block.content;
+  const drawn =
+    type === 'SECTION_INTRO' ? (
+      <SectionIntroBlock lessonId={lessonId} level={level} content={content} />
+    ) : type === 'IMAGE' ? (
+      <LessonImage lessonId={lessonId} level={level} content={content} />
+    ) : type === 'PROPHECY_EQUIVALENCE' ? (
+      <EquivalenceBlock content={content} />
+    ) : type === 'PROPHECY_COMPARISON' ? (
+      <ComparisonBlock content={content} />
+    ) : type === 'PROPHECY_CALCULATION' ? (
+      <CalculationBlock content={content} />
+    ) : type === 'REFLECTION_STUDY_ACTIVITY' ? (
+      <StudyActivityBlock content={content} />
+    ) : type === 'GUIDED_DISCOVERY_QUESTION' ? (
+      <GuidedQuestionBlock content={content} />
+    ) : type === 'CONTINUE_EXPLORING' ? (
+      <ContinueExploringBlock lessonId={lessonId} blockId={blockId} level={level} contentHash={contentHash} content={content} />
+    ) : type === 'NARRATIVE_SCENE' ? (
+      <NarrativeSceneBlock lessonId={lessonId} level={level} content={content} />
+    ) : type === 'MEDIA_ANIMATION' ? (
+      <AnimatedImageBlock lessonId={lessonId} level={level} content={content} />
+    ) : type === 'WORD_STUDY' ? (
+      <WordStudyBlock content={content} />
+    ) : type === 'SYMBOL_STUDY' ? (
+      <SymbolStudyBlock lessonId={lessonId} level={level} content={content} />
+    ) : type === 'MAP' ? (
+      <HotspotImage lessonId={lessonId} level={level} content={content} variant="map" onReveal={reveal} />
+    ) : type === 'EXPLORE_DEEPER' ? (
+      <ExploreDeeperBlock lessonId={lessonId} level={level} content={content} />
+    ) : type === 'SCRIPTURE_CONNECTION' ? (
+      <ScriptureConnectionBlock content={content} />
+    ) : type === 'CALLOUT' ? (
+      <CalloutBlock content={content} />
+    ) : type === 'HISTORICAL_EVIDENCE' ? (
+      <EvidenceBlock lessonId={lessonId} level={level} content={content} />
+    ) : type === 'SCRIPTURE_PASSAGE' ? (
+      <ScripturePassage content={content} />
+    ) : type === 'TIMELINE' ? (
+      <TimelineContent lessonId={lessonId} level={level} content={content} />
+    ) : type === 'INTERACTIVE_IMAGE' ? (
+      <HotspotImage lessonId={lessonId} level={level} content={content} onReveal={reveal} />
+    ) : type === 'QUIZ' ? (
+      <QuizContent content={content} lessonId={lessonId} lessonTitle={lessonTitle} level={level} blockId={blockId} contentHash={contentHash} onStepChange={step} />
+    ) : type === 'SUMMARY' ? (
+      <SummaryContent content={content} />
+    ) : (
+      <RichTextContent content={content} />
+    );
+
+  // The lesson's one "this part could not be shown" box (`BlockNotice`), in the variant that says why: no content at all, or content the block could not be drawn from.
+  return (
+    <View onLayout={placed}>
+      {hasContent ? (
+        <BlockBoundary
+          resetKey={contentHash}
+          fallback={<BlockNotice title="This part could not be shown" message="Part of its content could not be read. The rest of the lesson is not affected." />}
+          onError={onError}>
+          {drawn}
+        </BlockBoundary>
+      ) : (
+        <BlockNotice variant="missing" title="Content not available" message="This part of the lesson has no content to show. The rest of the lesson is not affected." />
+      )}
+    </View>
+  );
+});
+
+/** Every media id a block refers to (its own image, a nested image, a poster), so the cover is not shown twice. A block without content has none. */
 function blockMediaIds(content: Record<string, unknown>): string[] {
   const ids: string[] = [];
+  if (typeof content !== 'object' || content === null) return ids;
   const take = (value: unknown) => {
     if (typeof value === 'string' && value.trim()) ids.push(value.trim());
   };

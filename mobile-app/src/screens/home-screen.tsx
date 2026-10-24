@@ -117,7 +117,7 @@ export function HomeScreen() {
             </AppText>
           </View>
           {courses.status === 'loading' ? <LoadingState message="Loading courses…" /> : null}
-          {courses.status === 'error' ? <ErrorState {...describeLoadError(courses.error, 'course list')} onRetry={reload} /> : null}
+          {courses.status === 'error' ? <ErrorState {...describeLoadError(courses.error, 'course list', level)} onRetry={reload} /> : null}
           {courses.status === 'success' && courses.data.source === 'cache' ? <OfflineBanner loaded={courses.data} onRetry={reload} /> : null}
           {courses.status === 'success' && courseList.length === 0 ? (
             <AppText variant="body" color="textSecondary">
@@ -137,10 +137,10 @@ export function HomeScreen() {
 
         <View style={{ gap: spacing.md }}>
           {progressUnavailable ? null : (
-            <Card onPress={() => router.push('/progress')} accessibilityLabel={`Your progress: ${progressCountsLine(summary, quizzes.length)}.${levelLine ? ` ${levelLine}.` : ''} Open progress.`}>
+            <Card onPress={() => router.push('/progress')} accessibilityLabel={`Your progress, all levels: ${progressCountsLine(summary, quizzes.length)}.${levelLine ? ` ${levelLine}.` : ''} Open progress.`}>
               <View style={{ gap: spacing.xs }}>
                 <AppText variant="bodySmall" color="textMuted" style={{ fontWeight: '600' }}>
-                  Your progress
+                  Your progress · all levels
                 </AppText>
                 <AppText variant="body" style={{ fontWeight: '600' }}>
                   {progressCountsLine(summary, quizzes.length)}

@@ -30,7 +30,8 @@ import { itemReferenceOf, validateScriptureEntries } from './scripture-refs.js';
  *    image, definition passage and related references are optional. Because the verse / primary passage are required, these blocks cannot be
  *    published while the Scripture text is missing; references are never weakened for that reason.
  *  - Original-language text is Unicode (Greek, Hebrew): stored as typed, only trimmed; clients display it with automatic text direction.
- *  - No level variants (D3). The image follows the IMAGE conventions (media-library image, alternative text required before publishing).
+ *  - Level variants (D3) are enabled PROVISIONALLY (variant-types.ts): a level's version is another complete object of the same contract, with its own
+ *    verse, references and image. The image follows the IMAGE conventions (media-library image, alternative text required before publishing).
  */
 export const WORD_STUDY_LIMITS = { word: 100, transliteration: 100, strongNumber: 10, definition: 2000 } as const;
 export const SYMBOL_STUDY_LIMITS = { symbol: 200, meaning: 2000, explanation: 3000, altText: 500 } as const;

@@ -32,11 +32,22 @@ export class LessonsController {
   /** The lesson library: standalone lessons (no course, no module), newest change first, optional title search. Declared before ':lessonId'. */
   @Get('library')
   @Roles(...READ_ROLES)
-  async library(@Query('q') q?: string, @Query('limit') limit?: string, @Query('offset') offset?: string) {
+  async library(@Query('q') q?: string, @Query('limit') limit?: string, @Query('offset') offset?: string, @Query('tag') tag?: string) {
     const take = Math.min(Math.max(Number.parseInt(limit ?? '', 10) || 50, 1), 100);
     const skip = Math.max(Number.parseInt(offset ?? '', 10) || 0, 0);
-    const { items, total } = await this.lessons.listLibrary(q ?? '', take, skip);
+    // `tag` keeps only lessons carrying that tag (any capitalisation). It is applied in the query, so `total` and the page are those of the filtered set.
+    const { items, total } = await this.lessons.listLibrary(q ?? '', take, skip, tag);
     return { items: items.map((lesson) => LessonResponseDto.from(lesson)), total, limit: take, offset: skip };
+  }
+
+  /**
+   * Every tag in use with the number of lessons carrying it (CMS-021), for the tag filter and the suggestions of the tag field. `scope=library` counts library lessons only.
+   * Declared before ':lessonId' so it is never read as an id.
+   */
+  @Get('tags')
+  @Roles(...READ_ROLES)
+  async tags(@Query('scope') scope?: string) {
+    return { items: await this.lessons.listTags(scope === 'library') };
   }
 
   /** Creates a standalone library lesson (no course, no module). It cannot be published; copy it into a course or module for that. */

@@ -83,6 +83,17 @@ export class CreateLessonDto {
   @IsUUID('all')
   coverMediaId?: string | null;
 
+  /**
+   * Organisation tags (CMS-021): short labels, at most 10, each at most 40 characters, no repeats (not case-sensitive). Omit for none. The limits are enforced by the lesson
+   * rules with a message that names the problem; the bounds here only stop absurd input.
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsString({ each: true })
+  @MaxLength(200, { each: true })
+  tags?: string[];
+
   /** Levels the lesson is available at. Omit for none yet. */
   @IsOptional()
   @IsArray()
@@ -133,6 +144,14 @@ export class UpdateLessonDto {
   @ValidateIf((_, value) => value !== null)
   @IsUUID('all')
   coverMediaId?: string | null;
+
+  /** Replaces the lesson's tags (an empty list removes them all). OMIT it to leave the tags exactly as they are: no other edit ever changes them. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsString({ each: true })
+  @MaxLength(200, { each: true })
+  tags?: string[];
 
   /** The version the editor last saw; if it is stale the update is refused (409). */
   @IsOptional()
@@ -252,6 +271,8 @@ export class LessonResponseDto {
   introduction: string | null;
   coverMediaId: string | null;
   estimatedMinutes: number | null;
+  /** Admin organisation tags; never shown to learners. */
+  tags: string[];
   levels: string[];
   position: number;
   status: string;
@@ -272,6 +293,7 @@ export class LessonResponseDto {
       introduction: lesson.introduction,
       coverMediaId: lesson.coverMediaId,
       estimatedMinutes: lesson.estimatedMinutes,
+      tags: lesson.tags,
       levels: lesson.levels,
       position: lesson.position,
       status: lesson.status,

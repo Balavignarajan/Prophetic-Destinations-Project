@@ -75,7 +75,8 @@ export interface MediaUsage {
   published: { lessons: UsedByLesson[]; courses: { courseId: string; title: string }[] };
   truncated: { workingLessons: boolean; publishedLessons: boolean; workingCourses: boolean; publishedCourses: boolean };
   limit: number;
-  totals: { draftLessons: number; publishedLessons: number; draftCourses: number; publishedCourses: number };
+  /** `reusableBlocks`: reusable blocks (library templates) that hold the image; absent from an older server, which counts as none. */
+  totals: { draftLessons: number; publishedLessons: number; draftCourses: number; publishedCourses: number; reusableBlocks?: number };
 }
 
 /** Where the image is used (working and published), cut at `limit` per group; the totals are always exact. */

@@ -26,8 +26,10 @@ import { QuizzesFacade } from '../../quizzes/index.js';
 import { quizIdOf } from '../domain/blocks/quiz.js';
 import { passageReferenceOf, sameReference } from '../domain/blocks/scripture-passage.js';
 import { ScriptureFacade } from '../../scripture/index.js';
+import { LessonRevisionService } from './lesson-revision.service.js';
 import { ScriptureEmbedService } from './scripture-embed.service.js';
 import { LessonRelatedRepository } from '../persistence/lesson-related.repository.js';
+import { checkVariantAllowed } from '../domain/block-levels.js';
 import { jsonContentEquals } from '../domain/json-equality.js';
 import { checkLevels } from '../domain/lesson-rules.js';
 import type { BlockView, Lesson, LessonBlock } from '../domain/models.js';
@@ -49,6 +51,16 @@ export interface CreateBlockInput {
    * until levels are chosen explicitly. Must be levels the lesson is available at.
    */
   levels?: string[];
+  /**
+   * Level versions stored with the new block (level -> the full version). Set only by the reusable-block insertion; the public create endpoint never
+   * passes it. Each version needs a level in `levels`, a block type that supports versions, and is checked and prepared exactly like a saved version.
+   */
+  variants?: Partial<Record<LearningLevel, BlockContent>>;
+  /**
+   * The content this block is a COPY of (a reusable block being inserted). Scripture references that are already in it keep their stamp when the text they
+   * were verified against is not installed right now, exactly as an unchanged reference does when a block is edited; anything new is verified as usual.
+   */
+  copiedFrom?: BlockContent | null;
 }
 
 export interface UpdateBlockInput {
@@ -77,6 +89,8 @@ export class BlockService {
     private readonly scripture: ScriptureFacade,
     private readonly scriptureRefs: ScriptureEmbedService,
     private readonly relatedLinks: LessonRelatedRepository,
+    /** Stores the lesson's state as a draft revision before an edit replaces it. */
+    private readonly revisions: LessonRevisionService,
   ) {}
 
   async list(lessonId: string): Promise<BlockView[]> {
@@ -97,10 +111,12 @@ export class BlockService {
 
   async create(lessonId: string, input: CreateBlockInput): Promise<BlockView> {
     const definition = this.registry.require(input.type);
+    const copiedFrom = input.copiedFrom ?? null;
     let sharedContent = await this.checkReferences(definition, checkBlockContent(definition, input.sharedContent));
-    sharedContent = await this.verifyScripture(definition, sharedContent, null);
-    sharedContent = await this.scriptureRefs.stampNested(definition.type, sharedContent, null);
+    sharedContent = await this.verifyScripture(definition, sharedContent, copiedFrom);
+    sharedContent = await this.scriptureRefs.stampNested(definition.type, sharedContent, copiedFrom);
     const levels = checkLevels(input.levels ?? []);
+    const variants = checkNewVariants(definition, levels, input.variants);
 
     return this.transactions.run(async (manager) => {
       const lesson = await this.lockLesson(lessonId, manager);
@@ -120,7 +136,10 @@ export class BlockService {
         manager,
       );
       for (const level of levels) {
-        await this.levels.upsert(block.id, lessonId, level, null, manager);
+        const variant = variants.get(level) ?? null;
+        // A version is prepared like any saved version (media, Scripture); nothing is stored unless every part passed.
+        const content = variant === null ? null : await this.prepareContent(definition, lessonId, variant, variant, manager);
+        await this.levels.upsert(block.id, lessonId, level, content, manager);
       }
       await this.lessons.markDraft(lessonId, manager);
       return {
@@ -172,6 +191,43 @@ export class BlockService {
         levels: await this.levels.listByBlock(blockId, manager),
       };
     });
+  }
+
+  /**
+   * A level variant being saved (BlockLevelService.setLevel calls this inside its transaction, with the lesson already locked, after the shape check). It gets
+   * exactly the treatment the block's shared content gets in `update`, in the same order, so a variant can never carry what shared content could not: media must
+   * exist and be the right kind, a quiz reference is locked and stamped, Continue Exploring links are checked, and Scripture references are verified against the
+   * installed text and stamped by the server (a stamp sent by the client is dropped). `current` is what the level already has, or the block's shared content when
+   * the variant is new: a reference that is already there, unchanged, keeps its stamp, so starting a variant as a copy of the shared content never needs the
+   * Scripture text to be installed again. Nothing is written here.
+   */
+  async prepareLevelVariant(
+    definition: BlockTypeDefinition,
+    lessonId: string,
+    content: BlockContent,
+    current: BlockContent | null,
+    manager: EntityManager,
+  ): Promise<BlockContent> {
+    return this.prepareContent(definition, lessonId, content, current, manager);
+  }
+
+  /**
+   * The checks and the Scripture stamping that content gets when it is stored as a block's content or a level version, in the order `update` applies them. Also used for
+   * the content of a reusable block, which therefore never skips them. `lessonId` only matters for the block types that name other lessons. Nothing is written here.
+   */
+  async prepareContent(
+    definition: BlockTypeDefinition,
+    lessonId: string,
+    content: BlockContent,
+    current: BlockContent | null,
+    manager: EntityManager,
+  ): Promise<BlockContent> {
+    let prepared = await this.checkReferences(definition, content);
+    prepared = await this.lockQuizReference(definition, prepared, manager);
+    prepared = await this.checkExploringLinks(definition.type, lessonId, prepared, current, manager);
+    prepared = await this.verifyScripture(definition, prepared, current);
+    prepared = await this.scriptureRefs.stampNested(definition.type, prepared, current);
+    return prepared ?? content;
   }
 
   /**
@@ -408,12 +464,14 @@ export class BlockService {
     return result;
   }
 
+  /** Locks the lesson, then stores its current editable state as a draft revision (once per revision) before the caller changes anything. */
   private async lockLesson(
     lessonId: string,
     manager: EntityManager,
   ): Promise<Lesson> {
     const lesson = await this.lessons.findByIdForUpdate(lessonId, manager);
     if (!lesson) throw lessonNotFound();
+    await this.revisions.ensureCaptured(lesson, manager);
     return lesson;
   }
 
@@ -440,6 +498,29 @@ function checkWithinLessonLevels(
       { notAvailable: outside, lessonLevels: lesson.levels },
     );
   }
+}
+
+/**
+ * The level versions given for a NEW block (a reusable block being inserted): each needs a level the block is visible at and a block type that supports versions, and
+ * passes the type's shape check. Anything else is refused, never dropped.
+ */
+function checkNewVariants(
+  definition: BlockTypeDefinition,
+  levels: readonly LearningLevel[],
+  variants: Partial<Record<LearningLevel, BlockContent>> | undefined,
+): Map<LearningLevel, BlockContent> {
+  const checked = new Map<LearningLevel, BlockContent>();
+  if (!variants) return checked;
+  for (const [level, content] of Object.entries(variants) as [LearningLevel, BlockContent | null | undefined][]) {
+    if (content === null || content === undefined) continue;
+    if (!levels.includes(level)) {
+      throw new BusinessRuleError(`A ${level} version needs the block to be visible at that level`, { level });
+    }
+    checkVariantAllowed(definition);
+    const valid = checkBlockContent(definition, content);
+    if (valid !== null) checked.set(level, valid);
+  }
+  return checked;
 }
 
 function checkRoomForAnother(count: number): void {

@@ -30,9 +30,9 @@ interface Props {
  *  1. Visibility: "Shown" / "Hidden" within a level the lesson offers, or "Not offered" when the lesson itself does not offer the level. A block is shown at
  *     a level when it has a level setting for it (the backend resolver's rule 2).
  *  2. Content resolution: what the resolver would do with a shown block. A stored per-level JSON value does NOT mean it is used: the resolver uses a variant
- *     only for a block type that SUPPORTS variants, and today none does, so a stored variant makes the block unresolved (BLOCK_VARIANT_NOT_ALLOWED) and blocks
- *     publishing. The cell says exactly that (from the block type's variant support, and from the resolver's own diagnostic in the readiness report when it is
- *     available); otherwise nothing is claimed beyond "Shown". The old label "own content" is gone.
+ *     only for a block type that SUPPORTS variants (see block-capabilities.ts), so a stored variant on any other type makes the block unresolved
+ *     (BLOCK_VARIANT_NOT_ALLOWED) and blocks publishing. The cell says exactly that (from the block type's variant support, and from the resolver's own diagnostic
+ *     in the readiness report when it is available); a variant on a type that supports them is reported as such. The old label "own content" is gone.
  *  3. Readiness: the last rows, from the readiness report the review panel already fetched. A failed request is a failure, never "no problems"; an earlier
  *     result is marked as earlier. This is working content, not what is published.
  */
@@ -104,7 +104,7 @@ export default function LevelCoverage({ blocks, offeredLevels, readiness, onGoTo
                                 if (setting.content && !supportsLevelVariants(block.type)) {
                                   return <span className="block text-xs text-rose-900">A level variant is stored, but this block type does not support variants, so the block cannot be resolved and publishing is blocked until the variant is removed.</span>;
                                 }
-                                if (setting.content) return <span className="block text-xs text-slate-700">Uses a level variant at this level.</span>;
+                                if (setting.content) return <span className="block text-xs text-slate-700">Uses its own {readableLevel(level)} version at this level.</span>;
                                 return null;
                               })()}
                             </span>
@@ -145,7 +145,7 @@ export default function LevelCoverage({ blocks, offeredLevels, readiness, onGoTo
           </p>
         )}
         {report && lessonWide > 0 && <p className="text-xs text-amber-900">{lessonWide === 1 ? '1 problem applies' : `${lessonWide} problems apply`} to the lesson as a whole, not to one level. See the review section below.</p>}
-        <p className="text-xs text-slate-700">Per-level content variants and per-item level settings are not available yet; only whole blocks are shown or hidden.</p>
+        <p className="text-xs text-slate-700">Blocks of the types that offer &ldquo;Level-specific content&rdquo; can have their own version for a level; every other block shows the same content wherever it is shown. Per-item level settings are not part of this table.</p>
       </div>
     </details>
   );

@@ -9,6 +9,8 @@ const LOCK_NOT_AVAILABLE = '55P03';
 const DEADLOCK_DETECTED = '40P01';
 /** 40001 serialization_failure: a concurrent update made this transaction unable to proceed. */
 const SERIALIZATION_FAILURE = '40001';
+/** 42P01 undefined_table: the statement names a table the database does not have (a migration has not been applied yet). */
+const UNDEFINED_TABLE = '42P01';
 
 function hasCode(error: unknown, code: string): boolean {
   const candidate = error as {
@@ -26,6 +28,11 @@ export function isForeignKeyViolation(error: unknown): boolean {
   return (
     hasCode(error, FOREIGN_KEY_VIOLATION) || hasCode(error, RESTRICT_VIOLATION)
   );
+}
+
+/** The statement names a table that does not exist (yet). */
+export function isUndefinedTable(error: unknown): boolean {
+  return hasCode(error, UNDEFINED_TABLE);
 }
 
 /** A statement gave up waiting for a lock (`lock_timeout`). Nothing was changed; retrying later is safe. */

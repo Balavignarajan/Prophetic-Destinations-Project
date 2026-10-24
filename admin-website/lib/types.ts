@@ -72,6 +72,8 @@ export interface LessonSummary {
   subtitle: string | null;
   introduction: string | null;
   estimatedMinutes: number | null;
+  /** Admin organisation tags (CMS-021); never shown to learners. Absent from a server that has not been updated, which counts as none. */
+  tags?: string[];
   position: number;
   levels: LearningLevel[];
   coverMediaId: string | null;
@@ -97,6 +99,39 @@ export interface LessonBlock {
   version: number;
   createdAt: string;
   updatedAt: string;
+}
+
+/** A reusable block in the library list (no content): GET /admin/reusable-blocks. */
+export interface ReusableBlockSummary {
+  id: string;
+  name: string;
+  description: string | null;
+  type: string;
+  levels: { level: LearningLevel; hasVariant: boolean }[];
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A reusable block with its content: GET /admin/reusable-blocks/:id. `levels[].content` is that level's own version, or null (uses the shared content). */
+export interface ReusableBlock {
+  id: string;
+  name: string;
+  description: string | null;
+  type: string;
+  sharedContent: Record<string, unknown> | null;
+  levels: { level: LearningLevel; content: Record<string, unknown> | null }[];
+  version: number;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** What an insertion did NOT carry over (POST /admin/reusable-blocks/:id/insert). */
+export interface ReusableLeftOut {
+  level: LearningLevel;
+  hadVariant: boolean;
+  reason: 'LESSON_NOT_AVAILABLE_AT_LEVEL' | 'VARIANTS_NOT_SUPPORTED';
 }
 
 export interface WorkflowState {

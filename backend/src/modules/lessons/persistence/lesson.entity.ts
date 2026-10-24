@@ -19,6 +19,7 @@ import {
 // Deferrable so a shift or whole-module reorder is checked once, at the end of the statement.
 @Check('chk_lessons_position', `"position" >= 1`)
 @Check('chk_lessons_content_revision', `"content_revision" >= 1`)
+@Check('chk_lessons_tags', `cardinality("tags") <= 10`)
 @Check(
   'chk_lessons_title',
   `"title" !~ '^\\s*$' AND char_length("title") <= 200`,
@@ -73,6 +74,10 @@ export class LessonEntity {
 
   @Column({ name: 'estimated_minutes', type: 'integer', nullable: true })
   estimatedMinutes: number | null;
+
+  /** Admin organisation tags (CMS-021): see Lesson.tags. Added by migration AddLessonTags1791900000000; existing lessons have none. */
+  @Column({ type: 'text', array: true, default: () => `'{}'` })
+  tags: string[];
 
   @Column({ type: 'integer' })
   position: number;

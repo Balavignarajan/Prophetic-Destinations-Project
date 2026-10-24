@@ -4,7 +4,7 @@ import { View } from 'react-native';
 
 import { useResource } from '@/api/use-resource';
 import { AppText, Card, ChevronIcon, EmptyState, PageHeading, ScreenContainer, ScreenSection } from '@/components/ui';
-import { type LevelProgress, isMissingFromCatalog, levelProgressLine, publishedLessonsOf } from '@/features/learning/catalog-progress';
+import { type LevelProgress, completedByLevel, completedByLevelLine, isMissingFromCatalog, levelProgressLine, publishedLessonsOf } from '@/features/learning/catalog-progress';
 import { ProgressStatusNotice } from '@/features/learning/progress-notice';
 import { useProgressOverview } from '@/features/learning/progress-overview';
 import { useLessonTitleSync } from '@/features/learning/use-lesson-title-sync';
@@ -20,6 +20,10 @@ import { useTheme } from '@/theme';
  * "completed of available" and "remaining" for the learner's level come from the published catalog at that level (live, or its saved copy) and are left
  * out when that is unknown. Only lessons that are available now count toward the total, so a lesson that was completed and later unpublished never makes
  * the count exceed it.
+ *
+ * Scope is stated on screen and never mixed: the level card is the SELECTED level against its published catalog; the tiles are ALL levels, as recorded on this
+ * device; "completed by level" is the per-level split of those same completions (no catalog needed, so it is true offline). Each level keeps its own completions,
+ * positions and quiz results (they are keyed by lesson AND level), so switching level shows that level's figures and changes none of the others.
  *
  * There is deliberately NO "overall progress" percentage: the specification does not define the formula (decision C-14). Quiz scores are the
  * latest completed result of each quiz block taken on this device (provisional rule, see QuizResult); a lesson counts as complete on its own,
@@ -49,6 +53,12 @@ export function ProgressScreen() {
   const resumeCourse = resume && resume.level === level && resume.courseId ? courseList.find((course) => course.courseId === resume.courseId) : undefined;
   const open = (lessonId: string, lessonLevel: string) => router.push({ pathname: '/lesson/[lessonId]', params: { lessonId, level: lessonLevel } });
   const levelLine = levelProgressLine(level, levelProgress);
+  // What is counted, and over what, is said on screen: the tiles are ALL levels (what this device recorded), the level card is the selected level against the catalog.
+  // The per-level completed counts need no catalog, so they are true offline as well.
+  const byLevelLine = completedByLevelLine(completedByLevel(done));
+  // The lesson total of the selected level needs its course list. If that could not be loaded and nothing is saved, the total and the remaining count are said to be
+  // unavailable (never guessed, never zero), and the completed lessons already recorded are unaffected.
+  const totalsUnavailable = courses.status === 'error' && levelProgress.kind === 'unknown' && levelProgress.available === null;
 
   return (
     <ScreenContainer scroll>
@@ -67,16 +77,29 @@ export function ProgressScreen() {
         ) : (
           <View style={{ gap: spacing.md }}>
             {levelProgress.kind === 'counts' ? <LevelCountsCard level={level} progress={levelProgress} spoken={levelLine} /> : null}
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md }}>
-              <StatTile value={summary.completed} label="Completed" spoken={`${summary.completed} ${summary.completed === 1 ? 'lesson' : 'lessons'} completed`} />
-              <StatTile value={summary.inProgress} label="In progress" spoken={`${summary.inProgress} ${summary.inProgress === 1 ? 'lesson' : 'lessons'} in progress`} />
-              <StatTile value={quizzes.length} label={quizzes.length === 1 ? 'Quiz taken' : 'Quizzes taken'} spoken={`${quizzes.length} ${quizzes.length === 1 ? 'quiz' : 'quizzes'} taken`} />
-            </View>
             {levelProgress.kind === 'counts' ? null : (
-              <AppText variant="bodySmall" color="textSecondary">
-                {levelLine}
-              </AppText>
+              <View style={{ gap: spacing.xs }}>
+                <AppText variant="bodySmall" color="textSecondary">
+                  {levelLine}
+                </AppText>
+                {totalsUnavailable ? (
+                  <AppText variant="bodySmall" color="textMuted">
+                    The lesson total for this level cannot be loaded right now, so the remaining count is not shown. Your completed lessons are kept on this device.
+                  </AppText>
+                ) : null}
+              </View>
             )}
+            <AppText variant="bodySmall" color="textMuted" style={{ fontWeight: '600' }}>
+              All levels on this device
+            </AppText>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md }}>
+              <StatTile value={summary.completed} label="Completed" spoken={`${summary.completed} ${summary.completed === 1 ? 'lesson' : 'lessons'} completed across all levels`} />
+              <StatTile value={summary.inProgress} label="In progress" spoken={`${summary.inProgress} ${summary.inProgress === 1 ? 'lesson' : 'lessons'} in progress across all levels`} />
+              <StatTile value={quizzes.length} label={quizzes.length === 1 ? 'Quiz taken' : 'Quizzes taken'} spoken={`${quizzes.length} ${quizzes.length === 1 ? 'quiz' : 'quizzes'} taken across all levels`} />
+            </View>
+            <AppText variant="bodySmall" color="textMuted">
+              {byLevelLine}
+            </AppText>
             {/* The totals come from the course list saved on this device when the live one could not be reached: they may be out of date, and are refreshed once the connection is back. */}
             {courses.status === 'success' && courses.data.source === 'cache' && levelProgress.kind !== 'unknown' ? (
               <AppText variant="bodySmall" color="textMuted">
@@ -189,7 +212,7 @@ function LevelCountsCard({ level, progress, spoken }: { level: keyof typeof LEVE
     <Card>
       <View accessible accessibilityLabel={spoken} style={{ gap: spacing.xs }}>
         <AppText variant="bodySmall" color="textMuted" style={{ fontWeight: '600' }}>
-          {LEVEL_LABELS[level]} level
+          {LEVEL_LABELS[level]} level · your selected level
         </AppText>
         <AppText variant="title" color="primaryHighlight">
           {progress.completed} of {progress.total}

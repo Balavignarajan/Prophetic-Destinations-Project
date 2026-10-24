@@ -33,9 +33,9 @@ const BookmarksContext = createContext<BookmarksContextValue>({
   syncTitles: () => undefined,
 });
 
-/** Loads the saved list once (migrating legacy Daniel 2 bookmarks) and shares it with every screen. */
+/** Loads the saved list once and shares it with every screen. */
 export function BookmarksProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<BookmarksState>({ items: [], migratedLegacy: false });
+  const [state, setState] = useState<BookmarksState>({ items: [] });
   const [ready, setReady] = useState(false);
   const latest = useRef(state);
   // True once the saved list has been read: a change that is not the learner's own never writes before that.
@@ -85,12 +85,12 @@ export function BookmarksProvider({ children }: { children: ReactNode }) {
     (id: string, unavailable: boolean) => {
       const current = latest.current;
       const target = current.items.find((item) => item.id === id);
-      if (!target || target.type !== 'lesson') return;
+      if (!target) return;
       if (unavailable === (target.unavailableSince !== undefined)) return;
       commit({
         ...current,
         items: current.items.map((item) => {
-          if (item.id !== id || item.type !== 'lesson') return item;
+          if (item.id !== id) return item;
           if (!unavailable) {
             const { unavailableSince: _dropped, ...rest } = item;
             return rest;

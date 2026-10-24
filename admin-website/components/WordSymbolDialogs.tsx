@@ -14,6 +14,7 @@ import {
   wordReadiness,
 } from '../lib/word-symbol';
 import type { LearningLevel } from '../lib/types';
+import { versionWording } from '../lib/level-version';
 import { fillIfEmpty } from '../lib/media-api';
 import CoverImageField from './CoverImageField';
 import ScriptureRefList from './ScriptureRefList';
@@ -33,6 +34,8 @@ interface CommonProps {
   error: string | null;
   onClose: () => void;
   onSave: (content: Record<string, unknown>, levels: LearningLevel[]) => void;
+  /** Set (with mode 'edit') when the dialog edits ONE level's version of the block instead of its shared content, e.g. "Beginner". */
+  levelLabel?: string;
 }
 
 type BodyProps = Omit<CommonProps, 'isOpen' | 'onClose'> & { requestClose: () => void; dirtyRef: React.MutableRefObject<boolean> };
@@ -57,7 +60,7 @@ function Missing({ items }: { items: string[] }) {
 
 // ------------------------------------------------------------------------------------------------------------------------ word study
 
-function WordBody({ mode, lessonLevels, initial, saving, error, onSave, requestClose, dirtyRef }: BodyProps & { initial: WordContent | null }) {
+function WordBody({ mode, lessonLevels, initial, saving, error, onSave, levelLabel, requestClose, dirtyRef }: BodyProps & { initial: WordContent | null }) {
   const start = initial ?? EMPTY_WORD;
   const [draft, setDraft] = useState<WordContent>(start);
   const [levels, setLevels] = useState<LearningLevel[]>(lessonLevels);
@@ -123,15 +126,16 @@ function WordBody({ mode, lessonLevels, initial, saving, error, onSave, requestC
       </fieldset>
       <Missing items={wordReadiness(draft)} />
       {mode === 'create' && <LevelChoice lessonLevels={lessonLevels} levels={levels} setLevels={setLevels} disabled={saving} legend="Show this word study at" />}
-      <Actions saving={saving} canSave={canSave} createLabel="Add word study to lesson" editLabel="Save word study" mode={mode} requestClose={requestClose} />
+      <Actions saving={saving} canSave={canSave} createLabel="Add word study to lesson" editLabel={versionWording(levelLabel, 'word study')?.save ?? 'Save word study'} mode={mode} requestClose={requestClose} />
     </form>
   );
 }
 
 export function WordStudyDialog({ isOpen, onClose, initial, ...rest }: CommonProps & { initial: WordContent | null }) {
   const { dirtyRef, requestClose } = useGuardedClose(rest.saving, onClose);
+  const version = versionWording(rest.levelLabel, 'word study');
   return (
-    <Modal isOpen={isOpen} onClose={requestClose} title={rest.mode === 'create' ? 'Add a word study' : 'Edit word study'} description="A word, its original-language form and your own definition, tied to a verse." maxWidth="2xl">
+    <Modal isOpen={isOpen} onClose={requestClose} title={rest.mode === 'create' ? 'Add a word study' : version?.title ?? 'Edit word study'} description={version?.description ?? 'A word, its original-language form and your own definition, tied to a verse.'} maxWidth="2xl">
       <WordBody {...rest} initial={initial} requestClose={requestClose} dirtyRef={dirtyRef} />
     </Modal>
   );
@@ -139,7 +143,7 @@ export function WordStudyDialog({ isOpen, onClose, initial, ...rest }: CommonPro
 
 // ---------------------------------------------------------------------------------------------------------------------- symbol study
 
-function SymbolBody({ mode, lessonLevels, initial, saving, error, onSave, requestClose, dirtyRef }: BodyProps & { initial: SymbolContent | null }) {
+function SymbolBody({ mode, lessonLevels, initial, saving, error, onSave, levelLabel, requestClose, dirtyRef }: BodyProps & { initial: SymbolContent | null }) {
   const start = initial ?? EMPTY_SYMBOL;
   const [draft, setDraft] = useState<SymbolContent>(start);
   const [levels, setLevels] = useState<LearningLevel[]>(lessonLevels);
@@ -214,15 +218,16 @@ function SymbolBody({ mode, lessonLevels, initial, saving, error, onSave, reques
       </fieldset>
       <Missing items={symbolReadiness(draft)} />
       {mode === 'create' && <LevelChoice lessonLevels={lessonLevels} levels={levels} setLevels={setLevels} disabled={saving} legend="Show this symbol study at" />}
-      <Actions saving={saving} canSave={canSave} createLabel="Add symbol study to lesson" editLabel="Save symbol study" mode={mode} requestClose={requestClose} />
+      <Actions saving={saving} canSave={canSave} createLabel="Add symbol study to lesson" editLabel={versionWording(levelLabel, 'symbol study')?.save ?? 'Save symbol study'} mode={mode} requestClose={requestClose} />
     </form>
   );
 }
 
 export function SymbolStudyDialog({ isOpen, onClose, initial, ...rest }: CommonProps & { initial: SymbolContent | null }) {
   const { dirtyRef, requestClose } = useGuardedClose(rest.saving, onClose);
+  const version = versionWording(rest.levelLabel, 'symbol study');
   return (
-    <Modal isOpen={isOpen} onClose={requestClose} title={rest.mode === 'create' ? 'Add a symbol study' : 'Edit symbol study'} description="A symbol with its passages, its meaning and your own explanation." maxWidth="2xl">
+    <Modal isOpen={isOpen} onClose={requestClose} title={rest.mode === 'create' ? 'Add a symbol study' : version?.title ?? 'Edit symbol study'} description={version?.description ?? 'A symbol with its passages, its meaning and your own explanation.'} maxWidth="2xl">
       <SymbolBody {...rest} initial={initial} requestClose={requestClose} dirtyRef={dirtyRef} />
     </Modal>
   );

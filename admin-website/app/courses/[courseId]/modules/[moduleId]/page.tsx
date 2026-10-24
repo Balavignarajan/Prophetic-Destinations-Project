@@ -23,6 +23,7 @@ import DuplicateLessonDialog from '@/components/DuplicateLessonDialog';
 import CoverThumb from '@/components/CoverThumb';
 import CoverImageField from '@/components/CoverImageField';
 import LessonMetadataFields, { durationProblem, lessonMetadataPayload } from '@/components/LessonMetadataFields';
+import LessonTagsField from '@/components/LessonTagsField';
 
 export default function ModuleDetailPage() {
   const params = useParams();
@@ -56,6 +57,7 @@ export default function ModuleDetailPage() {
   const [newSubtitle, setNewSubtitle] = useState('');
   const [newIntroduction, setNewIntroduction] = useState('');
   const [newEstimatedMinutes, setNewEstimatedMinutes] = useState<string>('');
+  const [newTags, setNewTags] = useState<string[]>([]);
   const [newLevels, setNewLevels] = useState<LearningLevel[]>([
     'BEGINNER',
     'INTERMEDIATE',
@@ -119,7 +121,7 @@ export default function ModuleDetailPage() {
   // Unsaved changes protection
   useEffect(() => {
     const isDirty = Boolean(
-      (createLessonModalOpen && (newLessonTitle.trim().length > 0 || newLessonCover !== null || newShortTitle.trim().length > 0 || newSubtitle.trim().length > 0 || newIntroduction.trim().length > 0 || newEstimatedMinutes.trim().length > 0)) ||
+      (createLessonModalOpen && (newLessonTitle.trim().length > 0 || newLessonCover !== null || newShortTitle.trim().length > 0 || newSubtitle.trim().length > 0 || newIntroduction.trim().length > 0 || newEstimatedMinutes.trim().length > 0 || newTags.length > 0)) ||
       (editModuleModalOpen && moduleData && (
         editTitle !== moduleData.title ||
         editDescription !== (moduleData.description || '')
@@ -135,7 +137,7 @@ export default function ModuleDetailPage() {
 
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [createLessonModalOpen, newLessonTitle, newLessonCover, newShortTitle, newSubtitle, newIntroduction, newEstimatedMinutes, editModuleModalOpen, moduleData, editTitle, editDescription]);
+  }, [createLessonModalOpen, newLessonTitle, newLessonCover, newShortTitle, newSubtitle, newIntroduction, newEstimatedMinutes, newTags, editModuleModalOpen, moduleData, editTitle, editDescription]);
 
   const confirmDiscard = (hasChanges: boolean, close: () => void) => {
     if (!hasChanges || window.confirm('Discard your unsaved changes?')) close();
@@ -198,6 +200,7 @@ export default function ModuleDetailPage() {
           body: JSON.stringify({
             title: newLessonTitle.trim(),
             ...lessonMetadataPayload({ shortTitle: newShortTitle, subtitle: newSubtitle, introduction: newIntroduction, estimatedMinutes: newEstimatedMinutes }),
+            ...(newTags.length > 0 ? { tags: newTags } : {}),
             levels: newLevels,
             ...(newLessonCover ? { coverMediaId: newLessonCover } : {}),
           }),
@@ -211,6 +214,7 @@ export default function ModuleDetailPage() {
       setNewSubtitle('');
       setNewIntroduction('');
       setNewEstimatedMinutes('');
+      setNewTags([]);
       setSuccessMessage('Lesson created.');
       fetchModuleData();
     } catch (err: unknown) {
@@ -594,7 +598,7 @@ export default function ModuleDetailPage() {
       {/* Create Lesson Modal */}
       <Modal
         isOpen={createLessonModalOpen}
-        onClose={() => confirmDiscard(Boolean(newLessonTitle.trim() || newShortTitle.trim() || newSubtitle.trim() || newIntroduction.trim() || newEstimatedMinutes || newLessonCover), () => setCreateLessonModalOpen(false))}
+        onClose={() => confirmDiscard(Boolean(newLessonTitle.trim() || newShortTitle.trim() || newSubtitle.trim() || newIntroduction.trim() || newEstimatedMinutes || newTags.length > 0 || newLessonCover), () => setCreateLessonModalOpen(false))}
         title="Create New Lesson"
         description="Add a lesson with its title, optional descriptive details, learning levels and cover. Related lessons are chosen after it is created."
       >
@@ -631,6 +635,8 @@ export default function ModuleDetailPage() {
             disabled={creatingLesson}
           />
 
+          <LessonTagsField value={newTags} onChange={setNewTags} disabled={creatingLesson} />
+
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-2">
               Available Learning Levels *
@@ -660,7 +666,7 @@ export default function ModuleDetailPage() {
           <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
             <button
               type="button"
-              onClick={() => confirmDiscard(Boolean(newLessonTitle.trim() || newShortTitle.trim() || newSubtitle.trim() || newIntroduction.trim() || newEstimatedMinutes || newLessonCover), () => setCreateLessonModalOpen(false))}
+              onClick={() => confirmDiscard(Boolean(newLessonTitle.trim() || newShortTitle.trim() || newSubtitle.trim() || newIntroduction.trim() || newEstimatedMinutes || newTags.length > 0 || newLessonCover), () => setCreateLessonModalOpen(false))}
               className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50"
             >
               Cancel

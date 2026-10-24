@@ -3,6 +3,7 @@
 import React, { useRef, useState } from 'react';
 import { CONNECTION_LIMITS, EMPTY_CONNECTION_BLOCK, type ScriptureConnectionContent, buildConnectionContent, connectionReadiness, newConnectionId } from '../lib/scripture-connection';
 import type { LearningLevel } from '../lib/types';
+import { versionWording } from '../lib/level-version';
 import ScriptureRefList from './ScriptureRefList';
 import { Modal } from './ui';
 
@@ -16,6 +17,8 @@ interface Props {
   error: string | null;
   onClose: () => void;
   onSave: (content: Record<string, unknown>, levels: LearningLevel[]) => void;
+  /** Set (with mode 'edit') when the dialog edits ONE level's version of the block instead of its shared content, e.g. "Beginner". */
+  levelLabel?: string;
 }
 
 const FIELD = 'w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-amber-500/50 focus:border-amber-600 disabled:opacity-60';
@@ -29,7 +32,7 @@ interface BodyProps extends Omit<Props, 'isOpen' | 'onClose'> {
   dirtyRef: React.MutableRefObject<boolean>;
 }
 
-function Body({ mode, lessonLevels, initial, saving, error, onSave, requestClose, dirtyRef }: BodyProps) {
+function Body({ mode, lessonLevels, initial, saving, error, onSave, levelLabel, requestClose, dirtyRef }: BodyProps) {
   const start: ScriptureConnectionContent = initial ?? EMPTY_CONNECTION_BLOCK;
   const [title, setTitle] = useState(start.title);
   const [connections, setConnections] = useState(start.connections);
@@ -149,7 +152,7 @@ function Body({ mode, lessonLevels, initial, saving, error, onSave, requestClose
         </button>
         <button type="submit" disabled={!canSave} aria-busy={saving} className="px-4 py-2 text-sm font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-lg flex items-center gap-2 disabled:opacity-50 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500">
           {saving && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" aria-hidden="true" />}
-          {mode === 'create' ? 'Add connection to lesson' : 'Save connection'}
+          {mode === 'create' ? 'Add connection to lesson' : versionWording(levelLabel, 'connection')?.save ?? 'Save connection'}
         </button>
       </div>
     </form>
@@ -165,12 +168,13 @@ export default function ScriptureConnectionDialog({ isOpen, onClose, ...rest }: 
     dirtyRef.current = false;
     onClose();
   };
+  const version = versionWording(rest.levelLabel, 'Scripture connection');
   return (
     <Modal
       isOpen={isOpen}
       onClose={requestClose}
-      title={rest.mode === 'create' ? 'Add a Scripture connection' : 'Edit Scripture connection'}
-      description="Related passages in the order learners should read them, each with your own explanation."
+      title={rest.mode === 'create' ? 'Add a Scripture connection' : version?.title ?? 'Edit Scripture connection'}
+      description={version?.description ?? 'Related passages in the order learners should read them, each with your own explanation.'}
       maxWidth="2xl"
     >
       <Body {...rest} requestClose={requestClose} dirtyRef={dirtyRef} />

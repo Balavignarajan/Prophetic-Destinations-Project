@@ -28,6 +28,8 @@ export interface NewLesson {
   introduction: string | null;
   estimatedMinutes: number | null;
   coverMediaId?: string | null;
+  /** Already checked (checkTags). Omit for none. */
+  tags?: readonly string[];
   position: number;
 }
 
@@ -38,6 +40,8 @@ export interface LessonChanges {
   introduction?: string | null;
   estimatedMinutes?: number | null;
   coverMediaId?: string | null;
+  /** Replaces the tags (already checked). Omit to leave them alone. */
+  tags?: string[];
   status?: ContentStatus;
 }
 
@@ -59,7 +63,7 @@ export class LessonRepository {
     const repo = manager.getRepository(LessonEntity);
     try {
       const saved = await repo.save(
-        repo.create({ ...lesson, status: 'DRAFT' }),
+        repo.create({ ...lesson, tags: [...(lesson.tags ?? [])], status: 'DRAFT' }),
       );
       return toLesson(saved, []);
     } catch (error) {
@@ -171,28 +175,50 @@ export class LessonRepository {
     return rows.map((row) => ({ lessonId: row.id, position: row.position }));
   }
 
-  /** Library lessons (standalone, no course), newest change first; `text` filters by title. Never includes a placed lesson. */
+  /**
+   * Library lessons (standalone, no course), newest change first; `text` filters by title and `tag` (optional) keeps only lessons carrying that tag, compared without regard to
+   * capitalisation. Both filters are part of the query, so `total` and the page are those of the FILTERED set, not of one page of a larger list. Never includes a placed lesson.
+   */
   async listLibrary(
     text: string,
     limit: number,
     offset: number,
     manager?: EntityManager,
+    tag?: string,
   ): Promise<{ items: Lesson[]; total: number }> {
     const pattern = `%${text.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    const wanted = tag && tag.trim() ? tag.trim() : null;
     const db = manager ?? this.repo().manager;
+    const where = `"course_id" IS NULL AND "title" ILIKE $1 AND ($2::text IS NULL OR EXISTS (SELECT 1 FROM unnest("tags") AS t WHERE lower(t) = lower($2::text)))`;
     const [{ total }]: { total: number }[] = await db.query(
-      `SELECT count(*)::int AS "total" FROM "lessons" WHERE "course_id" IS NULL AND "title" ILIKE $1`,
-      [pattern],
+      `SELECT count(*)::int AS "total" FROM "lessons" WHERE ${where}`,
+      [pattern, wanted],
     );
     const ids: { id: string }[] = await db.query(
-      `SELECT "id" FROM "lessons" WHERE "course_id" IS NULL AND "title" ILIKE $1 ORDER BY "updated_at" DESC, "id" LIMIT $2 OFFSET $3`,
-      [pattern, limit, offset],
+      `SELECT "id" FROM "lessons" WHERE ${where} ORDER BY "updated_at" DESC, "id" LIMIT $3 OFFSET $4`,
+      [pattern, wanted, limit, offset],
     );
     if (ids.length === 0) return { items: [], total };
     const rows = await this.repo(manager).find({ where: { id: In(ids.map((r) => r.id)) } });
     const levels = await this.levelsOf(rows.map((row) => row.id), manager);
     const byId = new Map(rows.map((row) => [row.id, toLesson(row, levels.get(row.id) ?? [])]));
     return { items: ids.map((r) => byId.get(r.id)).filter((l): l is Lesson => l !== undefined), total };
+  }
+
+  /**
+   * Every tag in use with how many lessons carry it, for the tag filter and the suggestions in the tag field. Tags that differ only in capitalisation are one entry (shown
+   * as the alphabetically first spelling in use). `libraryOnly` counts only library lessons, which is what the library filter can show.
+   */
+  async listTags(libraryOnly: boolean, manager?: EntityManager): Promise<{ tag: string; lessons: number }[]> {
+    const rows: { tag: string; lessons: number }[] = await (manager ?? this.repo().manager).query(
+      `SELECT min(t) AS "tag", count(DISTINCT l."id")::int AS "lessons"
+         FROM "lessons" l, unnest(l."tags") AS t
+        WHERE ($1::boolean = false OR l."course_id" IS NULL)
+        GROUP BY lower(t)
+        ORDER BY lower(min(t))`,
+      [libraryOnly],
+    );
+    return rows;
   }
 
   /** The highest position in the module (0 when it has no lessons): the base for appending safely. */
@@ -420,6 +446,7 @@ function toLesson(row: LessonEntity, levels: string[]): Lesson {
     introduction: row.introduction,
     coverMediaId: row.coverMediaId,
     estimatedMinutes: row.estimatedMinutes,
+    tags: row.tags ?? [],
     // Always in canonical order, regardless of how the rows came back.
     levels: LEARNING_LEVELS.filter((level) => levels.includes(level)),
     position: row.position,

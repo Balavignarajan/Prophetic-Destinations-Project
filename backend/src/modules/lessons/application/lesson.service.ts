@@ -23,6 +23,7 @@ import {
   checkLessonChanges,
   checkLevels,
   checkOptionalText,
+  checkTags,
   checkTitle,
   lessonFieldsDiffer,
   sameLevels,
@@ -32,6 +33,7 @@ import { type LessonLookupRow, LessonRelatedRepository, type RelatedLinkInput, t
 import { LessonBlockLevelRepository } from '../persistence/lesson-block-level.repository.js';
 import { LessonBlockRepository } from '../persistence/lesson-block.repository.js';
 import { LessonRepository } from '../persistence/lesson.repository.js';
+import { LessonRevisionService } from './lesson-revision.service.js';
 
 export interface CreateLessonInput {
   title: string;
@@ -40,6 +42,8 @@ export interface CreateLessonInput {
   introduction?: string | null;
   estimatedMinutes?: number | null;
   coverMediaId?: string | null;
+  /** Organisation tags (CMS-021). Omitted = none. */
+  tags?: string[];
   /** Levels the lesson is available at. Omitted = none yet (the editor chooses explicitly). */
   levels?: string[];
   /** 1-based. Omit to append at the end of the module. */
@@ -67,6 +71,8 @@ export class LessonService {
     private readonly blockTypes: BlockTypeRegistry,
     private readonly media: MediaFacade,
     private readonly related: LessonRelatedRepository,
+    /** Stores the lesson's state as a draft revision before an edit replaces it. */
+    private readonly revisions: LessonRevisionService,
   ) {}
 
   async create(
@@ -81,6 +87,7 @@ export class LessonService {
     const estimatedMinutes = checkEstimatedMinutes(input.estimatedMinutes);
     const coverMediaId = checkCoverMediaId(input.coverMediaId);
     const levels = checkLevels(input.levels ?? []);
+    const tags = checkTags(input.tags ?? []);
 
     return this.transactions.run(async (manager) => {
       await this.lockModuleOf(courseId, moduleId, manager);
@@ -106,6 +113,7 @@ export class LessonService {
           introduction,
           estimatedMinutes,
           coverMediaId,
+          tags,
           position,
         },
         manager,
@@ -128,10 +136,11 @@ export class LessonService {
     const estimatedMinutes = checkEstimatedMinutes(input.estimatedMinutes);
     const coverMediaId = checkCoverMediaId(input.coverMediaId);
     const levels = checkLevels(input.levels ?? []);
+    const tags = checkTags(input.tags ?? []);
     return this.transactions.run(async (manager) => {
       if (coverMediaId) await this.media.requireImage(coverMediaId);
       const lesson = await this.lessons.insert(
-        { courseId: null, moduleId: null, title, shortTitle, subtitle, introduction, estimatedMinutes, coverMediaId, position: 1 },
+        { courseId: null, moduleId: null, title, shortTitle, subtitle, introduction, estimatedMinutes, coverMediaId, tags, position: 1 },
         manager,
       );
       await this.lessons.replaceLevels(lesson.id, levels, manager);
@@ -140,8 +149,13 @@ export class LessonService {
   }
 
   /** The library: standalone lessons, most recently changed first, optionally filtered by a title search. */
-  listLibrary(text: string, limit: number, offset: number) {
-    return this.lessons.listLibrary(text.trim(), limit, offset);
+  listLibrary(text: string, limit: number, offset: number, tag?: string) {
+    return this.lessons.listLibrary(text.trim(), limit, offset, undefined, tag);
+  }
+
+  /** Every tag in use with the number of lessons carrying it (library lessons only when `libraryOnly`), for the tag filter and the tag field's suggestions. */
+  listTags(libraryOnly: boolean) {
+    return this.lessons.listTags(libraryOnly);
   }
 
   /** Creates a lesson directly inside a course; modules are optional groups, never implicit containers. */
@@ -153,6 +167,7 @@ export class LessonService {
     const estimatedMinutes = checkEstimatedMinutes(input.estimatedMinutes);
     const coverMediaId = checkCoverMediaId(input.coverMediaId);
     const levels = checkLevels(input.levels ?? []);
+    const tags = checkTags(input.tags ?? []);
     return this.transactions.run(async (manager) => {
       await this.curriculum.lockCourse(courseId, manager);
       if (coverMediaId) await this.media.requireImage(coverMediaId);
@@ -163,7 +178,7 @@ export class LessonService {
           ? (await this.lessons.maxPositionDirect(courseId, manager)) + 1
           : resolveInsertPosition(input.position, count);
       if (input.position !== undefined && position <= count) await this.lessons.shiftDirectFrom(courseId, position, 1, manager);
-      const lesson = await this.lessons.insert({ courseId, moduleId: null, title, shortTitle, subtitle, introduction, estimatedMinutes, coverMediaId, position }, manager);
+      const lesson = await this.lessons.insert({ courseId, moduleId: null, title, shortTitle, subtitle, introduction, estimatedMinutes, coverMediaId, tags, position }, manager);
       await this.lessons.replaceLevels(lesson.id, levels, manager);
       return this.lessons.reload(lesson.id, manager);
     });
@@ -237,6 +252,7 @@ export class LessonService {
           introduction: source.introduction,
           estimatedMinutes: source.estimatedMinutes,
           coverMediaId: source.coverMediaId,
+          tags: source.tags,
           position: target.courseId ? last + 1 : 1,
         },
         manager,
@@ -573,12 +589,14 @@ export class LessonService {
     if (module.courseId !== courseId) throw moduleNotFound();
   }
 
+  /** Locks the lesson, then stores its current editable state as a draft revision (once per revision) before the caller changes anything. */
   private async lockLesson(
     lessonId: string,
     manager: EntityManager,
   ): Promise<Lesson> {
     const lesson = await this.lessons.findByIdForUpdate(lessonId, manager);
     if (!lesson) throw lessonNotFound();
+    await this.revisions.ensureCaptured(lesson, manager);
     return lesson;
   }
 }

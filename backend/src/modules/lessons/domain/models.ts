@@ -17,6 +17,11 @@ export interface Lesson {
   /** Reserved for the Media module; always null until it exists. */
   coverMediaId: string | null;
   estimatedMinutes: number | null;
+  /**
+   * Short labels the admin uses to organise lessons (CMS-021), in the order the author gave them, with the capitalisation they typed. Admin organisation only: they are not part
+   * of the published snapshot, not shown to learners, and never tied to a learning level.
+   */
+  tags: string[];
   /** Levels the lesson is available at, in canonical order (BEGINNER, INTERMEDIATE, ADVANCED). */
   levels: LearningLevel[];
   /** 1-based, gap-free position within the module. */

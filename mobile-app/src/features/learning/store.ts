@@ -4,8 +4,7 @@ import { readJsonResult, tryRemoveKey, tryWriteJson } from '@/storage/json-store
 import { type LessonPosition, type QuizResult, lessonKey, parseProgress } from './progress-model';
 
 /**
- * Device-local progress through PUBLISHED backend lessons. (The built-in Daniel 2 lesson keeps its own scene progress in
- * src/features/daniel-2/progress.ts; nothing here replaces it.)
+ * Device-local progress through PUBLISHED backend lessons.
  *
  * Key `pd.learning.progress.v1`: { version: 1, lastOpened, completed, positions, quizResults }.
  *  - lastOpened: the lesson most recently opened.

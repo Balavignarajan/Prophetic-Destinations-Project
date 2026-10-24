@@ -15,7 +15,6 @@ import {
 } from '@/components/ui';
 import { type Bookmark } from '@/features/bookmarks/model';
 import { useBookmarks } from '@/features/bookmarks/bookmarks-provider';
-import { useDaniel2Lesson } from '@/features/daniel-2/use-daniel2-lesson';
 import { useSavedTitleSync } from '@/features/learning/use-lesson-title-sync';
 import { type OwnerStatus, mediaOwnerKey, useOfflineMedia } from '@/features/offline/offline-media';
 import { useCacheEntries } from '@/features/offline/use-cache-entries';
@@ -43,40 +42,29 @@ function savedLabel(status: OwnerStatus): string {
   }
 }
 
-/** Everything the learner has saved: published lessons and scenes of the built-in Daniel 2 lesson, newest first. Kept on this device only. */
+/** Everything the learner has saved: published lessons, newest first. Kept on this device only. */
 export function SavedScreen() {
   const router = useRouter();
   const { spacing } = useTheme();
   const { items, ready, remove } = useBookmarks();
-  const [daniel] = useDaniel2Lesson();
   const cached = useCacheEntries();
   const offlineMedia = useOfflineMedia();
-  const sceneTitles = daniel.status === 'success' ? new Map(daniel.data.scenes.map((scene) => [scene.id as string, scene.title])) : null;
   // A lesson renamed in the CMS is titled by the live published catalog: the title stored with the saved item is replaced in place (title only: its id, saved time and
   // place in the list stay) and remains the fallback while offline or when the lesson is no longer published.
-  useSavedTitleSync(items.flatMap((item) => (item.type === 'lesson' ? [{ lessonId: item.lessonId, level: item.level }] : [])));
-
-  const lessons = items.filter((item) => item.type === 'lesson');
-  const scenes = items.filter((item) => item.type === 'daniel2-scene');
+  useSavedTitleSync(items.map((item) => ({ lessonId: item.lessonId, level: item.level })));
 
   const row = (item: Bookmark) => {
-    const lessonSaved = item.type === 'lesson' && cached.some((entry) => entry.kind === 'lesson' && entry.id === item.lessonId && entry.level === item.level);
-    const sceneGone = item.type === 'daniel2-scene' && sceneTitles !== null && !sceneTitles.has(item.sceneId);
-    const unavailable = item.type === 'lesson' && item.unavailableSince !== undefined;
-    const title = item.type === 'daniel2-scene' ? (sceneTitles?.get(item.sceneId) ?? item.title) : item.title;
-    const kind = item.type === 'lesson' ? `Lesson · ${LEVEL_LABELS[item.level]} level` : 'Daniel 2 preview · scene';
+    const lessonSaved = cached.some((entry) => entry.kind === 'lesson' && entry.id === item.lessonId && entry.level === item.level);
+    const unavailable = item.unavailableSince !== undefined;
+    const title = item.title;
+    const kind = `Lesson · ${LEVEL_LABELS[item.level]} level`;
     const status = unavailable
       ? `No longer available (checked ${formatSavedAt(item.unavailableSince!)})`
-      : sceneGone
-        ? 'This scene is no longer in the lesson'
-        : lessonSaved
-          ? savedLabel(offlineMedia.status(mediaOwnerKey('lesson', item.lessonId, item.level)))
-          : null;
+      : lessonSaved
+        ? savedLabel(offlineMedia.status(mediaOwnerKey('lesson', item.lessonId, item.level)))
+        : null;
 
-    const open = () => {
-      if (item.type === 'lesson') router.push({ pathname: '/lesson/[lessonId]', params: { lessonId: item.lessonId, level: item.level } });
-      else router.push({ pathname: '/daniel-2-lesson', params: { scene: item.sceneId } });
-    };
+    const open = () => router.push({ pathname: '/lesson/[lessonId]', params: { lessonId: item.lessonId, level: item.level } });
 
     return (
       <Card key={item.id}>
@@ -85,7 +73,6 @@ export function SavedScreen() {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`Open ${kind}: ${title}${status ? `. ${status}` : ''}`}
-            disabled={sceneGone}
             onPress={open}
             style={{ minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
             <View style={{ flex: 1, gap: spacing.xs }}>
@@ -94,12 +81,12 @@ export function SavedScreen() {
               </AppText>
               <AppText variant="heading">{title}</AppText>
               {status ? (
-                <AppText variant="bodySmall" color={unavailable || sceneGone ? 'warning' : 'textMuted'}>
+                <AppText variant="bodySmall" color={unavailable ? 'warning' : 'textMuted'}>
                   {status}
                 </AppText>
               ) : null}
             </View>
-            {sceneGone ? null : <ChevronIcon direction="right" color="primaryHighlight" />}
+            <ChevronIcon direction="right" color="primaryHighlight" />
           </Pressable>
           <Divider />
           <SecondaryButton
@@ -129,14 +116,12 @@ export function SavedScreen() {
           <EmptyState
             variant="card"
             title="Nothing saved yet"
-            message="Tap the star on a lesson or a Daniel 2 scene to keep it here. Saved items stay on this device."
+            message="Tap the star on a lesson to keep it here. Saved items stay on this device."
             action={{ label: 'Browse courses', onPress: () => router.replace('/learn') }}
           />
         ) : null}
 
-        {lessons.length > 0 ? <ScreenSection title="Lessons">{lessons.map(row)}</ScreenSection> : null}
-
-        {scenes.length > 0 ? <ScreenSection title="Interactive preview">{scenes.map(row)}</ScreenSection> : null}
+        {items.length > 0 ? <ScreenSection title="Lessons">{items.map(row)}</ScreenSection> : null}
       </View>
     </ScreenContainer>
   );

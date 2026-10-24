@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { PICKER_GROUPS, filterPickerBlocks } from '../lib/block-picker';
+import { REUSABLE_PICKER_KEY } from '../lib/reusable-blocks';
 import { useScriptureInfo } from '../lib/scripture-info';
 import { Modal } from './ui';
 
@@ -32,6 +33,16 @@ function Body({ onClose, onChoose }: Omit<Props, 'isOpen'>) {
 
   return (
     <div className="space-y-4">
+      {/* Not a content type: opens the reusable block library, where a block saved from another lesson is inserted as an independent copy. */}
+      <button
+        type="button"
+        onClick={() => onChoose(REUSABLE_PICKER_KEY)}
+        className="w-full text-left rounded-xl border border-amber-300 bg-amber-50/40 p-3.5 hover:border-amber-500 hover:bg-amber-50 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500"
+      >
+        <span className="block text-sm font-semibold text-slate-900">Insert from reusable blocks</span>
+        <span className="mt-0.5 block text-xs text-slate-700">Add a copy of a block you saved from another lesson. The copy is independent: changing it never changes the original.</span>
+      </button>
+
       <div>
         <label htmlFor="add-content-search" className="block text-sm font-semibold text-slate-800 mb-1.5">
           Search content types

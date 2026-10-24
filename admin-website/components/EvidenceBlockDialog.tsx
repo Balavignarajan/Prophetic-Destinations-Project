@@ -3,6 +3,7 @@
 import React, { useRef, useState } from 'react';
 import { EMPTY_EVIDENCE, EVIDENCE_LIMITS, type EvidenceContent, buildEvidence, isHttpUrl } from '../lib/evidence-block';
 import type { LearningLevel } from '../lib/types';
+import { versionWording } from '../lib/level-version';
 import { fillIfEmpty } from '../lib/media-api';
 import CoverImageField from './CoverImageField';
 import { Modal } from './ui';
@@ -17,6 +18,8 @@ interface Props {
   error: string | null;
   onClose: () => void;
   onSave: (content: Record<string, unknown>, levels: LearningLevel[]) => void;
+  /** Set (with mode 'edit') when the dialog edits ONE level's version of the block instead of its shared content, e.g. "Beginner". */
+  levelLabel?: string;
 }
 
 const FIELD = 'w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-amber-500/50 focus:border-amber-600 disabled:opacity-60';
@@ -29,7 +32,7 @@ interface BodyProps extends Omit<Props, 'isOpen' | 'onClose'> {
   dirtyRef: React.MutableRefObject<boolean>;
 }
 
-function Body({ mode, lessonLevels, initial, saving, error, onSave, requestClose, dirtyRef }: BodyProps) {
+function Body({ mode, lessonLevels, initial, saving, error, onSave, levelLabel, requestClose, dirtyRef }: BodyProps) {
   const start = initial ?? EMPTY_EVIDENCE;
   const [draft, setDraft] = useState<EvidenceContent>(start);
   const [levels, setLevels] = useState<LearningLevel[]>(lessonLevels);
@@ -138,7 +141,7 @@ function Body({ mode, lessonLevels, initial, saving, error, onSave, requestClose
         </button>
         <button type="submit" disabled={!canSave} aria-busy={saving} className="px-4 py-2 text-sm font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-lg flex items-center gap-2 disabled:opacity-50 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500">
           {saving && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" aria-hidden="true" />}
-          {mode === 'create' ? 'Add evidence to lesson' : 'Save evidence'}
+          {mode === 'create' ? 'Add evidence to lesson' : versionWording(levelLabel, 'evidence')?.save ?? 'Save evidence'}
         </button>
       </div>
     </form>
@@ -154,12 +157,13 @@ export default function EvidenceBlockDialog({ isOpen, onClose, ...rest }: Props)
     dirtyRef.current = false;
     onClose();
   };
+  const version = versionWording(rest.levelLabel, 'historical evidence');
   return (
     <Modal
       isOpen={isOpen}
       onClose={requestClose}
-      title={rest.mode === 'create' ? 'Add historical evidence' : 'Edit historical evidence'}
-      description="Evidence with its date, your explanation, an optional quotation and where it comes from."
+      title={rest.mode === 'create' ? 'Add historical evidence' : version?.title ?? 'Edit historical evidence'}
+      description={version?.description ?? 'Evidence with its date, your explanation, an optional quotation and where it comes from.'}
       maxWidth="2xl"
     >
       <Body {...rest} requestClose={requestClose} dirtyRef={dirtyRef} />

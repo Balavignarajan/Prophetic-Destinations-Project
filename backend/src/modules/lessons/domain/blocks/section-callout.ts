@@ -17,7 +17,8 @@ import { type ContentProblem, isMarkupLikeKey } from './rich-text.js';
  *    never by colour alone.
  *  - "Visual treatment" of a section intro is not defined anywhere; only the optional image is. Its media follows the IMAGE block conventions
  *    (media-library asset, alternative text required before publishing).
- *  - Plain text only (a callout is author-written emphasis: it is not Scripture and not a quotation). No level variants.
+ *  - Plain text only (a callout is author-written emphasis: it is not Scripture and not a quotation). A CALLOUT may have level variants (enabled
+ *    PROVISIONALLY, variant-types.ts); a SECTION_INTRO may not.
  * Limits (proposed): section title 200, subtitle 300, alt text 500; callout title 200, body 1500.
  * Drafts may be incomplete. Publishing requires: section title (and alt text if there is an image); callout type and body.
  */

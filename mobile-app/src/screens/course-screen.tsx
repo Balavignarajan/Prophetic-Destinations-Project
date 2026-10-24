@@ -1,10 +1,10 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { View } from 'react-native';
 
-import { ApiError } from '@/api/errors';
+import { ApiError, NetworkError } from '@/api/errors';
 import type { CatalogLesson } from '@/api/types';
 import { useResource } from '@/api/use-resource';
-import { AppText, Divider, EmptyState, ErrorState, LoadingState, PrimaryButton, ScreenContainer, ScreenHeader } from '@/components/ui';
+import { AppText, Divider, EmptyState, ErrorState, LoadingState, PrimaryButton, ScreenContainer, ScreenHeader, SecondaryButton } from '@/components/ui';
 import { useLearningProgress } from '@/features/learning/learning-provider';
 import { unfinishedLessons } from '@/features/learning/progress-model';
 import { ProgressStatusNotice } from '@/features/learning/progress-notice';
@@ -70,7 +70,11 @@ export function CourseScreen() {
         ) : null}
 
         {course.status === 'error' && !notFound ? (
-          <ErrorState {...describeLoadError(course.error, 'course')} onRetry={reload} />
+          <>
+            <ErrorState {...describeLoadError(course.error, 'course', level)} onRetry={reload} />
+            {/* Not saved at this level and no connection: the way back is the course list, where another level (one that was saved) can be chosen. */}
+            {course.error instanceof NetworkError ? <SecondaryButton label="Back to courses" onPress={() => router.replace('/learn')} /> : null}
+          </>
         ) : null}
 
         {course.status === 'success' && course.data.source === 'cache' ? <OfflineBanner loaded={course.data} onRetry={reload} /> : null}

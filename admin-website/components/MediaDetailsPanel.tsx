@@ -86,7 +86,8 @@ function UsageSection({ asset }: { asset: MediaAsset }) {
   if (!usage) return <p role="status" className="text-sm text-slate-700">Loading where this image is used…</p>;
 
   const t = usage.totals;
-  const anyUse = t.draftLessons + t.publishedLessons + t.draftCourses + t.publishedCourses > 0;
+  const reusable = t.reusableBlocks ?? 0;
+  const anyUse = t.draftLessons + t.publishedLessons + t.draftCourses + t.publishedCourses + reusable > 0;
   const anyCut = Object.values(usage.truncated).some(Boolean);
   const Group = ({ title, note, lessons, courses, cutLessons, cutCourses }: { title: string; note: string; lessons: UsedByLesson[]; courses: { courseId: string; title: string }[]; cutLessons: boolean; cutCourses: boolean }) => (
     <section aria-label={title} className="rounded-lg border border-slate-200 p-3 space-y-2">
@@ -128,6 +129,11 @@ function UsageSection({ asset }: { asset: MediaAsset }) {
         Working copy: {t.draftLessons} {t.draftLessons === 1 ? 'lesson' : 'lessons'}, {t.draftCourses} {t.draftCourses === 1 ? 'course cover' : 'course covers'}. Published:{' '}
         {t.publishedLessons} {t.publishedLessons === 1 ? 'lesson' : 'lessons'}, {t.publishedCourses} {t.publishedCourses === 1 ? 'course cover' : 'course covers'}.
       </p>
+      {reusable > 0 && (
+        <p className="text-sm text-slate-800">
+          Also kept in {reusable} reusable {reusable === 1 ? 'block' : 'blocks'} in the library (not published anywhere). Delete {reusable === 1 ? 'it' : 'them'} in Reusable Blocks to free this image.
+        </p>
+      )}
       <Group title="In the working copy" note="Draft content and working covers. Changing these does not change what learners see until the lesson or course is published again." lessons={usage.working.lessons} courses={usage.working.courses} cutLessons={usage.truncated.workingLessons} cutCourses={usage.truncated.workingCourses} />
       <Group title="Published right now" note="Active published lessons and course catalogs. A published lesson keeps showing this image until it is republished or unpublished." lessons={usage.published.lessons} courses={usage.published.courses} cutLessons={usage.truncated.publishedLessons} cutCourses={usage.truncated.publishedCourses} />
       {anyCut && limit < 200 && (

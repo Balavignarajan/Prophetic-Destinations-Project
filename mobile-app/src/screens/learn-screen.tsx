@@ -3,8 +3,6 @@ import { View } from 'react-native';
 
 import {
   AppText,
-  Card,
-  ChevronIcon,
   EmptyState,
   ErrorState,
   IconButton,
@@ -19,7 +17,9 @@ import { ProgressStatusNotice } from '@/features/learning/progress-notice';
 import { describeLoadError } from '@/features/offline/describe-offline';
 import { loadCourseList } from '@/features/offline/offline-api';
 import { OfflineBanner } from '@/features/offline/offline-banner';
+import { savedLevelsLine } from '@/features/offline/saved-levels';
 import { isRecoverable, useRetryOnReconnect } from '@/features/offline/use-retry-on-reconnect';
+import { useSavedLevels } from '@/features/offline/use-saved-levels';
 import { useResource } from '@/api/use-resource';
 import { ContinueCard } from '@/learning/continue-card';
 import { CourseCard } from '@/learning/course-card';
@@ -40,6 +40,9 @@ export function LearnScreen() {
   const last = useContinueTarget();
   const courseList = courses.status === 'success' ? courses.data.value.courses : [];
   const lastCourse = last && last.level === level && last.courseId ? courseList.find((course) => course.courseId === last.courseId) : undefined;
+  // Which levels have lessons saved on this device (from the cache index, no scan): lets a learner who is offline see which level will open before switching to it.
+  const savedLevels = useSavedLevels();
+  const savedLine = savedLevels ? savedLevelsLine(savedLevels) : null;
 
   return (
     <ScreenContainer scroll>
@@ -81,6 +84,11 @@ export function LearnScreen() {
             Your learning level
           </AppText>
           <LevelSelector value={level} onChange={setLevel} />
+          {savedLine ? (
+            <AppText variant="caption" color="textMuted">
+              {savedLine}
+            </AppText>
+          ) : null}
           <LinkRow title="Not sure which level?" description="Take the short, optional assessment for a suggestion. You always choose." onPress={() => router.push('/assessment')} />
         </View>
 
@@ -91,7 +99,7 @@ export function LearnScreen() {
 
           {courses.status === 'loading' ? <LoadingState message="Loading courses…" /> : null}
 
-          {courses.status === 'error' ? <ErrorState {...describeLoadError(courses.error, 'course list')} onRetry={reload} /> : null}
+          {courses.status === 'error' ? <ErrorState {...describeLoadError(courses.error, 'course list', level)} onRetry={reload} /> : null}
 
           {courses.status === 'success' && courses.data.source === 'cache' ? <OfflineBanner loaded={courses.data} onRetry={reload} /> : null}
 
@@ -111,29 +119,6 @@ export function LearnScreen() {
               onPress={() => router.push({ pathname: '/course/[courseId]', params: { courseId: course.courseId, level } })}
             />
           ))}
-        </View>
-
-        {/* The hand-built Daniel 2 lesson: kept and still reachable, but set apart from the published courses and described as a preview. */}
-        <View style={{ gap: spacing.md }}>
-          <AppText variant="bodySmall" color="textMuted" style={{ fontWeight: '600' }}>
-            Interactive preview
-          </AppText>
-          <Card
-            onPress={() => router.push('/daniel-2')}
-            accessibilityLabel="Daniel 2: The Dream of the Great Image. An interactive preview lesson, separate from the courses above.">
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
-              <View style={{ flex: 1, gap: spacing.xs }}>
-                <AppText variant="heading">Daniel 2: The Dream of the Great Image</AppText>
-                <AppText variant="bodySmall" color="textSecondary">
-                  The dream, the great image, the kingdoms, the stone, a timeline and a short quiz.
-                </AppText>
-                <AppText variant="bodySmall" color="textMuted">
-                  A preview lesson, separate from the courses above.
-                </AppText>
-              </View>
-              <ChevronIcon direction="right" color="primaryHighlight" />
-            </View>
-          </Card>
         </View>
       </View>
     </ScreenContainer>

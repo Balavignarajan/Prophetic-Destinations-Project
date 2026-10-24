@@ -2,10 +2,12 @@
 
 import React, { useState } from 'react';
 import { api } from '../lib/api';
+import { moveItem, newLocalId } from '../lib/quiz-order';
 import { questionPayload } from '../lib/quiz-question';
 import type { QuizQuestion } from '../lib/types';
 import { friendlyError } from '../lib/ui-messages';
 import QuestionLevelsField from './QuestionLevelsField';
+import QuizMoveButtons from './QuizMoveButtons';
 import { OptionFeedbackInput, QuestionScriptureField } from './QuizQuestionExtras';
 
 /**
@@ -35,23 +37,26 @@ interface Props {
 const LABEL = 'block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5';
 const FIELD = 'w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500 disabled:opacity-60';
 
-const blankQuestion = (n: number): QuizQuestion => ({
-  id: `q${n}`,
+// The ids are only the form's own handles (they are not sent), unique so that a question or option keeps its identity when it is moved or others are removed.
+const blankQuestion = (): QuizQuestion => ({
+  id: newLocalId('q'),
   type: 'SINGLE_CHOICE',
   prompt: '',
   explanation: '',
   options: [
-    { id: 'o1', text: '', correct: true },
-    { id: 'o2', text: '', correct: false },
+    { id: newLocalId('o'), text: '', correct: true },
+    { id: newLocalId('o'), text: '', correct: false },
   ],
 });
 
 export default function QuizCreateForm({ onCreated, onCancel, submitLabel, dirtyRef, idPrefix }: Props) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [questions, setQuestions] = useState<QuizQuestion[]>([blankQuestion(1)]);
+  const [questions, setQuestions] = useState<QuizQuestion[]>(() => [blankQuestion()]);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Read out by screen readers after each move (the order is stored with the quiz when it is created).
+  const [announce, setAnnounce] = useState('');
 
   dirtyRef.current = Boolean(
     title.trim() ||
@@ -60,6 +65,17 @@ export default function QuizCreateForm({ onCreated, onCancel, submitLabel, dirty
   );
 
   const setQuestion = (index: number, change: (q: QuizQuestion) => QuizQuestion) => setQuestions((list) => list.map((q, i) => (i === index ? change(q) : q)));
+
+  // A move only changes the order in the list: each question or option keeps all of its own content, including which option is the correct one (a flag on the option).
+  const moveQuestion = (from: number, to: number) => {
+    setQuestions((list) => moveItem(list, from, to));
+    setAnnounce(`Question ${from + 1} moved to position ${to + 1} of ${questions.length}. Not saved yet.`);
+  };
+  const moveOption = (qIndex: number, from: number, to: number) => {
+    const moved = questions[qIndex]?.options[from];
+    setQuestion(qIndex, (x) => ({ ...x, options: moveItem(x.options, from, to) }));
+    setAnnounce(`Option ${from + 1} of question ${qIndex + 1} moved to position ${to + 1}.${moved?.correct ? ' It is still the correct answer.' : ''} Not saved yet.`);
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -95,6 +111,7 @@ export default function QuizCreateForm({ onCreated, onCancel, submitLabel, dirty
 
   return (
     <form onSubmit={submit} className="space-y-5">
+      <p role="status" aria-live="polite" className="sr-only">{announce}</p>
       {error && (
         <div role="alert" className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs">
           {error} What you typed here is unchanged.
@@ -114,20 +131,24 @@ export default function QuizCreateForm({ onCreated, onCancel, submitLabel, dirty
       <div className="space-y-4 pt-2">
         <div className="flex items-center justify-between">
           <span className="text-xs font-semibold uppercase tracking-wider text-slate-700">Questions builder</span>
-          <button type="button" disabled={creating} onClick={() => setQuestions((list) => [...list, blankQuestion(list.length + 1)])} className="text-xs font-semibold text-amber-700 hover:text-amber-800 disabled:opacity-50">
+          <button type="button" disabled={creating} onClick={() => setQuestions((list) => [...list, blankQuestion()])} className="text-xs font-semibold text-amber-700 hover:text-amber-800 disabled:opacity-50">
             + Add Question
           </button>
         </div>
+        {questions.length > 1 && <p className="text-[11px] text-slate-600">Use the arrows to change the order of questions and of each question&rsquo;s options. The order is saved with the quiz.</p>}
 
         {questions.map((q, qIndex) => (
-          <div key={qIndex} className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+          <div key={q.id} className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-slate-700 font-mono">Question #{qIndex + 1}</span>
-              {questions.length > 1 && (
-                <button type="button" disabled={creating} onClick={() => setQuestions((list) => list.filter((_, i) => i !== qIndex))} className="text-xs text-rose-600 hover:underline" aria-label={`Remove question ${qIndex + 1}`}>
-                  Remove
-                </button>
-              )}
+              <div className="flex items-center gap-3">
+                <QuizMoveButtons label={`question ${qIndex + 1}`} index={qIndex} count={questions.length} disabled={creating} onMove={(to) => moveQuestion(qIndex, to)} />
+                {questions.length > 1 && (
+                  <button type="button" disabled={creating} onClick={() => setQuestions((list) => list.filter((_, i) => i !== qIndex))} className="text-xs text-rose-600 hover:underline" aria-label={`Remove question ${qIndex + 1}`}>
+                    Remove
+                  </button>
+                )}
+              </div>
             </div>
 
             <label htmlFor={`${idPrefix}-q${qIndex}-prompt`} className="sr-only">Question {qIndex + 1} prompt</label>
@@ -144,13 +165,13 @@ export default function QuizCreateForm({ onCreated, onCancel, submitLabel, dirty
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-semibold text-slate-500 uppercase">Options (select the single correct option)</span>
                 {q.options.length < 6 && (
-                  <button type="button" disabled={creating} onClick={() => setQuestion(qIndex, (x) => ({ ...x, options: [...x.options, { id: `o${x.options.length + 1}`, text: '', correct: false }] }))} className="text-[11px] font-semibold text-amber-700 hover:underline">
+                  <button type="button" disabled={creating} onClick={() => setQuestion(qIndex, (x) => ({ ...x, options: [...x.options, { id: newLocalId('o'), text: '', correct: false }] }))} className="text-[11px] font-semibold text-amber-700 hover:underline">
                     + Add Option
                   </button>
                 )}
               </div>
               {q.options.map((opt, oIndex) => (
-                <div key={oIndex} className="space-y-1">
+                <div key={opt.id} className="space-y-1">
                 <div className="flex items-center gap-2">
                   <input
                     type="radio"
@@ -171,6 +192,7 @@ export default function QuizCreateForm({ onCreated, onCancel, submitLabel, dirty
                     onChange={(e) => setQuestion(qIndex, (x) => ({ ...x, options: x.options.map((o, i) => (i === oIndex ? { ...o, text: e.target.value } : o)) }))}
                     className="flex-1 px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs disabled:opacity-60"
                   />
+                  <QuizMoveButtons label={`option ${oIndex + 1} of question ${qIndex + 1}`} index={oIndex} count={q.options.length} disabled={creating} onMove={(to) => moveOption(qIndex, oIndex, to)} />
                   {q.options.length > 2 && (
                     <button
                       type="button"
