@@ -27,13 +27,6 @@ export interface AuthSessionResponse {
   admin: AdminUser;
 }
 
-/** The Bible books that have a dedicated entry on the learner Home (backend COURSE_BOOKS). */
-export type CourseBook = 'DANIEL' | 'REVELATION';
-export const COURSE_BOOK_OPTIONS: readonly { value: CourseBook; label: string }[] = [
-  { value: 'DANIEL', label: 'Daniel' },
-  { value: 'REVELATION', label: 'Revelation' },
-];
-
 export interface Course {
   id: string;
   title: string;
@@ -41,11 +34,41 @@ export interface Course {
   status: 'DRAFT' | 'READY_FOR_REVIEW' | 'APPROVED' | 'PUBLISHED';
   /** Working cover image (media asset id), or null. */
   coverMediaId?: string | null;
-  /** Which dedicated Home entry (Daniel / Revelation) this course is the destination of, or null/absent for an ordinary course. */
-  book?: CourseBook | null;
+  /** The Home Entry (learner Home topic) the course belongs to, or null/absent for an ordinary course. */
+  homeEntryId?: string | null;
   /** 1-based place in the manual course order. */
   position?: number;
   version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A course assigned to a Home Entry, as the Home Entries list shows it. */
+export interface HomeEntryCourse {
+  id: string;
+  title: string;
+  status: Course['status'];
+}
+
+/**
+ * A topic on the learner Home screen (GET /admin/home-entries): its title and description, an optional card picture, whether it is shown and where. It holds NO course of its own:
+ * courses join it from the course form, so it may have none ("No courses assigned"). Which topics a learner actually sees is decided when the app asks: enabled AND at least one
+ * assigned course published with lessons at the learner's level.
+ */
+export interface HomeEntry {
+  id: string;
+  title: string;
+  description: string | null;
+  /** The card's own picture (media asset id), or null: then the app shows the cover of the first published course. */
+  imageMediaId: string | null;
+  /** 1-based place on Home. */
+  position: number;
+  isEnabled: boolean;
+  version: number;
+  /** How many courses are assigned (any status). */
+  courseCount: number;
+  /** The assigned courses in the course order. */
+  courses: HomeEntryCourse[];
   createdAt: string;
   updatedAt: string;
 }

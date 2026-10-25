@@ -62,6 +62,26 @@ of their own account. Details: [architecture.md](./architecture.md#account-manag
 | PATCH  | `/admin/courses/:courseId/modules/:moduleId` | write | edit                                                                       |
 | DELETE | `/admin/courses/:courseId/modules/:moduleId` | write | delete (409 if it has lessons or history)                                  |
 
+### Home Entries (the topics on the learner Home screen)
+
+Admin-managed topics such as "Daniel" or "Bible History"; there is no limit on how many. An entry holds NO course of its own: a course joins an entry through `homeEntryId` on the course
+(create or edit a course), many courses may share one entry, and an entry may have none. Staff only. `version` is optimistic concurrency (409 if stale). Entry titles are unique ignoring case.
+Deleting an entry takes its courses out of it (they become ordinary courses, nothing else about them changes) and deletes nothing else; an image an entry uses cannot be deleted from the media library.
+
+| Method | Route                       | Roles | Purpose                                                                                                                                                       |
+| ------ | --------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/admin/home-entries`       | write | create `{ title, description?, imageMediaId?, isEnabled?, position? }` (default: enabled, at the end; no course needed; 409 if the title is taken)             |
+| GET    | `/admin/home-entries`       | read  | every entry in the Home order, enabled or not (not paged), each with `courseCount` and its assigned `courses` (id, title, status)                             |
+| PUT    | `/admin/home-entries/order` | write | `{ entryIds, previousEntryIds }` — 409 if the order changed meanwhile; not a content edit (versions do not move)                                              |
+| GET    | `/admin/home-entries/:id`   | read  | one entry                                                                                                                                                     |
+| PATCH  | `/admin/home-entries/:id`   | write | `{ title?, description?, imageMediaId?, isEnabled?, version? }` (`null` clears the description or the image)                                                  |
+| DELETE | `/admin/home-entries/:id`   | write | delete the entry and unassign its courses in one transaction (204)                                                                                            |
+
+Course assignment: `POST /admin/courses` and `PATCH /admin/courses/:id` accept `homeEntryId` (a Home Entry id, or `null` for none) and every course response carries it. A request that changes
+ONLY `homeEntryId` (any title, description or cover sent equal to what is stored) does not move the course's status, version or publication.
+
+The legacy `courses.book` column (the old fixed Daniel / Revelation marking) is frozen: no route writes it, and the public catalog still returns it as `book` so mobile builds released before Home Entries keep working.
+
 ## Lessons and blocks
 
 | Method | Route                                                      | Roles | Purpose                                                                         |
@@ -128,6 +148,9 @@ Same states, roles and bodies as the lesson workflow; `publish` of an already pu
 | GET    | `/courses/:courseId?level=`            | the course with its modules and lessons, each lesson with `previousLessonId` / `nextLessonId`       |
 | GET    | `/lessons/:lessonId?level=`            | `{ lessonId, level, publicationVersion, contentHash, snapshot }` — the immutable published snapshot |
 | GET    | `/lessons/:lessonId/navigation?level=` | `{ lessonId, level, courseId, moduleId, catalogVersion, previous, next }`                           |
+| GET    | `/home-entries?level=`                 | `{ level, entries: [{ entryId, title, description, sortOrder, imageMediaId, courseCount, lessonCount, coverCourseId, coverMediaId }] }` in the administrators' order. An entry is present only while it is **enabled** and at least one course assigned to it is **published with a lesson at that level**; otherwise it is simply absent. No eligible entry is `200` with an empty `entries` list, never an error |
+| GET    | `/home-entries/:entryId/courses?level=` | `{ level, entry, courses }`: the entry's published courses with lessons at that level, each exactly as in `/courses?level=` and in the same order. Draft and unpublished courses never appear. An unknown or disabled entry, or one with no eligible course at that level, is a 404 (one answer for all) |
+| GET    | `/home-entries/:entryId/media/:mediaId?level=` | the entry's own picture, only while that entry is visible at that level and uses exactly that asset (otherwise 404) |
 
 A lesson is delivered only while it is published **and** listed by its course's active catalog version at that level. Send `If-None-Match` to revalidate (304).
 

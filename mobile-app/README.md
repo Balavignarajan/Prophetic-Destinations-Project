@@ -30,7 +30,7 @@ src/config/         api.ts (backend base URL)
 scripts/check-theme.ts       Token parity + contrast of BOTH themes + stray-colour scan
 ```
 
-Flow: `/` Welcome → `/learn` (catalog, level selector) → `/course/:id?level=` (modules and lessons) → `/lesson/:id?level=` (reader, Continue to next lesson). `/settings` is reachable from Welcome and the catalog. Every lesson, including Daniel 2, is a published lesson from the Admin CMS.
+Flow: `/` Welcome → Home (the topics the administrators set up under Home Entries in the Admin CMS, filtered to the learner's level; nothing on Home is built into the app) → `/topic/:entryId?level=` (the published courses in that topic) → `/course/:id?level=`; or Home → `/learn` (catalog, level selector) → `/course/:id?level=` (modules and lessons) → `/lesson/:id?level=` (reader, Continue to next lesson). `/settings` is reachable from Welcome and the catalog. Every lesson, including Daniel 2, is a published lesson from the Admin CMS.
 
 ## Offline, bookmarks and progress (all device-local, all separate)
 
@@ -41,7 +41,7 @@ Flow: `/` Welcome → `/learn` (catalog, level selector) → `/course/:id?level=
 | Bookmarks (saved lessons) | `src/features/bookmarks/` | `pd.bookmarks.v1` |
 | Published-lesson progress | `src/features/learning/` | `pd.learning.progress.v1` |
 
-- **Cache policy.** The backend is the source of truth. A successful, valid response replaces the saved copy. If the server cannot be reached (or times out, 429, 5xx, or the answer is malformed) the saved copy is shown under a "Saved copy" banner with its save time and a retry; with no saved copy the screen says the content is not available offline. A 404 deletes the saved copy and shows "not available": a stale copy is never proof that something is still published. Cached: catalog per level, course per level, lesson snapshot per lesson+level, lesson navigation. Retention: entries older than 30 days are deleted, at most 60 entries are kept (oldest removed first), invalid entries are deleted on read. ETag/conditional requests are not used (the shared API client does not send validators). "Clear offline lessons" is in Settings.
+- **Cache policy.** The backend is the source of truth. A successful, valid response replaces the saved copy. If the server cannot be reached (or times out, 429, 5xx, or the answer is malformed) the saved copy is shown under a "Saved copy" banner with its save time and a retry; with no saved copy the screen says the content is not available offline. A 404 deletes the saved copy and shows "not available": a stale copy is never proof that something is still published. Cached: catalog per level, Home topic list per level, course list of each topic per level, course per level, lesson snapshot per lesson+level, lesson navigation. Retention: entries older than 30 days are deleted, at most 60 entries are kept (oldest removed first), invalid entries are deleted on read. ETag/conditional requests are not used (the shared API client does not send validators). "Clear offline lessons" is in Settings.
 - **Reconnect.** There is no network-status library; saved copies retry when the app returns to the foreground, when the browser reports `online`, and with the Try again button.
 - **Bookmarks.** One list; lesson ids are `lesson:<lessonId>:<level>`; titles are stored at save time. Saved items screen: `/saved` (star in the catalog header). A saved lesson that the backend reports unavailable is flagged and can be removed. A saved item of a kind this version does not know (such as a scene saved by the removed built-in Daniel 2 preview) is skipped when the list is read.
 - **Progress.** The lesson reader records the last opened lesson ("Continue where you left off" on `/learn`) and has an explicit "Mark lesson as complete" action; opening never completes. Reset in Settings.
@@ -62,6 +62,8 @@ Pictures: all bundled imagery is registered in `src/config/images.ts`; today tha
 | Screen | Request |
 | --- | --- |
 | Catalog | `GET /courses?level=BEGINNER\|INTERMEDIATE\|ADVANCED` |
+| Home topics | `GET /home-entries?level=` (topics set up in the Admin CMS; a topic's own picture is `GET /home-entries/:entryId/media/:mediaId?level=`) |
+| Topic courses | `GET /home-entries/:entryId/courses?level=` (the topic's published courses, each as in the catalog; 404 when none is available) |
 | Course | `GET /courses/:courseId?level=` |
 | Lesson | `GET /lessons/:lessonId?level=` and `GET /lessons/:lessonId/navigation?level=` |
 

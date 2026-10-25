@@ -2,7 +2,6 @@ import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
-  IsIn,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -13,7 +12,6 @@ import {
   Min,
   ValidateIf,
 } from 'class-validator';
-import { COURSE_BOOKS, type CourseBook } from '../../../../shared-kernel/index.js';
 import type { Course } from '../../domain/models.js';
 import {
   DESCRIPTION_MAX_LENGTH,
@@ -39,11 +37,11 @@ export class CreateCourseDto {
   @IsUUID('all')
   coverMediaId?: string | null;
 
-  /** The Bible book this course is the dedicated Home entry for (DANIEL or REVELATION); null = none (on update, null clears it). */
+  /** The Home Entry (learner Home topic) the course belongs to; null / omitted = none. Choosing one is a classification, not a content edit. */
   @IsOptional()
   @ValidateIf((_, value) => value !== null)
-  @IsIn(COURSE_BOOKS)
-  book?: CourseBook | null;
+  @IsUUID('all')
+  homeEntryId?: string | null;
 }
 
 export class UpdateCourseDto {
@@ -66,11 +64,14 @@ export class UpdateCourseDto {
   @IsUUID('all')
   coverMediaId?: string | null;
 
-  /** The Bible book this course is the dedicated Home entry for (DANIEL or REVELATION); null = none (on update, null clears it). */
+  /**
+   * The Home Entry the course belongs to; null clears it, omitted leaves it alone. A request that changes ONLY this (the other fields equal to what is stored) does not move the
+   * course's status or version: where a course appears on Home is not course content.
+   */
   @IsOptional()
   @ValidateIf((_, value) => value !== null)
-  @IsIn(COURSE_BOOKS)
-  book?: CourseBook | null;
+  @IsUUID('all')
+  homeEntryId?: string | null;
 
   /** The version the editor last saw; if it is stale the update is refused (409). */
   @IsOptional()
@@ -114,7 +115,7 @@ export class CourseResponseDto {
   description: string | null;
   status: string;
   coverMediaId: string | null;
-  book: string | null;
+  homeEntryId: string | null;
   position: number;
   version: number;
   createdAt: string;
@@ -127,7 +128,7 @@ export class CourseResponseDto {
       description: course.description,
       status: course.status,
       coverMediaId: course.coverMediaId,
-      book: course.book,
+      homeEntryId: course.homeEntryId,
       position: course.position,
       version: course.version,
       createdAt: course.createdAt.toISOString(),

@@ -12,6 +12,7 @@ import {
 @Entity({ name: 'courses' })
 @Index('idx_courses_created_at_id', ['createdAt', 'id'])
 @Index('idx_courses_position_id', ['position', 'id'])
+@Index('idx_courses_home_entry_id', ['homeEntryId'], { where: '"home_entry_id" IS NOT NULL' })
 @Check('chk_courses_position', `"position" >= 1`)
 @Check(
   'chk_courses_title',
@@ -39,9 +40,20 @@ export class CourseEntity {
   @Column({ name: 'cover_media_id', type: 'uuid', nullable: true })
   coverMediaId: string | null;
 
-  /** Optional: which Bible book this course is the dedicated Home entry for ('DANIEL' | 'REVELATION'); null for every other course. */
+  /**
+   * LEGACY, FROZEN (superseded by Home Entries, Batch 28): which Bible book this course used to be the fixed Home button for ('DANIEL' | 'REVELATION'). Nothing in the application
+   * writes it any more; the migration CreateHomeEntries copied its values into Home Entries, and the public catalog still serves it unchanged so mobile builds released before
+   * Home Entries keep their Daniel / Revelation buttons. The column is kept (not dropped) until those builds are retired.
+   */
   @Column({ type: 'varchar', length: 20, nullable: true })
   book: string | null;
+
+  /**
+   * The Home Entry (learner Home topic) this course belongs to, or null for an ordinary course. A classification like the manual order, not content: changing it moves neither the
+   * course's status nor its version. The foreign key is ON DELETE SET NULL, so deleting an entry never deletes a course.
+   */
+  @Column({ name: 'home_entry_id', type: 'uuid', nullable: true })
+  homeEntryId: string | null;
 
   /** 1-based place in the manual course order (the learner catalog follows it too). */
   @Column({ type: 'int' })

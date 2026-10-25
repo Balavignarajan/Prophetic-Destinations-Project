@@ -70,13 +70,19 @@ export interface UsedByLesson {
   uses: string[];
   levels?: string[];
 }
+/** A Home Entry (a topic on the learner Home screen) whose card picture is the image. */
+export interface UsedByHomeEntry {
+  entryId: string;
+  title: string;
+}
 export interface MediaUsage {
-  working: { lessons: UsedByLesson[]; courses: { courseId: string; title: string }[] };
+  /** `homeEntries`: absent from a server that has not been updated, which counts as none. */
+  working: { lessons: UsedByLesson[]; courses: { courseId: string; title: string }[]; homeEntries?: UsedByHomeEntry[] };
   published: { lessons: UsedByLesson[]; courses: { courseId: string; title: string }[] };
-  truncated: { workingLessons: boolean; publishedLessons: boolean; workingCourses: boolean; publishedCourses: boolean };
+  truncated: { workingLessons: boolean; publishedLessons: boolean; workingCourses: boolean; publishedCourses: boolean; workingHomeEntries?: boolean };
   limit: number;
-  /** `reusableBlocks`: reusable blocks (library templates) that hold the image; absent from an older server, which counts as none. */
-  totals: { draftLessons: number; publishedLessons: number; draftCourses: number; publishedCourses: number; reusableBlocks?: number };
+  /** `reusableBlocks` and `homeEntries`: reusable blocks (library templates) and Home Entries that hold the image; absent from an older server, which counts as none. */
+  totals: { draftLessons: number; publishedLessons: number; draftCourses: number; publishedCourses: number; reusableBlocks?: number; homeEntries?: number };
 }
 
 /** Where the image is used (working and published), cut at `limit` per group; the totals are always exact. */

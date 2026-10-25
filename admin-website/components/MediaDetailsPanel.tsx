@@ -87,7 +87,9 @@ function UsageSection({ asset }: { asset: MediaAsset }) {
 
   const t = usage.totals;
   const reusable = t.reusableBlocks ?? 0;
-  const anyUse = t.draftLessons + t.publishedLessons + t.draftCourses + t.publishedCourses + reusable > 0;
+  const homeCards = t.homeEntries ?? 0;
+  const homeEntries = usage.working.homeEntries ?? [];
+  const anyUse = t.draftLessons + t.publishedLessons + t.draftCourses + t.publishedCourses + reusable + homeCards > 0;
   const anyCut = Object.values(usage.truncated).some(Boolean);
   const Group = ({ title, note, lessons, courses, cutLessons, cutCourses }: { title: string; note: string; lessons: UsedByLesson[]; courses: { courseId: string; title: string }[]; cutLessons: boolean; cutCourses: boolean }) => (
     <section aria-label={title} className="rounded-lg border border-slate-200 p-3 space-y-2">
@@ -133,6 +135,28 @@ function UsageSection({ asset }: { asset: MediaAsset }) {
         <p className="text-sm text-slate-800">
           Also kept in {reusable} reusable {reusable === 1 ? 'block' : 'blocks'} in the library (not published anywhere). Delete {reusable === 1 ? 'it' : 'them'} in Reusable Blocks to free this image.
         </p>
+      )}
+      {homeCards > 0 && (
+        <p className="text-sm text-slate-800">
+          Also the picture of {homeCards} Home {homeCards === 1 ? 'Entry' : 'Entries'} (see below).
+        </p>
+      )}
+      {homeCards > 0 && (
+        <section aria-label="Home Entries" className="rounded-lg border border-slate-200 p-3 space-y-2">
+          <h4 className="text-sm font-semibold text-slate-900">Home Entries</h4>
+          <p className="text-xs text-slate-700">
+            Cards on the learner Home screen that use this image as their picture. Unlike lessons and courses, a Home Entry is not published separately: learners see its picture
+            as soon as the card is shown to them. Change or remove the picture in <Link href="/home-entries" className="font-medium text-amber-900 underline">Home Entries</Link> to free this image.
+          </p>
+          <ul className="space-y-1">
+            {homeEntries.map((entry) => (
+              <li key={entry.entryId} className="text-sm break-words">
+                <span className="font-medium text-slate-900">{entry.title}</span>
+              </li>
+            ))}
+          </ul>
+          {usage.truncated.workingHomeEntries && <p className="text-xs font-medium text-amber-900">This list is cut short and is not complete.</p>}
+        </section>
       )}
       <Group title="In the working copy" note="Draft content and working covers. Changing these does not change what learners see until the lesson or course is published again." lessons={usage.working.lessons} courses={usage.working.courses} cutLessons={usage.truncated.workingLessons} cutCourses={usage.truncated.workingCourses} />
       <Group title="Published right now" note="Active published lessons and course catalogs. A published lesson keeps showing this image until it is republished or unpublished." lessons={usage.published.lessons} courses={usage.published.courses} cutLessons={usage.truncated.publishedLessons} cutCourses={usage.truncated.publishedCourses} />

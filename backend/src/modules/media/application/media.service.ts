@@ -192,12 +192,15 @@ export class MediaService {
       usage.publishedLessons > 0 ||
       usage.draftCourses > 0 ||
       usage.publishedCourses > 0 ||
-      usage.reusableBlocks > 0
+      usage.reusableBlocks > 0 ||
+      usage.homeEntries > 0
     ) {
       throw new BusinessRuleError(
-        usage.reusableBlocks > 0 && usage.draftLessons + usage.publishedLessons + usage.draftCourses + usage.publishedCourses === 0
+        usage.homeEntries > 0 && usage.draftLessons + usage.publishedLessons + usage.draftCourses + usage.publishedCourses + usage.reusableBlocks === 0
+          ? 'This image is still used by one or more Home Entries (the cards on the learner Home screen), so it cannot be deleted. Open Home Entries, change or remove the image of each of those entries, then delete it. Nothing is removed automatically.'
+          : usage.reusableBlocks > 0 && usage.draftLessons + usage.publishedLessons + usage.draftCourses + usage.publishedCourses + usage.homeEntries === 0
           ? 'This image is still used by one or more reusable blocks, so it cannot be deleted: inserting one of them into a lesson would put a missing image there. Delete those reusable blocks (Reusable Blocks in the menu) first. Nothing is removed automatically.'
-          : 'This image is still used by one or more lessons, courses or reusable blocks (as content or as a cover), so it cannot be deleted. Open "Where this image is used" to see them, remove the image from each (change the cover or the block, or delete the reusable block), and for published use republish or unpublish the lesson or course. Nothing is removed automatically.',
+          : 'This image is still used by one or more lessons, courses, reusable blocks or Home Entries (as content, a cover or a Home card picture), so it cannot be deleted. Open "Where this image is used" to see them, remove the image from each (change the cover or the block, delete the reusable block, or change the Home Entry image), and for published use republish or unpublish the lesson or course. Nothing is removed automatically.',
         { code: 'MEDIA_IN_USE', ...usage },
       );
     }

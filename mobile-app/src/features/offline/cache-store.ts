@@ -28,8 +28,8 @@ import { cleanUp, invalidateAllMedia, mediaOwnerKey, registerOwnersProvider } fr
  * Pools: each kind of entry has its own limit, so refreshing course lists, previous/next links or related lists can never push a
  * saved lesson out of the cache.
  *   lesson     the lessons themselves ....................... CACHE_LIMITS.lesson
- *   structure  course lists and course pages ................ CACHE_LIMITS.structure
- *   extras     previous/next and related lists ............... CACHE_LIMITS.extras
+ *   structure  course lists, Home topic lists and course pages ... CACHE_LIMITS.structure
+ *   extras     previous/next and related lists, and the course list of each Home topic ... CACHE_LIMITS.extras
  * Beyond its limit a pool drops the entry fetched LEAST recently first. The limits are the explicit, configurable retention policy.
  * (A lesson is a few KB of text, but the storage the platform gives AsyncStorage is limited and shared with everything else the app
  * keeps, so the lesson limit is a placeholder for a product decision, not a promise of unlimited offline reading.)
@@ -44,11 +44,11 @@ import { cleanUp, invalidateAllMedia, mediaOwnerKey, registerOwnersProvider } fr
  */
 export const CACHE_LIMITS = { lesson: 120, structure: 60, extras: 240 } as const;
 
-export type CacheKind = 'catalog' | 'course' | 'lesson' | 'navigation' | 'related';
+export type CacheKind = 'catalog' | 'home' | 'topic' | 'course' | 'lesson' | 'navigation' | 'related';
 
 type Pool = keyof typeof CACHE_LIMITS;
 const POOLS: readonly Pool[] = ['lesson', 'structure', 'extras'];
-const poolOf = (kind: CacheKind): Pool => (kind === 'lesson' ? 'lesson' : kind === 'catalog' || kind === 'course' ? 'structure' : 'extras');
+const poolOf = (kind: CacheKind): Pool => (kind === 'lesson' ? 'lesson' : kind === 'catalog' || kind === 'home' || kind === 'course' ? 'structure' : 'extras');
 /** How many of the oldest `extras` entries are dropped to make room when the storage refuses a write. */
 const ROOM_BATCH = 12;
 
@@ -69,7 +69,7 @@ function serial<T>(task: () => Promise<T>): Promise<T> {
   return run;
 }
 
-const KINDS: readonly string[] = ['catalog', 'course', 'lesson', 'navigation', 'related'];
+const KINDS: readonly string[] = ['catalog', 'home', 'topic', 'course', 'lesson', 'navigation', 'related'];
 const LEVELS: readonly string[] = ['BEGINNER', 'INTERMEDIATE', 'ADVANCED'];
 
 /** After the cache changed: the saved images follow it (a file is kept only while some remaining item still needs it). */

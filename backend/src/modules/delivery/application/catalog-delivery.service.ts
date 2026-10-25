@@ -6,10 +6,12 @@ import {
 import {
   type LessonNavigation,
   type PublishedCourseView,
+  type PublishedHomeEntryView,
   type PublishedLessonSummary,
   PublishingFacade,
 } from '../../publishing/index.js';
 import type {
+  CourseListItemDto,
   CourseListResponseDto,
   CourseResponseDto,
   NavigationLessonDto,
@@ -17,6 +19,7 @@ import type {
   NavigationResponseDto,
   RelatedResponseDto,
 } from '../api/dto/catalog-delivery.dto.js';
+import type { HomeEntryCoursesResponseDto, HomeEntryItemDto, HomeEntryListResponseDto } from '../api/dto/home-entry-delivery.dto.js';
 import { ifNoneMatchMatches, representationEtag } from '../domain/etag.js';
 
 export type CatalogRepresentation<T> =
@@ -40,19 +43,37 @@ export class CatalogDeliveryService {
     const views = await this.publishing.listPublishedCourses(level);
     const body: CourseListResponseDto = {
       level,
-      courses: views.map((view) => ({
-        courseId: view.courseId,
-        catalogVersion: view.catalogVersion,
-        title: view.title,
-        description: view.description,
-        coverMediaId: view.coverMediaId,
-        book: view.book ?? null,
-        moduleCount: view.moduleCount,
-        lessonCount: view.lessonCount,
-        lessonIds: [...(view.directLessons ?? []), ...view.modules.flatMap((module) => module.lessons)].map((lesson) => lesson.lessonId),
-      })),
+      courses: views.map(toCourseListItem),
     };
     return represent('course-list', [level], body, ifNoneMatch);
+  }
+
+  /**
+   * The Home topics a learner at `level` may see, in the administrators' order (enabled entries with at least one course that is published with lessons at that level). An empty
+   * list is a normal 200, not a 404: "nothing to show" is an answer here, and a client must never mistake it for an error and keep an older, longer list.
+   */
+  async listHomeEntries(
+    level: LearningLevel,
+    ifNoneMatch?: string,
+  ): Promise<CatalogRepresentation<HomeEntryListResponseDto>> {
+    const views = await this.publishing.listPublishedHomeEntries(level);
+    const body: HomeEntryListResponseDto = { level, entries: views.map(toHomeEntryItem) };
+    return represent('home-entries', [level], body, ifNoneMatch);
+  }
+
+  /**
+   * The courses a learner can open in one Home Entry at `level`: only the entry's PUBLISHED courses that have lessons at that level, each exactly as the course list shows it, in
+   * the same order. A disabled or unknown entry and an entry with nothing eligible at this level are the same 404, like a course that is not published.
+   */
+  async getHomeEntryCourses(
+    entryId: string,
+    level: LearningLevel,
+    ifNoneMatch?: string,
+  ): Promise<CatalogRepresentation<HomeEntryCoursesResponseDto>> {
+    const found = await this.publishing.findPublishedHomeEntryCourses(entryId, level);
+    if (!found) throw new NotFoundError('Home entry not found');
+    const body: HomeEntryCoursesResponseDto = { level, entry: toHomeEntryItem(found.entry), courses: found.courses.map(toCourseListItem) };
+    return represent('home-entry-courses', [found.entry.entryId, level], body, ifNoneMatch);
   }
 
   async getCourse(
@@ -132,6 +153,35 @@ function represent<T>(
   return ifNoneMatchMatches(ifNoneMatch, etag)
     ? { kind: 'NOT_MODIFIED', etag }
     : { kind: 'OK', etag, body };
+}
+
+/** A course as the course list shows it (also how a Home Entry lists its courses, so both are always identical). */
+function toCourseListItem(view: PublishedCourseView): CourseListItemDto {
+  return {
+    courseId: view.courseId,
+    catalogVersion: view.catalogVersion,
+    title: view.title,
+    description: view.description,
+    coverMediaId: view.coverMediaId,
+    book: view.book ?? null,
+    moduleCount: view.moduleCount,
+    lessonCount: view.lessonCount,
+    lessonIds: [...(view.directLessons ?? []), ...view.modules.flatMap((module) => module.lessons)].map((lesson) => lesson.lessonId),
+  };
+}
+
+function toHomeEntryItem(view: PublishedHomeEntryView): HomeEntryItemDto {
+  return {
+    entryId: view.entryId,
+    title: view.title,
+    description: view.description,
+    sortOrder: view.sortOrder,
+    imageMediaId: view.imageMediaId,
+    courseCount: view.courseCount,
+    lessonCount: view.lessonCount,
+    coverCourseId: view.coverCourseId,
+    coverMediaId: view.coverMediaId,
+  };
 }
 
 function toCourseBody(view: PublishedCourseView): CourseResponseDto {

@@ -4,12 +4,12 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { api } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
-import { COURSE_BOOK_OPTIONS, Course, CourseBook } from '../../lib/types';
+import { Course, HomeEntry } from '../../lib/types';
 import { LoadingSpinner, StatusBadge, EmptyState, Modal, ConfirmDialog } from '../../components/ui';
 import { friendlyError } from '../../lib/ui-messages';
 import CoverThumb from '../../components/CoverThumb';
 import CoverImageField from '../../components/CoverImageField';
-import CourseBookField from '../../components/CourseBookField';
+import CourseHomeEntryField from '../../components/CourseHomeEntryField';
 
 export default function CoursesPage() {
   const { user } = useAuth();
@@ -28,7 +28,7 @@ export default function CoursesPage() {
   const [newTitle, setNewTitle] = useState('');
   const [newDescription, setNewDescription] = useState('');
   const [newCoverMediaId, setNewCoverMediaId] = useState<string | null>(null);
-  const [newBook, setNewBook] = useState<CourseBook | null>(null);
+  const [newHomeEntryId, setNewHomeEntryId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
@@ -64,6 +64,19 @@ export default function CoursesPage() {
   useEffect(() => {
     fetchCourses();
   }, [fetchCourses]);
+
+  // Home Entry titles, only to label each course with its entry. Not needed to manage courses, so a failure just leaves the labels out.
+  const [entryTitles, setEntryTitles] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .request<{ items: HomeEntry[] }>('/admin/home-entries')
+      .then((res) => !cancelled && setEntryTitles(Object.fromEntries(res.items.map((entry) => [entry.id, entry.title]))))
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const loadOrder = useCallback(async () => {
     const res = await api.request<{ items: Course[] }>('/admin/courses/order');
@@ -142,7 +155,7 @@ export default function CoursesPage() {
           title: newTitle.trim(),
           description: newDescription.trim() || null,
           ...(newCoverMediaId ? { coverMediaId: newCoverMediaId } : {}),
-          ...(newBook ? { book: newBook } : {}),
+          ...(newHomeEntryId ? { homeEntryId: newHomeEntryId } : {}),
         }),
       });
 
@@ -150,7 +163,7 @@ export default function CoursesPage() {
       setNewTitle('');
       setNewDescription('');
       setNewCoverMediaId(null);
-      setNewBook(null);
+      setNewHomeEntryId(null);
       setSuccessMessage('Course created.');
       fetchCourses();
     } catch (err: unknown) {
@@ -162,7 +175,7 @@ export default function CoursesPage() {
 
   const closeCreateCourse = () => {
     if (creating) return;
-    const dirty = Boolean(newTitle.trim() || newDescription.trim() || newCoverMediaId || newBook);
+    const dirty = Boolean(newTitle.trim() || newDescription.trim() || newCoverMediaId || newHomeEntryId);
     if (!dirty || window.confirm('Discard your unsaved changes?')) setCreateModalOpen(false);
   };
 
@@ -402,10 +415,10 @@ export default function CoursesPage() {
                             {course.description}
                           </p>
                         )}
-                        {course.book && (
-                          <span className="mt-1 inline-block rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-900">
-                            Home entry: {COURSE_BOOK_OPTIONS.find((option) => option.value === course.book)?.label ?? course.book}
-                          </span>
+                        {course.homeEntryId && entryTitles[course.homeEntryId] && (
+                          <p className="mt-1 text-xs text-slate-600">
+                            Home Entry: <span className="font-medium text-slate-800">{entryTitles[course.homeEntryId]}</span>
+                          </p>
                         )}
                       </div>
                       </div>
@@ -495,7 +508,7 @@ export default function CoursesPage() {
 
           <CoverImageField subject="course" mode="create" saveLabel="Create Course" value={newCoverMediaId} onChange={setNewCoverMediaId} disabled={creating} />
 
-          <CourseBookField id="new-course-book" value={newBook} onChange={setNewBook} disabled={creating} />
+          <CourseHomeEntryField id="new-course-home-entry" value={newHomeEntryId} onChange={setNewHomeEntryId} disabled={creating} />
 
           <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
             <button

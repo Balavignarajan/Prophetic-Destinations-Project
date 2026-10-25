@@ -5,6 +5,21 @@ import type { MediaAsset } from '../domain/models.js';
 import { isAnimatedWebp } from '../domain/media-types.js';
 import { MediaAssetRepository } from '../persistence/media-asset.repository.js';
 
+/** How a refused image is named to the editor: the field the problem belongs to and the two messages. The default is a course or lesson cover. */
+export interface ImageSubject {
+  field: string;
+  /** The asset does not exist (any more). */
+  missing: string;
+  /** The asset exists but is not an image. */
+  notImage: string;
+}
+
+const COVER_SUBJECT: ImageSubject = {
+  field: 'coverMediaId',
+  missing: 'The selected cover image no longer exists. Choose another image.',
+  notImage: 'The selected cover is not an image',
+};
+
 /**
  * What other modules may ask of Media. Today that is only whether an asset exists (so a future cover or image
  * reference can be validated). It deliberately offers no way to read bytes or learn where they are stored.
@@ -23,20 +38,20 @@ export class MediaFacade {
     return rest;
   }
 
-  /** Checks that `id` is an existing image of the media library (used for course and lesson covers). */
-  async requireImage(id: string): Promise<void> {
+  /** Checks that `id` is an existing image of the media library (used for course and lesson covers, and the picture of a Home Entry: pass its `subject`). */
+  async requireImage(id: string, subject: ImageSubject = COVER_SUBJECT): Promise<void> {
     const asset = await this.find(id);
     if (!asset) {
-      throw new BusinessRuleError('The selected cover image no longer exists. Choose another image.', {
+      throw new BusinessRuleError(subject.missing, {
         code: 'MEDIA_NOT_FOUND',
-        field: 'coverMediaId',
+        field: subject.field,
         mediaId: id,
       });
     }
     if (!asset.contentType.startsWith('image/')) {
-      throw new BusinessRuleError('The selected cover is not an image', {
+      throw new BusinessRuleError(subject.notImage, {
         code: 'MEDIA_NOT_AN_IMAGE',
-        field: 'coverMediaId',
+        field: subject.field,
         mediaId: id,
       });
     }

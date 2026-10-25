@@ -3,13 +3,15 @@ import type { LearningLevel } from '../../../shared-kernel/index.js';
 import {
   type LessonNavigation,
   type PublishedCourseView,
+  type PublishedHomeEntryCourses,
+  type PublishedHomeEntryView,
   listedLessonIds,
   navigationFor,
   toCourseView,
   withLessonCovers,
 } from '../domain/catalog-view.js';
 import { PublicationRepository } from '../persistence/publication.repository.js';
-import { PublishedCatalogRepository } from '../persistence/published-catalog.repository.js';
+import { type EnabledHomeEntry, PublishedCatalogRepository } from '../persistence/published-catalog.repository.js';
 
 /** A related lesson as a learner may see it: only fields of its own ACTIVE published snapshot, never working data. */
 /** The related lessons of one specific source publication: `publicationVersion` and `contentHash` name the lesson snapshot the list belongs to. */
@@ -100,6 +102,54 @@ export class PublishedCatalogService {
       const view = toCourseView(a.content, a.catalogVersion, eligible);
       return view ? [{ ...withLessonCovers(view, covers), book: a.book }] : [];
     });
+  }
+
+  /**
+   * The Home Entries a learner at `level` may see, in the administrators' Home order. An entry is shown only if ALL of these hold right now: it is enabled, and at least one
+   * course assigned to it is published and has a lesson deliverable at `level`. "Published and deliverable at the level" is decided by `listCourses` itself (the very same rules
+   * and query as the course list, nothing is repeated here), so an entry vanishes by itself when its last eligible course is unpublished or has nothing at the level, and
+   * returns by itself when one qualifies again. A draft or unpublished course is never in `listCourses`, so it can neither appear nor keep an entry alive. No entry qualifies ->
+   * an empty list, never an error.
+   */
+  async listHomeEntries(level: LearningLevel): Promise<PublishedHomeEntryView[]> {
+    const entries = await this.catalog.listEnabledHomeEntries();
+    if (entries.length === 0) return [];
+    const byEntry = await this.eligibleCoursesByEntry(level);
+    return entries.flatMap((entry) => {
+      const courses = byEntry.get(entry.id);
+      return courses && courses.length > 0 ? [toHomeEntryView(entry, courses)] : [];
+    });
+  }
+
+  /**
+   * One Home Entry with the courses a learner at `level` can open in it, in the published course order (the course list's own order), or null when the entry is unknown,
+   * disabled, or has no eligible course at that level. All of those are the same answer, so a caller cannot tell a disabled entry from a missing one or from one with only drafts.
+   */
+  async findHomeEntryCourses(entryId: string, level: LearningLevel): Promise<PublishedHomeEntryCourses | null> {
+    const entry = await this.catalog.findEnabledHomeEntry(entryId);
+    if (!entry) return null;
+    const courses = (await this.eligibleCoursesByEntry(level)).get(entry.id);
+    return courses && courses.length > 0 ? { entry: toHomeEntryView(entry, courses), courses } : null;
+  }
+
+  /** The card of one Home Entry as a learner at `level` may see it (for its picture), or null under the same conditions as `findHomeEntryCourses`. */
+  async findHomeEntry(entryId: string, level: LearningLevel): Promise<PublishedHomeEntryView | null> {
+    return (await this.findHomeEntryCourses(entryId, level))?.entry ?? null;
+  }
+
+  /** The eligible published courses at `level` grouped by the ENABLED Home Entry they belong to, each group in the course list's order. Courses with no (or a disabled) entry are left out. */
+  private async eligibleCoursesByEntry(level: LearningLevel): Promise<Map<string, PublishedCourseView[]>> {
+    const links = await this.catalog.listCourseEntryLinks();
+    const grouped = new Map<string, PublishedCourseView[]>();
+    if (links.size === 0) return grouped;
+    for (const course of await this.listCourses(level)) {
+      const entryId = links.get(course.courseId);
+      if (entryId === undefined) continue;
+      const list = grouped.get(entryId) ?? [];
+      list.push(course);
+      grouped.set(entryId, list);
+    }
+    return grouped;
   }
 
   /**
@@ -254,4 +304,19 @@ export class PublishedCatalogService {
       eligible,
     );
   }
+}
+
+function toHomeEntryView(entry: EnabledHomeEntry, courses: readonly PublishedCourseView[]): PublishedHomeEntryView {
+  const covered = courses.find((course) => course.coverMediaId);
+  return {
+    entryId: entry.id,
+    title: entry.title,
+    description: entry.description,
+    sortOrder: entry.position,
+    imageMediaId: entry.imageMediaId,
+    courseCount: courses.length,
+    lessonCount: courses.reduce((total, course) => total + course.lessonCount, 0),
+    coverCourseId: covered ? covered.courseId : null,
+    coverMediaId: covered ? covered.coverMediaId : null,
+  };
 }

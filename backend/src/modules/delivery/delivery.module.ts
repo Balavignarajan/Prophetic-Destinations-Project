@@ -8,6 +8,7 @@ import { APP_CONFIG, type AppConfig } from '../../config/index.js';
 import { MediaModule } from '../media/index.js';
 import { PublishingModule } from '../publishing/index.js';
 import { CourseDeliveryController } from './api/course-delivery.controller.js';
+import { HomeEntryDeliveryController } from './api/home-entry-delivery.controller.js';
 import { LessonDeliveryController } from './api/lesson-delivery.controller.js';
 import { noStore } from './api/no-store.middleware.js';
 import { CatalogDeliveryService } from './application/catalog-delivery.service.js';
@@ -21,7 +22,8 @@ import { LessonMediaDeliveryService } from './application/lesson-media-delivery.
  * Anonymous, read-only routes only: `GET /api/v1/lessons/:lessonId?level=` (Phase 4A), the published catalog
  * `GET /api/v1/courses?level=` and `GET /api/v1/courses/:courseId?level=`, the lesson navigation
  * `GET /api/v1/lessons/:lessonId/navigation?level=`, and an image of a published lesson
- * `GET /api/v1/lessons/:lessonId/media/:mediaId?level=` (only for images inside the active snapshot). There are deliberately no search, sync or download endpoints.
+ * `GET /api/v1/lessons/:lessonId/media/:mediaId?level=` (only for images inside the active snapshot), and the Home topics
+ * `GET /api/v1/home-entries?level=`, the courses in one `GET /api/v1/home-entries/:entryId/courses?level=` and a card's own picture `GET /api/v1/home-entries/:entryId/media/:mediaId?level=`. There are deliberately no search, sync or download endpoints.
  */
 @Module({
   imports: [
@@ -41,7 +43,7 @@ import { LessonMediaDeliveryService } from './application/lesson-media-delivery.
       }),
     }),
   ],
-  controllers: [LessonDeliveryController, CourseDeliveryController],
+  controllers: [LessonDeliveryController, CourseDeliveryController, HomeEntryDeliveryController],
   providers: [
     LessonDeliveryService,
     CatalogDeliveryService,
@@ -52,6 +54,6 @@ export class DeliveryModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     consumer
       .apply(noStore)
-      .forRoutes(LessonDeliveryController, CourseDeliveryController);
+      .forRoutes(LessonDeliveryController, CourseDeliveryController, HomeEntryDeliveryController);
   }
 }

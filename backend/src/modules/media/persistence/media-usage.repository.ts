@@ -15,6 +15,8 @@ export interface MediaUsage {
   publishedCourses: number;
   /** Reusable blocks (CMS-014 templates) whose saved content or level versions point at the asset. Not published anywhere, but a copy inserted later would. */
   reusableBlocks: number;
+  /** Home Entries (learner Home cards) that use the asset as their picture. Live: a card is shown from its row, not from a snapshot. */
+  homeEntries: number;
 }
 
 /** Where a lesson uses the image: a block type, 'COVER' (the lesson's cover) or 'LEVEL_VARIANT' (a per-level variant's content). */
@@ -35,11 +37,17 @@ export interface UsedByCourse {
   title: string;
 }
 
+/** A Home Entry whose card picture is the asset. */
+export interface UsedByHomeEntry {
+  entryId: string;
+  title: string;
+}
+
 export interface MediaUsageDetail {
-  working: { lessons: UsedByLesson[]; courses: UsedByCourse[] };
+  working: { lessons: UsedByLesson[]; courses: UsedByCourse[]; homeEntries: UsedByHomeEntry[] };
   published: { lessons: UsedByLesson[]; courses: UsedByCourse[] };
   /** True for a list that was cut at `limit`: it is NOT the complete list, and the exact counts in `totals` still are. */
-  truncated: { workingLessons: boolean; publishedLessons: boolean; workingCourses: boolean; publishedCourses: boolean };
+  truncated: { workingLessons: boolean; publishedLessons: boolean; workingCourses: boolean; publishedCourses: boolean; workingHomeEntries: boolean };
   limit: number;
   /** The authoritative counts (the same ones deletion is decided on). */
   totals: MediaUsage;
@@ -136,7 +144,35 @@ export class MediaUsageRepository {
       draftCourses: draftCourses?.n ?? 0,
       publishedCourses: publishedCourses?.n ?? 0,
       reusableBlocks: await this.reusableBlocksUsing(id),
+      homeEntries: await this.homeEntriesUsing(id),
     };
+  }
+
+  /**
+   * How many Home Entries use this asset as their picture. The `home_entries` table comes from a migration; before it has been applied no entry can exist, so its
+   * absence counts as none (this check must not break media deletion or the usage view on a database that does not have the table yet).
+   */
+  private async homeEntriesUsing(id: string): Promise<number> {
+    try {
+      const [row]: { n: number }[] = await this.assets.query(`SELECT count(*)::int AS n FROM "home_entries" WHERE "image_media_id"::text = $1`, [id]);
+      return row?.n ?? 0;
+    } catch (error) {
+      if (isUndefinedTable(error)) return 0;
+      throw error;
+    }
+  }
+
+  /** The Home Entries that use the asset (cut at `limit + 1` by the caller), in the Home order. Same missing-table rule as the count. */
+  private async homeEntriesListUsing(id: string, cap: number): Promise<{ id: string; title: string }[]> {
+    try {
+      return await this.assets.query(
+        `SELECT h."id", h."title" FROM "home_entries" h WHERE h."image_media_id"::text = $1 ORDER BY h."position", h."id" LIMIT $2`,
+        [id, cap],
+      );
+    } catch (error) {
+      if (isUndefinedTable(error)) return [];
+      throw error;
+    }
   }
 
   /**
@@ -243,15 +279,19 @@ export class MediaUsageRepository {
       for (const row of rows) courseTitles.set(row.id, row.title);
     }
 
+    const workingHomeEntries = await this.homeEntriesListUsing(id, cap);
+
     const cut = <T>(rows: T[]) => ({ rows: rows.slice(0, limit), truncated: rows.length > limit });
     const wl = cut(workingRows);
     const pl = cut(publishedRows);
     const wc = cut(workingCourses);
     const pc = cut(publishedCourses);
+    const wh = cut(workingHomeEntries);
     return {
       working: {
         lessons: wl.rows.map((r) => ({ lessonId: r.lesson_id, title: r.title, courseId: r.course_id, courseTitle: r.course_title, moduleId: r.module_id, moduleTitle: r.module_title, uses: r.uses })),
         courses: wc.rows.map((r) => ({ courseId: r.id, title: r.title })),
+        homeEntries: wh.rows.map((r) => ({ entryId: r.id, title: r.title })),
       },
       published: {
         lessons: pl.rows.map((r) => {
@@ -269,7 +309,7 @@ export class MediaUsageRepository {
         }),
         courses: pc.rows.map((r) => ({ courseId: r.course_id, title: r.title ?? '(untitled course)' })),
       },
-      truncated: { workingLessons: wl.truncated, publishedLessons: pl.truncated, workingCourses: wc.truncated, publishedCourses: pc.truncated },
+      truncated: { workingLessons: wl.truncated, publishedLessons: pl.truncated, workingCourses: wc.truncated, publishedCourses: pc.truncated, workingHomeEntries: wh.truncated },
       limit,
       totals: await this.usageOf(id),
     };

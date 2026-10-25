@@ -12,11 +12,17 @@ import { NATIVE_DRIVER, motion } from '@/theme/motion';
  * Published cover images, from the learner routes (no credentials, no admin route):
  *   course: GET /courses/:courseId/media/:mediaId?level=
  *   lesson: GET /lessons/:lessonId/media/:mediaId?level=
+ *   Home card: GET /home-entries/:entryId/media/:mediaId?level=
  * The backend serves a cover only while the active published version names it. Covers are saved on the device with the content that
  * lists them (see features/offline/offline-media.ts) and shown from there; without a saved copy and a connection the quiet placeholder is shown.
  */
 export function courseCoverUrl(courseId: string, mediaId: string, level: LearningLevel): string | null {
   return API_BASE_URL ? `${API_BASE_URL}/courses/${encodeURIComponent(courseId)}/media/${encodeURIComponent(mediaId)}?level=${level}` : null;
+}
+
+/** A Home card's own picture: GET /home-entries/:entryId/media/:mediaId?level= (served only while the card is visible at that level and uses exactly this asset). */
+export function homeEntryImageUrl(entryId: string, mediaId: string, level: LearningLevel): string | null {
+  return API_BASE_URL ? `${API_BASE_URL}/home-entries/${encodeURIComponent(entryId)}/media/${encodeURIComponent(mediaId)}?level=${level}` : null;
 }
 
 export function lessonCoverUrl(lessonId: string, mediaId: string, level: LearningLevel): string | null {

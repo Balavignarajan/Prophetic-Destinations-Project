@@ -102,7 +102,7 @@ export const REPRESENTATION_ETAG_SCHEME =
  * unchanged representation always gets the same one. Nothing volatile goes in.
  */
 export function representationEtag(
-  kind: 'course-list' | 'course' | 'navigation' | 'related' | 'explore',
+  kind: 'course-list' | 'course' | 'navigation' | 'related' | 'explore' | 'home-entries' | 'home-entry-courses',
   identity: readonly (string | number)[],
   body: unknown,
 ): string {

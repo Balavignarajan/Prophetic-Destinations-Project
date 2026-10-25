@@ -10,12 +10,12 @@ import { ProgressStatusNotice } from '@/features/learning/progress-notice';
 import { progressCountsLine, useProgressOverview } from '@/features/learning/progress-overview';
 import { useLessonTitleSync } from '@/features/learning/use-lesson-title-sync';
 import { describeLoadError } from '@/features/offline/describe-offline';
-import { loadCourseList } from '@/features/offline/offline-api';
+import { loadCourseList, loadHomeEntries } from '@/features/offline/offline-api';
 import { OfflineBanner } from '@/features/offline/offline-banner';
 import { isRecoverable, useRetryOnReconnect } from '@/features/offline/use-retry-on-reconnect';
-import { BookEntryCards } from '@/learning/book-entry-cards';
 import { ContinueCard } from '@/learning/continue-card';
 import { CourseCard } from '@/learning/course-card';
+import { HomeEntryCards } from '@/learning/home-entry-cards';
 import { LEVEL_LABELS } from '@/learning/levels';
 import { useLearningLevel } from '@/learning/use-learning-level';
 import { useTheme } from '@/theme';
@@ -24,9 +24,9 @@ import { useTheme } from '@/theme';
 const HOME_COURSES = 3;
 
 /**
- * Home: where the app opens after the first launch. A short welcome, Continue Learning (only when there is an unfinished lesson), the dedicated
- * Daniel and Revelation entries, the published courses at the learner's level in their published order (the same catalog Learn shows, from the
- * backend or its saved copy) and a quiet progress line.
+ * Home: where the app opens after the first launch. A short welcome, Continue Learning (only when there is an unfinished lesson), the Home cards the
+ * administrators set up in the CMS (any titles, any number, their order: no entry is built into the app), the published courses at the learner's level in
+ * their published order (the same catalog Learn shows, from the backend or its saved copy) and a quiet progress line.
  */
 export function HomeScreen() {
   const router = useRouter();
@@ -35,6 +35,12 @@ export function HomeScreen() {
   const { items: saved } = useBookmarks();
   const [courses, reload] = useResource(ready ? `courses:${level}` : null, (signal) => loadCourseList(level, signal));
   useRetryOnReconnect(isRecoverable(courses), reload);
+  // The Home cards for this level, from the backend or their own saved copy. They are asked for again whenever the level changes, and a failed request never replaces a good saved list.
+  const [homeEntries, reloadHomeEntries] = useResource(ready ? `home:${level}` : null, (signal) => loadHomeEntries(level, signal));
+  useRetryOnReconnect(isRecoverable(homeEntries), reloadHomeEntries);
+  const topicList = homeEntries.status === 'success' ? homeEntries.data.value.entries : [];
+  // One saved-copy notice is enough: when the course list below is a saved copy too, its notice already says so.
+  const courseListIsSaved = courses.status === 'success' && courses.data.source === 'cache';
   const courseList = courses.status === 'success' ? courses.data.value.courses : [];
   // The published lessons at this level, from the catalog already loaded for the list below (live or its saved copy); unknown until it is.
   const published = useMemo(() => (courses.status === 'success' ? publishedLessonsOf(courses.data.value.courses) : null), [courses]);
@@ -93,16 +99,27 @@ export function HomeScreen() {
           </Card>
         )}
 
-        {/* The dedicated Daniel and Revelation entries (APP-013, APP-014). Shown once the course list for this level is known, so the section never competes with the loading and error states of the list below. */}
-        {courses.status === 'success' ? (
+        {/* The Home cards (Batch 28). Nothing is built in: with no card to offer at this level the section is simply absent, never replaced by a guess. While the course list below is
+            loading it shows the one spinner, and when it failed too its error (which retries both) covers this section. */}
+        {homeEntries.status === 'loading' && courses.status !== 'loading' ? <LoadingState message="Loading topics…" /> : null}
+        {homeEntries.status === 'error' && courses.status !== 'error' ? (
           <View style={{ gap: spacing.md }}>
             <AppText variant="sectionHeading" accessibilityRole="header">
-              Daniel and Revelation
+              Browse by topic
             </AppText>
-            <BookEntryCards
-              courses={courseList}
+            <ErrorState {...describeLoadError(homeEntries.error, 'topic list', level)} onRetry={reloadHomeEntries} />
+          </View>
+        ) : null}
+        {homeEntries.status === 'success' && topicList.length > 0 ? (
+          <View style={{ gap: spacing.md }}>
+            <AppText variant="sectionHeading" accessibilityRole="header">
+              Browse by topic
+            </AppText>
+            {homeEntries.data.source === 'cache' && !courseListIsSaved ? <OfflineBanner loaded={homeEntries.data} onRetry={reloadHomeEntries} /> : null}
+            <HomeEntryCards
+              entries={topicList}
               level={level}
-              onOpen={(course) => router.push({ pathname: '/course/[courseId]', params: { courseId: course.courseId, level } })}
+              onOpen={(entry) => router.push({ pathname: '/topic/[entryId]', params: { entryId: entry.entryId, level } })}
             />
           </View>
         ) : null}
@@ -117,8 +134,24 @@ export function HomeScreen() {
             </AppText>
           </View>
           {courses.status === 'loading' ? <LoadingState message="Loading courses…" /> : null}
-          {courses.status === 'error' ? <ErrorState {...describeLoadError(courses.error, 'course list', level)} onRetry={reload} /> : null}
-          {courses.status === 'success' && courses.data.source === 'cache' ? <OfflineBanner loaded={courses.data} onRetry={reload} /> : null}
+          {courses.status === 'error' ? (
+            <ErrorState
+              {...describeLoadError(courses.error, 'course list', level)}
+              onRetry={() => {
+                reload();
+                reloadHomeEntries();
+              }}
+            />
+          ) : null}
+          {courses.status === 'success' && courses.data.source === 'cache' ? (
+            <OfflineBanner
+              loaded={courses.data}
+              onRetry={() => {
+                reload();
+                reloadHomeEntries();
+              }}
+            />
+          ) : null}
           {courses.status === 'success' && courseList.length === 0 ? (
             <AppText variant="body" color="textSecondary">
               No courses are available at this level yet. You can switch level in Learn, or check back soon.

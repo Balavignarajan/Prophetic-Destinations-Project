@@ -1,19 +1,23 @@
 import {
   getCourse,
+  getHomeEntryCourses,
   getLesson,
   getNavigation,
   getExploring,
   getRelated,
   isCourseListResponse,
   isCourseResponse,
+  isHomeEntryCoursesResponse,
+  isHomeEntryListResponse,
   isLessonResponse,
   isNavigationResponse,
   isExploreResponse,
   isRelatedResponse,
   lessonVersion,
   listCourses,
+  listHomeEntries,
 } from '@/api/learner-api';
-import type { CourseListResponse, CourseResponse, ExploreResponse, LessonResponse, NavigationResponse, RelatedResponse } from '@/api/types';
+import type { CourseListResponse, CourseResponse, ExploreResponse, HomeEntryCoursesResponse, HomeEntryListResponse, LessonResponse, NavigationResponse, RelatedResponse } from '@/api/types';
 import type { LearningLevel } from '@/learning/levels';
 
 import { type Loaded, loadCached } from './cached-load';
@@ -24,6 +28,22 @@ import { type Loaded, loadCached } from './cached-load';
  */
 export const loadCourseList = (level: LearningLevel, signal?: AbortSignal): Promise<Loaded<CourseListResponse>> =>
   loadCached({ kind: 'catalog', id: 'all', level, fetch: () => listCourses(level, signal), validate: isCourseListResponse, signal });
+
+/**
+ * The Home topics at this level, with the same saved-copy rules as the course list (kind 'home', its images saved with it): a live answer replaces the saved list, INCLUDING an empty
+ * one (the administrators really did leave this level with no topics); a failed request, a timeout, a 5xx or an unusable answer never replaces or deletes a good saved list, so a bad
+ * connection can never turn the Home into "no topics"; with no saved list the error is reported as it is.
+ */
+export const loadHomeEntries = (level: LearningLevel, signal?: AbortSignal): Promise<Loaded<HomeEntryListResponse>> =>
+  loadCached({ kind: 'home', id: 'all', level, fetch: () => listHomeEntries(level, signal), validate: isHomeEntryListResponse, signal });
+
+/**
+ * The published courses in one Home topic at this level (kind 'topic', keyed by the entry's id and the level, covers saved with it). A 404 from the backend (the topic was deleted or
+ * disabled, or has no published course at this level any more) deletes the saved list and is shown as "not available", never as a stale list; a network failure or a 5xx falls back
+ * to the saved list and never overwrites it. Opening a course from it follows the course's own offline rules.
+ */
+export const loadHomeEntryCourses = (entryId: string, level: LearningLevel, signal?: AbortSignal): Promise<Loaded<HomeEntryCoursesResponse>> =>
+  loadCached({ kind: 'topic', id: entryId, level, fetch: () => getHomeEntryCourses(entryId, level, signal), validate: isHomeEntryCoursesResponse, signal });
 
 export const loadCourse = (courseId: string, level: LearningLevel, signal?: AbortSignal): Promise<Loaded<CourseResponse>> =>
   loadCached({ kind: 'course', id: courseId, level, fetch: () => getCourse(courseId, level, signal), validate: isCourseResponse, signal });

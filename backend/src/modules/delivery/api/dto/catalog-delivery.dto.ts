@@ -33,7 +33,7 @@ export class CourseResponseDto {
   description: string | null;
   /** Published cover image id, or null. Fetch it with GET /courses/:courseId/media/:coverMediaId?level=. */
   coverMediaId: string | null;
-  /** The Bible book this course is the dedicated Home entry for ('DANIEL' | 'REVELATION'), or null. */
+  /** LEGACY, FROZEN (kept only for mobile builds released before Home Entries; see GET /home-entries for the current Home): 'DANIEL' | 'REVELATION', or null. */
   book: string | null;
   moduleCount: number;
   lessonCount: number;
@@ -48,7 +48,7 @@ export class CourseListItemDto {
   description: string | null;
   /** Published cover image id, or null. Fetch it with GET /courses/:courseId/media/:coverMediaId?level=. */
   coverMediaId: string | null;
-  /** The Bible book this course is the dedicated Home entry for ('DANIEL' | 'REVELATION'), or null. */
+  /** LEGACY, FROZEN (kept only for mobile builds released before Home Entries; see GET /home-entries for the current Home): 'DANIEL' | 'REVELATION', or null. */
   book: string | null;
   moduleCount: number;
   lessonCount: number;

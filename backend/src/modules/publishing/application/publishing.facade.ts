@@ -3,6 +3,8 @@ import type { LearningLevel } from '../../../shared-kernel/index.js';
 import type {
   LessonNavigation,
   PublishedCourseView,
+  PublishedHomeEntryCourses,
+  PublishedHomeEntryView,
 } from '../domain/catalog-view.js';
 import type { ActiveSnapshotInfo } from '../domain/models.js';
 import { PublicationRepository } from '../persistence/publication.repository.js';
@@ -56,6 +58,21 @@ export class PublishingFacade {
     level: LearningLevel,
   ): Promise<PublishedCourseView | null> {
     return this.catalog.findCourse(courseId, level);
+  }
+
+  /** The Home Entries a learner at `level` may see (enabled, with at least one assigned course published with lessons at that level), in the administrators' Home order. Empty when none qualifies. */
+  listPublishedHomeEntries(level: LearningLevel): Promise<PublishedHomeEntryView[]> {
+    return this.catalog.listHomeEntries(level);
+  }
+
+  /** One Home Entry with its eligible published courses at `level` (the course list's own order), or null if it is unknown, disabled or has no eligible course there. */
+  findPublishedHomeEntryCourses(entryId: string, level: LearningLevel): Promise<PublishedHomeEntryCourses | null> {
+    return this.catalog.findHomeEntryCourses(entryId, level);
+  }
+
+  /** The card of one Home Entry as a learner at `level` may see it, or null under the same conditions. */
+  findPublishedHomeEntry(entryId: string, level: LearningLevel): Promise<PublishedHomeEntryView | null> {
+    return this.catalog.findHomeEntry(entryId, level);
   }
 
   /** Related lessons of a deliverable lesson that are themselves deliverable at `level`, with the identity of the source publication (null if the lesson is not deliverable). */

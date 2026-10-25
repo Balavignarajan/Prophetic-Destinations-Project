@@ -6,9 +6,6 @@ import type { LearningLevel } from '@/learning/levels';
  * Only fields the backend documents are modelled; nothing here is assumed.
  */
 
-/** The Bible books that have a dedicated entry on Home (backend COURSE_BOOKS). */
-export type CourseBook = 'DANIEL' | 'REVELATION';
-
 /** GET /courses?level= */
 export interface CourseListItem {
   courseId: string;
@@ -17,11 +14,6 @@ export interface CourseListItem {
   description: string | null;
   /** Published cover image id. Optional: older cached responses (and courses without a cover) do not have it. */
   coverMediaId?: string | null;
-  /**
-   * The course's CMS-managed Bible book: the course the Daniel / Revelation Home entry opens. null = an ordinary course. Optional: responses saved before it existed
-   * do not have it (which is different from null, "no book").
-   */
-  book?: CourseBook | null;
   moduleCount: number;
   lessonCount: number;
   /** The ids of the lessons counted in `lessonCount`, in the published order. Optional: responses saved before it existed do not have it. */
@@ -29,6 +21,40 @@ export interface CourseListItem {
 }
 export interface CourseListResponse {
   level: LearningLevel;
+  courses: CourseListItem[];
+}
+
+/**
+ * GET /home-entries?level= — the Home topics (Daniel, Bible History, ...) this learner can open at this level, in the administrators' order. The server has already left out every
+ * entry that is disabled or has no course published with lessons at this level, so every item here has at least one course to list. Possibly empty.
+ */
+export interface HomeEntryItem {
+  entryId: string;
+  /** What the card says (set in the CMS). */
+  title: string;
+  description: string | null;
+  sortOrder: number;
+  /** The card's own picture, or null: then the cover of `coverCourseId` is used. */
+  imageMediaId: string | null;
+  /** How many courses can be opened in this entry at this level (at least 1), and the lessons in them. */
+  courseCount: number;
+  lessonCount: number;
+  /** The published cover of the entry's first course that has one (the fallback picture), with that course's id; both null if none has. */
+  coverCourseId: string | null;
+  coverMediaId: string | null;
+}
+export interface HomeEntryListResponse {
+  level: LearningLevel;
+  entries: HomeEntryItem[];
+}
+
+/**
+ * GET /home-entries/:entryId/courses?level= — the entry and the published courses that can be opened in it at this level, each exactly as in GET /courses?level= and in the
+ * same order. Drafts never appear. 404 when the entry is unknown, disabled or has no course at this level.
+ */
+export interface HomeEntryCoursesResponse {
+  level: LearningLevel;
+  entry: HomeEntryItem;
   courses: CourseListItem[];
 }
 
@@ -57,7 +83,6 @@ export interface CourseResponse {
   title: string;
   description: string | null;
   coverMediaId?: string | null;
-  book?: CourseBook | null;
   moduleCount: number;
   lessonCount: number;
   modules: CatalogModule[];

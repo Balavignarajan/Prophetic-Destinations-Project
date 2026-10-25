@@ -6,6 +6,8 @@ export type { ActiveSnapshotInfo } from './domain/models.js';
 export type {
   LessonNavigation,
   PublishedCourseView,
+  PublishedHomeEntryCourses,
+  PublishedHomeEntryView,
   PublishedLessonItem,
   PublishedLessonSummary,
   PublishedModuleView,

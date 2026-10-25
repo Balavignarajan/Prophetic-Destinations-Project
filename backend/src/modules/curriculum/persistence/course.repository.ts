@@ -5,8 +5,6 @@ import { isForeignKeyViolation } from '../../../database/pg-errors.js';
 import {
   ConflictError,
   type ContentStatus,
-  type CourseBook,
-  isCourseBook,
 } from '../../../shared-kernel/index.js';
 import type { Course } from '../domain/models.js';
 import { CourseEntity } from './course.entity.js';
@@ -15,7 +13,7 @@ export interface NewCourse {
   title: string;
   description: string | null;
   coverMediaId?: string | null;
-  book?: CourseBook | null;
+  homeEntryId?: string | null;
   position: number;
 }
 
@@ -23,7 +21,7 @@ export interface CourseChanges {
   title?: string;
   description?: string | null;
   coverMediaId?: string | null;
-  book?: CourseBook | null;
+  homeEntryId?: string | null;
   status?: ContentStatus;
 }
 
@@ -122,6 +120,14 @@ export class CourseRepository {
   }
 
   /**
+   * Sets (or, with null, clears) the course's Home Entry. Raw SQL on purpose: where a course appears on Home is a classification, not a content edit, so `version`, `status` and
+   * `updated_at` stay as they are (the same rule as the course order).
+   */
+  async setHomeEntry(id: string, homeEntryId: string | null, manager: EntityManager): Promise<void> {
+    await manager.query(`UPDATE "courses" SET "home_entry_id" = $2 WHERE "id" = $1`, [id, homeEntryId]);
+  }
+
+  /**
    * Moves the status from `from` to `to` only if it is still `from`; returns whether it did. A workflow
    * transition is not an edit: `version` is untouched (this is raw SQL, so the version column does not move).
    */
@@ -170,8 +176,7 @@ function toCourse(row: CourseEntity): Course {
     description: row.description,
     status: row.status as ContentStatus,
     coverMediaId: row.coverMediaId,
-    // The database CHECK only allows the approved values; anything else would be corruption and is read as "no book".
-    book: isCourseBook(row.book) ? row.book : null,
+    homeEntryId: row.homeEntryId ?? null,
     position: row.position,
     version: row.version,
     createdAt: row.createdAt,

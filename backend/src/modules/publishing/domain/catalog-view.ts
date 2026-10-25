@@ -44,12 +44,42 @@ export interface PublishedCourseView {
   description: string | null;
   /** Published cover image of the course, or null (also for snapshots written before covers existed). */
   coverMediaId: string | null;
-  /** The course's CMS-managed Bible book (the dedicated Daniel / Revelation Home entry), or null. Set by the catalog service from the live course row. */
+  /**
+   * LEGACY, FROZEN: the course's old Daniel / Revelation Home marking (superseded by Home Entries in Batch 28; nothing writes it any more). Still served unchanged so
+   * mobile builds released before Home Entries keep their two fixed buttons. Set by the catalog service from the live course row.
+   */
   book?: CourseBook | null;
   moduleCount: number;
   lessonCount: number;
   modules: PublishedModuleView[];
   directLessons: PublishedLessonItem[];
+}
+
+/**
+ * A Home Entry as a learner may see it at one level: an ENABLED topic that holds at least one course which is published and has lessons at that level right now. The title,
+ * description, picture and order are the administrators' live Home settings; the counts and the fallback cover come from the published catalog (the entry's eligible courses),
+ * never from a working copy.
+ */
+export interface PublishedHomeEntryView {
+  entryId: string;
+  title: string;
+  description: string | null;
+  /** 1-based place on Home as set in the CMS (the list is already in this order; gaps appear where an entry is hidden). */
+  sortOrder: number;
+  /** The card's own picture (media asset id), or null: then show `coverMediaId`. Fetch it with GET /home-entries/:entryId/media/:imageMediaId?level=. */
+  imageMediaId: string | null;
+  /** How many of the entry's courses a learner can open at this level (always at least 1), and the lessons in them. */
+  courseCount: number;
+  lessonCount: number;
+  /** The published cover of the entry's first eligible course that has one (the fallback card picture), with that course's id; both null if none has a cover. */
+  coverCourseId: string | null;
+  coverMediaId: string | null;
+}
+
+/** One Home Entry with the courses a learner can open in it at one level, in the published course order. Only published courses ever appear. */
+export interface PublishedHomeEntryCourses {
+  entry: PublishedHomeEntryView;
+  courses: PublishedCourseView[];
 }
 
 export interface LessonNavigation {

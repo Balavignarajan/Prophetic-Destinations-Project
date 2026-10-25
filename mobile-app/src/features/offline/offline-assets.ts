@@ -1,5 +1,5 @@
-import type { CourseListResponse, CourseResponse, LessonResponse } from '@/api/types';
-import { courseCoverUrl, lessonCoverUrl } from '@/learning/cover-image';
+import type { CourseListResponse, CourseResponse, HomeEntryCoursesResponse, HomeEntryListResponse, LessonResponse } from '@/api/types';
+import { courseCoverUrl, homeEntryImageUrl, lessonCoverUrl } from '@/learning/cover-image';
 import type { LearningLevel } from '@/learning/levels';
 
 import { type CacheKind, cacheWrite } from './cache-store';
@@ -24,7 +24,7 @@ const isText = (value: unknown): value is string => typeof value === 'string' &&
 /**
  * The images a piece of PUBLISHED content needs, each with the learner route that serves it. Only what the delivered content
  * actually names: a lesson's IMAGE, INTERACTIVE_IMAGE, MAP, SYMBOL_STUDY, NARRATIVE_SCENE visuals, MEDIA_ANIMATION files and posters and TIMELINE-event images, the images of blocks nested inside an EXPLORE_DEEPER block, and cover; a course's cover and the covers of the lessons it lists; the covers of the
- * courses in the catalog list. (Lesson images and lesson covers use the same learner route.)
+ * courses in the catalog list; the picture each Home card shows (its own picture, otherwise its course's cover). (Lesson images and lesson covers use the same learner route.)
  */
 export function assetsOf(kind: CacheKind, id: string, level: LearningLevel, data: unknown): AssetRef[] | null {
   const out: AssetRef[] = [];
@@ -94,6 +94,23 @@ export function assetsOf(kind: CacheKind, id: string, level: LearningLevel, data
     }
     return out;
   }
+  if (kind === 'home') {
+    // The picture a card actually shows: its own when it has one, otherwise the cover of its first course (exactly the choice the Home screen makes).
+    for (const entry of (data as HomeEntryListResponse).entries ?? []) {
+      if (isText(entry.imageMediaId)) out.push({ mediaId: entry.imageMediaId, url: homeEntryImageUrl(entry.entryId, entry.imageMediaId, level) });
+      else if (isText(entry.coverMediaId) && isText(entry.coverCourseId)) out.push({ mediaId: entry.coverMediaId, url: courseCoverUrl(entry.coverCourseId, entry.coverMediaId, level) });
+    }
+    return out;
+  }
+  if (kind === 'topic') {
+    // A topic's own picture (shown above its courses) and the cover of each course in the list.
+    const topic = data as HomeEntryCoursesResponse;
+    if (isText(topic.entry?.imageMediaId)) out.push({ mediaId: topic.entry.imageMediaId, url: homeEntryImageUrl(topic.entry.entryId, topic.entry.imageMediaId, level) });
+    for (const course of topic.courses ?? []) {
+      if (isText(course.coverMediaId)) out.push({ mediaId: course.coverMediaId, url: courseCoverUrl(course.courseId, course.coverMediaId, level) });
+    }
+    return out;
+  }
   return null; // navigation entries carry no images
 }
 
@@ -132,7 +149,7 @@ export async function keepSaved(kind: CacheKind, id: string, level: LearningLeve
  *    images are saved in the background; the item is "not fully saved" until they all arrive.
  *  - An update of a lesson whose saved copy is COMPLETE, when the new version needs images that are not on the device: the new
  *    content is staged. The old text and images stay in the cache; the new content is written only once all its images are on disk.
- *  - Courses and course lists (cover thumbnails only) are written at once with their new references.
+ *  - Courses, course lists and Home card lists (cover thumbnails only) are written at once with their new references.
  *
  * Resolves to `false` ONLY when the content cache refused the write (so the item is not saved for offline use and must not be reported
  * as saved); in every other case (saved, staged behind a complete older copy, or nothing to do because the cache was cleared) it is `true`.

@@ -130,6 +130,25 @@ export class LessonMediaDeliveryService {
   }
 
   /**
+   * The picture of a Home Entry. Served only when the entry is visible to a learner at that level right now (enabled, with at least one assigned course published with lessons there) AND its picture is
+   * this asset; every other case is the same 404, so a guessed id reveals nothing and an image no card uses cannot be fetched through this route.
+   */
+  async getHomeEntryImage(
+    entryId: string,
+    mediaId: string,
+    level: LearningLevel,
+    ifNoneMatch?: string,
+  ): Promise<CoverRepresentation> {
+    const view = await this.publishing.findPublishedHomeEntry(entryId, level);
+    if (!view || view.imageMediaId !== mediaId) throw notFound();
+    const asset = await this.media.find(mediaId);
+    if (!asset || !asset.contentType.startsWith('image/')) throw notFound();
+    const etag = `"${asset.sha256}"`;
+    if (ifNoneMatchMatches(ifNoneMatch, etag)) return { kind: 'NOT_MODIFIED', etag };
+    return { kind: 'OK', etag, content: await this.media.openContent(mediaId) };
+  }
+
+  /**
    * One media file of a published lesson: an image of any image block, or the video / Lottie file of a MEDIA_ANIMATION block that names it. A video may be
    * asked for in parts (`range`, `ifRange`): a player seeks by requesting the bytes it needs.
    */

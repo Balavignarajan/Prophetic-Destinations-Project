@@ -5,6 +5,8 @@ import { ResponseShapeError } from './errors';
 import type {
   CourseListResponse,
   CourseResponse,
+  HomeEntryCoursesResponse,
+  HomeEntryListResponse,
   LessonResponse,
   NavigationResponse,
   ExploreResponse,
@@ -20,6 +22,36 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
  */
 export const isCourseListResponse = (body: unknown): body is CourseListResponse =>
   isRecord(body) && Array.isArray(body.courses);
+
+const optionalText = (value: unknown): boolean => value === null || value === undefined || typeof value === 'string';
+
+/** One Home topic card has what it needs to be shown AND opened: an id, a title and its counts. */
+const isHomeEntryItem = (item: unknown): boolean =>
+  isRecord(item) &&
+  typeof item.entryId === 'string' &&
+  item.entryId.length > 0 &&
+  typeof item.title === 'string' &&
+  item.title.trim().length > 0 &&
+  typeof item.courseCount === 'number' &&
+  typeof item.lessonCount === 'number' &&
+  optionalText(item.description) &&
+  optionalText(item.imageMediaId) &&
+  optionalText(item.coverMediaId) &&
+  optionalText(item.coverCourseId);
+
+/**
+ * A Home topic list is only used when every card in it is complete. An answer where any card lacks what it needs is treated like any other malformed answer (never shown, never
+ * saved), so a damaged or outdated saved copy (for example one saved by a build that listed single courses) can never put a card on screen that opens nothing.
+ */
+export const isHomeEntryListResponse = (body: unknown): body is HomeEntryListResponse =>
+  isRecord(body) && Array.isArray(body.entries) && body.entries.every(isHomeEntryItem);
+
+/** The courses of one Home topic: the entry itself and a course list of the same shape as the catalog's. */
+export const isHomeEntryCoursesResponse = (body: unknown): body is HomeEntryCoursesResponse =>
+  isRecord(body) &&
+  isHomeEntryItem(body.entry) &&
+  Array.isArray(body.courses) &&
+  body.courses.every((course) => isRecord(course) && typeof course.courseId === 'string' && course.courseId.length > 0 && typeof course.title === 'string');
 
 export const isCourseResponse = (body: unknown): body is CourseResponse =>
   isRecord(body) && Array.isArray(body.modules) && (body.directLessons === undefined || Array.isArray(body.directLessons)) && typeof body.title === 'string';
@@ -82,6 +114,20 @@ export async function getRelated(lessonId: string, level: LearningLevel, signal?
 export async function listCourses(level: LearningLevel, signal?: AbortSignal): Promise<CourseListResponse> {
   const body = await apiGet<unknown>('/courses', { level }, signal);
   if (!isCourseListResponse(body)) throw new ResponseShapeError('the course list');
+  return body;
+}
+
+/** GET /home-entries?level= — the Home topics this learner can open at this level, in the administrators' order (possibly none). */
+export async function listHomeEntries(level: LearningLevel, signal?: AbortSignal): Promise<HomeEntryListResponse> {
+  const body = await apiGet<unknown>('/home-entries', { level }, signal);
+  if (!isHomeEntryListResponse(body)) throw new ResponseShapeError('the Home topics');
+  return body;
+}
+
+/** GET /home-entries/:entryId/courses?level= — the published courses in one Home topic at this level. 404 (ApiError.isNotFound) if the topic is unknown, disabled or has none here. */
+export async function getHomeEntryCourses(entryId: string, level: LearningLevel, signal?: AbortSignal): Promise<HomeEntryCoursesResponse> {
+  const body = await apiGet<unknown>(`/home-entries/${encodeURIComponent(entryId)}/courses`, { level }, signal);
+  if (!isHomeEntryCoursesResponse(body)) throw new ResponseShapeError('the topic');
   return body;
 }
 

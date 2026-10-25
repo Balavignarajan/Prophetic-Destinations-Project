@@ -13,6 +13,15 @@ export interface ActiveCatalogLevel {
   book: CourseBook | null;
 }
 
+/** An ENABLED Home Entry as stored (its courses are not looked at here: the catalog service decides which of them are published at the learner's level). */
+export interface EnabledHomeEntry {
+  id: string;
+  title: string;
+  description: string | null;
+  imageMediaId: string | null;
+  position: number;
+}
+
 /** An active catalog snapshot and the moment its course was first published (the listing order). */
 export interface ListedCatalogLevel extends ActiveCatalogLevel {
   firstPublishedAt: Date;
@@ -55,6 +64,46 @@ export class PublishedCatalogRepository {
       book: isCourseBook(row.book) ? row.book : null,
       firstPublishedAt: row.first_published_at,
     }));
+  }
+
+  /**
+   * The enabled Home Entries in the administrators' Home order (`home_entries.position`, then id). Disabled entries are never selected. Like the manual course order
+   * and the legacy `book`, this is the live Home setting, not part of a published snapshot; it can never bring an unpublished course into view because the catalog
+   * service keeps only the courses that are currently published at the learner's level.
+   */
+  async listEnabledHomeEntries(): Promise<EnabledHomeEntry[]> {
+    const rows: HomeEntryRow[] = await this.dataSource.query(
+      `SELECT h."id", h."title", h."description", h."image_media_id", h."position"
+         FROM "home_entries" h
+        WHERE h."is_enabled" = true
+        ORDER BY h."position", h."id"`,
+    );
+    return rows.map(toEnabledHomeEntry);
+  }
+
+  /** One enabled Home Entry, or null if it does not exist or is disabled. */
+  async findEnabledHomeEntry(entryId: string): Promise<EnabledHomeEntry | null> {
+    const rows: HomeEntryRow[] = await this.dataSource.query(
+      `SELECT h."id", h."title", h."description", h."image_media_id", h."position"
+         FROM "home_entries" h
+        WHERE h."id" = $1 AND h."is_enabled" = true`,
+      [entryId],
+    );
+    return rows[0] ? toEnabledHomeEntry(rows[0]) : null;
+  }
+
+  /**
+   * Which ENABLED Home Entry each course belongs to (`courses.home_entry_id`), as course id -> entry id. Courses with no entry, and courses whose entry is disabled, are
+   * absent. A separate small query on purpose: the main course-list queries above stay exactly as they were, so the public course catalog does not depend on this column.
+   * It says nothing about publication: the catalog service intersects it with the courses that are published at the learner's level.
+   */
+  async listCourseEntryLinks(): Promise<Map<string, string>> {
+    const rows: { course_id: string; entry_id: string }[] = await this.dataSource.query(
+      `SELECT c."id" AS "course_id", c."home_entry_id" AS "entry_id"
+         FROM "courses" c JOIN "home_entries" h ON h."id" = c."home_entry_id"
+        WHERE h."is_enabled" = true`,
+    );
+    return new Map(rows.map((row) => [row.course_id, row.entry_id]));
   }
 
   /** The course's active catalog snapshot at `level`, or null. */
@@ -119,4 +168,16 @@ export class PublishedCatalogRepository {
         }
       : null;
   }
+}
+
+interface HomeEntryRow {
+  id: string;
+  title: string;
+  description: string | null;
+  image_media_id: string | null;
+  position: number;
+}
+
+function toEnabledHomeEntry(row: HomeEntryRow): EnabledHomeEntry {
+  return { id: row.id, title: row.title, description: row.description, imageMediaId: row.image_media_id, position: row.position };
 }
