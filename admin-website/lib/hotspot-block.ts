@@ -90,3 +90,20 @@ export function newHotspotId(existing: readonly HotspotDraft[]): string {
 }
 
 export const clampFraction = (value: number) => Math.min(1, Math.max(0, value));
+
+/**
+ * The saved position (fractions 0..1 of the image's width and height from its top-left corner) of a point on screen, given the rectangle the IMAGE itself occupies. The caller passes the
+ * image's own box (the canvas is sized to the picture's exact aspect ratio, so there is no letterboxing or empty margin in it), which is why the result does not depend on the page layout
+ * or the window size. Clamped, so a point just outside the picture lands on its edge. Null while the picture has no size yet.
+ */
+export function fractionsFromPoint(clientX: number, clientY: number, rect: { left: number; top: number; width: number; height: number }): { x: number; y: number } | null {
+  if (!(rect.width > 0) || !(rect.height > 0)) return null;
+  return { x: clampFraction((clientX - rect.left) / rect.width), y: clampFraction((clientY - rect.top) / rect.height) };
+}
+
+/** "42%": a fraction as the percentage shown to the administrator (one decimal at most). */
+export const percentLabel = (value: number): string => `${Math.round(value * 1000) / 10}%`;
+
+/** Where a hotspot is, in words: "42% from the left, 18% from the top", or that it is not placed yet. */
+export const placementSummary = (h: Pick<HotspotDraft, 'x' | 'y'>): string =>
+  h.x === null || h.y === null ? 'Not placed on the image yet' : `${percentLabel(h.x)} from the left, ${percentLabel(h.y)} from the top`;

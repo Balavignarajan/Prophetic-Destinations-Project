@@ -10,7 +10,7 @@ type State = { id: string; url: string | null; failed: boolean } | null;
  * credentials and shown from a temporary local URL (an <img src> pointing at the API would be refused). A deleted or
  * unavailable asset shows a short message instead of a broken picture.
  */
-export default function MediaImage({ mediaId, alt, className = '', fit = 'cover', onStatus }: { mediaId: string; alt: string; className?: string; fit?: 'cover' | 'contain'; onStatus?: (status: 'loading' | 'ready' | 'failed') => void }) {
+export default function MediaImage({ mediaId, alt, className = '', fit = 'cover', onStatus, onNaturalSize }: { mediaId: string; alt: string; className?: string; fit?: 'cover' | 'contain'; onStatus?: (status: 'loading' | 'ready' | 'failed') => void; onNaturalSize?: (size: { width: number; height: number }) => void }) {
   const [state, setState] = useState<State>(null);
 
   useEffect(() => {
@@ -53,6 +53,13 @@ export default function MediaImage({ mediaId, alt, className = '', fit = 'cover'
       </div>
     );
   }
-  // eslint-disable-next-line @next/next/no-img-element
-  return <img src={current.url} alt={alt} className={`${className} ${fit === 'contain' ? 'object-contain' : 'object-cover'}`} />;
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={current.url}
+      alt={alt}
+      className={`${className} ${fit === 'contain' ? 'object-contain' : 'object-cover'}`}
+      onLoad={onNaturalSize ? (e) => onNaturalSize({ width: e.currentTarget.naturalWidth, height: e.currentTarget.naturalHeight }) : undefined}
+    />
+  );
 }
