@@ -20,6 +20,7 @@ import { useReduceMotion } from '@/accessibility/use-reduce-motion';
 import { AppText, BlockNotice } from '@/components/ui';
 import { canSwitchToSavedWebCopy, reportBrokenAsset, switchToSavedWebCopy, useAssetUri } from '@/features/offline/offline-media';
 import { HotspotContent, HotspotNavigator, HotspotSidePanel, HotspotTopBar } from '@/learning/hotspot-explanation';
+import { FloatingHotspotLabel } from '@/learning/hotspot-label';
 import { HotspotSheet } from '@/learning/hotspot-sheet';
 import { lessonImageUrl } from '@/learning/lesson-image';
 import { ScriptureLinks } from '@/learning/scripture-links';
@@ -41,7 +42,8 @@ import { NATIVE_DRIVER, motion } from '@/theme/motion';
  *  - on a PHONE (the block is narrow) in a floating bottom sheet over the lesson (hotspot-sheet.tsx). The lesson itself is not scrolled, resized or interrupted, and closing the sheet puts the learner
  *    back exactly where they were, with screen-reader focus on the marker they chose;
  *  - where the block is WIDE enough (judged from the block's own measured width, not the device) in a panel to the right of the picture (same content, same navigation).
- * Either way there is ONE explanation: choosing another hotspot (its number, Previous / Next) replaces the content in place, and the picture's selected marker follows.
+ * Either way there is ONE explanation: choosing another hotspot (its number, Previous / Next) replaces the content in place, and the picture's selected marker follows. The chosen hotspot's title is
+ * also floated beside its marker on the picture (hotspot-label.tsx), from the same single selection, and leaves with it.
  * Leaving the screen closes the sheet at once, so it never lingers over another screen.
  *
  * THE LIST under the picture is the accessible equivalent of the markers (and the way to reach hotspots whose markers overlap). If the image cannot be shown (not saved, offline, failed) the list
@@ -346,6 +348,8 @@ export function HotspotImage({
   // The picture and the list share ONE selection. With the picture shown, the chosen item opens in the sheet / panel; when the picture cannot be shown, every explanation is read straight from the list.
   const active = imageFailed ? null : (hotspots.find((h) => h.id === selected) ?? null);
   const hasMarkers = hotspots.some((h) => h.x !== null && h.y !== null);
+  // The chosen hotspot, if it is on the picture and has a title: its title is floated beside its marker. It is the same selection as the sheet's and the marker's, never a second one.
+  const labelled = active && active.x !== null && active.y !== null && active.label.trim() !== '' ? active : null;
   // What the sheet shows while it is leaving: the hotspot that was open, so it never empties before it is gone.
   const lastShown = useRef<Hotspot | null>(null);
   if (active) lastShown.current = active;
@@ -399,6 +403,18 @@ export function HotspotImage({
                 ),
               )
             : null}
+          {/* the chosen marker's title, beside it; it follows the one selection and takes no touches */}
+          {status === 'ready' && boxWidth > 0 ? (
+            <FloatingHotspotLabel
+              id={labelled ? labelled.id : null}
+              title={labelled ? labelled.label.trim() : ''}
+              x={labelled?.x ?? 0}
+              y={labelled?.y ?? 0}
+              boxWidth={boxWidth}
+              boxHeight={boxWidth / ratio}
+              markerRadius={(HALO / 2) * SELECTED_SCALE}
+            />
+          ) : null}
         </Animated.View>
         {/* the frame is drawn over the picture, so it takes no room and cannot move a marker; it turns gold only while the learner is exploring */}
         <View
