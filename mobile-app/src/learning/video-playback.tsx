@@ -12,7 +12,7 @@ import { useTheme } from '@/theme';
  * offline use: no `useCaching`, no background download. The platform's own controls are shown (play and pause, seek, volume, full screen), which are the
  * accessible controls of each platform. A status of `error` is reported to the block, which says so and offers to try again.
  */
-export default function VideoPlayback({ uri, onFailed }: { uri: string; onFailed: () => void }) {
+export default function VideoPlayback({ uri, onFailed, active }: { uri: string; onFailed: () => void; active: boolean }) {
   const { colors } = useTheme();
   const player = useVideoPlayer({ uri }, (created) => {
     created.loop = false;
@@ -28,6 +28,10 @@ export default function VideoPlayback({ uri, onFailed }: { uri: string; onFailed
     });
     return () => subscription.remove();
   }, [player, onFailed]);
+
+  useEffect(() => {
+    if (!active) player.pause();
+  }, [active, player]);
 
   return (
     <View style={{ flex: 1 }}>

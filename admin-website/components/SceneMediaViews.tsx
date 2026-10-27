@@ -1,5 +1,6 @@
 import React from 'react';
 import { animationReadiness, readAnimation, readScene, sceneReadiness } from '../lib/scene-media';
+import { youtubeThumbnailUrl, youtubeWatchUrl } from '../lib/youtube';
 import MediaFileTile from './MediaFileTile';
 import MediaImage from './MediaImage';
 import ScriptureEntriesView from './ScriptureEntriesView';
@@ -36,11 +37,16 @@ export function SceneView({ content }: { content: unknown }) {
  */
 export function AnimationView({ content }: { content: unknown }) {
   const c = readAnimation(content);
-  const noun = c.mediaType === 'VIDEO' ? 'video' : c.mediaType === 'LOTTIE' ? 'Lottie animation' : 'animated image';
-  if (!c.mediaId && !c.altText && !c.caption) return <span className="text-slate-600 italic font-sans text-xs">(No {noun} chosen yet)</span>;
+  const noun = c.mediaType === 'VIDEO' || c.mediaType === 'YOUTUBE' ? 'video' : c.mediaType === 'LOTTIE' ? 'Lottie animation' : 'animated image';
+  if (!c.mediaId && !c.youtubeVideoId && !c.altText && !c.caption) return <span className="text-slate-600 italic font-sans text-xs">(No {noun} chosen yet)</span>;
   return (
     <figure className="font-sans space-y-1">
-      {c.posterMediaId ? (
+      {c.mediaType === 'YOUTUBE' && c.youtubeVideoId ? (
+        <a href={youtubeWatchUrl(c.youtubeVideoId)} target="_blank" rel="noreferrer" className="block">
+          <img src={youtubeThumbnailUrl(c.youtubeVideoId)} alt={`Preview YouTube video: ${c.altText || 'video'}`} className="block w-full h-auto max-h-64 rounded-lg border border-slate-200 object-contain" />
+          <span className="mt-1 inline-block text-xs font-medium text-amber-800">Preview on YouTube</span>
+        </a>
+      ) : c.posterMediaId ? (
         <MediaImage mediaId={c.posterMediaId} alt={c.altText} className="block w-full h-auto max-h-64 rounded-lg border border-slate-200" fit="contain" />
       ) : (
         c.mediaId && c.mediaType !== 'ANIMATED_IMAGE' ? (
@@ -50,6 +56,7 @@ export function AnimationView({ content }: { content: unknown }) {
         )
       )}
       {c.caption && <figcaption className="text-sm text-slate-800">{c.caption}</figcaption>}
+      {c.description && <p className="text-sm text-slate-700 whitespace-pre-line">{c.description}</p>}
       {c.altText && <p className="text-xs text-slate-600">Accessibility text: {c.altText}</p>}
       <Needs items={animationReadiness(c)} />
     </figure>

@@ -47,30 +47,44 @@ export function sceneReadiness(c: SceneContent): string[] {
 export interface AnimationContent {
   mediaType: AnimationKind;
   mediaId: string;
+  youtubeVideoId: string;
   posterMediaId: string;
   caption: string;
+  description: string;
   altText: string;
+  autoplayWhenVisible: boolean;
+  loop: boolean;
+  showControls: boolean;
 }
-export const EMPTY_ANIMATION: AnimationContent = { mediaType: 'ANIMATED_IMAGE', mediaId: '', posterMediaId: '', caption: '', altText: '' };
+export const EMPTY_ANIMATION: AnimationContent = { mediaType: 'ANIMATED_IMAGE', mediaId: '', youtubeVideoId: '', posterMediaId: '', caption: '', description: '', altText: '', autoplayWhenVisible: true, loop: true, showControls: true };
+
+export function animationDefaults(mediaType: AnimationKind): Pick<AnimationContent, 'autoplayWhenVisible' | 'loop' | 'showControls'> {
+  if (mediaType === 'VIDEO' || mediaType === 'YOUTUBE') return { autoplayWhenVisible: false, loop: false, showControls: true };
+  return { autoplayWhenVisible: true, loop: true, showControls: true };
+}
 
 export function readAnimation(content: unknown): AnimationContent {
   const c = isObject(content) ? content : {};
   // A block saved before video and Lottie existed names ANIMATED_IMAGE (or, in a draft, nothing): both read as an animated image.
   const mediaType = ANIMATION_KINDS.find((kind) => kind.value === c.mediaType)?.value ?? 'ANIMATED_IMAGE';
-  return { mediaType, mediaId: text(c.mediaId), posterMediaId: text(c.posterMediaId), caption: text(c.caption), altText: text(c.altText) };
+  const defaults = animationDefaults(mediaType);
+  return { mediaType, mediaId: text(c.mediaId), youtubeVideoId: text(c.youtubeVideoId), posterMediaId: text(c.posterMediaId), caption: text(c.caption), description: text(c.description), altText: text(c.altText), autoplayWhenVisible: typeof c.autoplayWhenVisible === 'boolean' ? c.autoplayWhenVisible : defaults.autoplayWhenVisible, loop: typeof c.loop === 'boolean' ? c.loop : defaults.loop, showControls: typeof c.showControls === 'boolean' ? c.showControls : defaults.showControls };
 }
 
 export function buildAnimation(draft: AnimationContent): Record<string, unknown> {
-  const out: Record<string, unknown> = { mediaType: draft.mediaType, altText: draft.altText.trim() };
-  if (draft.mediaId) out.mediaId = draft.mediaId;
+  const out: Record<string, unknown> = { mediaType: draft.mediaType, altText: draft.altText.trim(), autoplayWhenVisible: draft.autoplayWhenVisible, loop: draft.loop, showControls: draft.showControls };
+  if (draft.mediaType === 'YOUTUBE') {
+    if (draft.youtubeVideoId) out.youtubeVideoId = draft.youtubeVideoId;
+  } else if (draft.mediaId) out.mediaId = draft.mediaId;
   if (draft.posterMediaId) out.posterMediaId = draft.posterMediaId;
   if (draft.caption.trim()) out.caption = draft.caption.trim();
+  if (draft.description.trim()) out.description = draft.description.trim();
   return out;
 }
 
 export function animationReadiness(c: AnimationContent): string[] {
   const out: string[] = [];
-  if (!c.mediaId) out.push(c.mediaType === 'VIDEO' ? 'Choose the video.' : c.mediaType === 'LOTTIE' ? 'Choose the Lottie animation.' : 'Choose the animated image.');
-  if (!c.altText.trim()) out.push(`Write the accessibility text (what the ${c.mediaType === 'VIDEO' ? 'video' : 'animation'} shows).`);
+  if (c.mediaType === 'YOUTUBE' ? !c.youtubeVideoId : !c.mediaId) out.push(c.mediaType === 'YOUTUBE' ? 'Enter a valid YouTube video link.' : c.mediaType === 'VIDEO' ? 'Choose the video.' : c.mediaType === 'LOTTIE' ? 'Choose the Lottie animation.' : 'Choose the animated image.');
+  if (!c.altText.trim()) out.push(`Write the accessibility text (what the ${c.mediaType === 'VIDEO' || c.mediaType === 'YOUTUBE' ? 'video' : 'animation'} shows).`);
   return out;
 }

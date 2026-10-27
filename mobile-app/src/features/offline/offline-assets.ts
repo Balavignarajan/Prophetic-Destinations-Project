@@ -37,10 +37,9 @@ export function assetsOf(kind: CacheKind, id: string, level: LearningLevel, data
     for (const block of lesson.snapshot?.blocks ?? []) {
       if (block.type === 'MEDIA_ANIMATION') {
         // An animated image: the animated file AND its poster are both needed to show the block, so both are collected (and tracked, deduplicated and cleaned up like every image).
-        // A VIDEO or LOTTIE file is NEVER collected: videos are large and there is no approved offline policy for them, so they stream when played and nothing is
-        // downloaded in advance. Their poster is an ordinary still image and is saved with the lesson.
+        // A VIDEO or LOTTIE file is NEVER collected, and YouTube is always online-only. Their poster is an ordinary still image and is saved with the lesson.
         const c = (block.content ?? {}) as { mediaId?: unknown; posterMediaId?: unknown; mediaType?: unknown };
-        const playedOnline = c.mediaType === 'VIDEO' || c.mediaType === 'LOTTIE';
+        const playedOnline = c.mediaType === 'VIDEO' || c.mediaType === 'LOTTIE' || c.mediaType === 'YOUTUBE';
         for (const mediaId of playedOnline ? [c.posterMediaId] : [c.mediaId, c.posterMediaId]) if (isText(mediaId)) out.push({ mediaId, url: lessonCoverUrl(id, mediaId, level) });
         continue;
       }

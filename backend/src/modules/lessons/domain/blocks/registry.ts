@@ -309,7 +309,7 @@ const MEDIA_ANIMATION: BlockTypeDefinition = {
     // The kind of the main file decides what it must be: an MP4 video, a Lottie file, or (as before, also when the block names no kind) an animated WebP.
     const rule = mediaType === 'VIDEO' ? { mediaKind: 'video' as const } : mediaType === 'LOTTIE' ? { mediaKind: 'lottie' as const } : { animated: true };
     return [
-      ...(mediaId ? [{ kind: 'MEDIA' as const, targetId: mediaId, ...rule }] : []),
+      ...(mediaId && mediaType !== 'YOUTUBE' ? [{ kind: 'MEDIA' as const, targetId: mediaId, ...rule }] : []),
       ...(posterMediaId ? [{ kind: 'MEDIA' as const, targetId: posterMediaId }] : []),
     ];
   },

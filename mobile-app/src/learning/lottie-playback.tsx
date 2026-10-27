@@ -42,11 +42,15 @@ export default function LottiePlayback({
   onFinished,
   onFailed,
   onRatio,
+  loop,
+  active,
 }: {
   uri: string;
   onFinished: () => void;
   onFailed: (reason: LottieFailure) => void;
   onRatio: (ratio: number) => void;
+  loop: boolean;
+  active: boolean;
 }) {
   const { colors } = useTheme();
   const [animation, setAnimation] = useState<AnimationObject | null>(null);
@@ -85,8 +89,10 @@ export default function LottiePlayback({
   }, [uri, onFailed, onRatio]);
 
   useEffect(() => {
-    if (animation) player.current?.play();
-  }, [animation]);
+    if (!animation) return;
+    if (active) player.current?.play();
+    else player.current?.pause();
+  }, [animation, active]);
 
   if (!animation) {
     return (
@@ -99,7 +105,7 @@ export default function LottiePlayback({
     <LottieView
       ref={player}
       source={animation}
-      loop={false}
+      loop={loop}
       autoPlay={false}
       resizeMode="contain"
       style={{ width: '100%', height: '100%' }}

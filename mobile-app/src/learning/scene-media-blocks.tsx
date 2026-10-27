@@ -1,5 +1,5 @@
 import { Image } from 'expo-image';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
 
 import { AppText, BlockNotice, Reveal } from '@/components/ui';
@@ -7,7 +7,8 @@ import { useReduceMotion } from '@/accessibility/use-reduce-motion';
 import { canSaveImages, canSwitchToSavedWebCopy, reportBrokenAsset, switchToSavedWebCopy, useAssetUri } from '@/features/offline/offline-media';
 import { LessonImage, lessonImageUrl } from '@/learning/lesson-image';
 import type { LearningLevel } from '@/learning/levels';
-import { LottieBlock, VideoBlock } from '@/learning/played-media-blocks';
+import { LottieBlock, VideoBlock, YouTubeBlock } from '@/learning/played-media-blocks';
+import { isYouTubeVideoId, mediaPlaybackSettings } from '@/learning/media-settings';
 import { ScriptureLinks } from '@/learning/scripture-links';
 import { useTheme } from '@/theme';
 import { motion } from '@/theme/motion';
@@ -75,20 +76,25 @@ export function NarrativeSceneBlock({ lessonId, level, content }: { lessonId: st
  * A MEDIA_ANIMATION block: an animated WebP, an MP4 video or a Lottie animation, by its `mediaType`. A block that is missing what it needs says so (only itself);
  * a type this version does not know is said plainly, never shown as a placeholder that pretends to play.
  */
-export function AnimatedImageBlock({ lessonId, level, content }: { lessonId: string; level: LearningLevel; content: Record<string, unknown> }) {
+export function AnimatedImageBlock({ lessonId, level, content, isVisible = true, appActive = true }: { lessonId: string; level: LearningLevel; content: Record<string, unknown>; isVisible?: boolean; appActive?: boolean }) {
+  if (content.mediaType === 'YOUTUBE') {
+    if (!isYouTubeVideoId(content.youtubeVideoId) || !isText(content.altText)) return <Note title="YouTube video is incomplete" message="Part of this block could not be read, so it is not shown. The rest of the lesson is not affected." />;
+    return <YouTubeBlock lessonId={lessonId} level={level} content={content} isVisible={isVisible} appActive={appActive} />;
+  }
   if (content.mediaType === 'VIDEO' || content.mediaType === 'LOTTIE') {
-    if (!isText(content.mediaId) || !isText(content.altText) || (content.caption !== undefined && typeof content.caption !== 'string') || (content.posterMediaId !== undefined && typeof content.posterMediaId !== 'string')) {
+    if (!isText(content.mediaId) || !isText(content.altText) || (content.caption !== undefined && typeof content.caption !== 'string') || (content.description !== undefined && typeof content.description !== 'string') || (content.posterMediaId !== undefined && typeof content.posterMediaId !== 'string')) {
       return <Note title="Media is incomplete" message="Part of this block could not be read, so it is not shown. The rest of the lesson is not affected." />;
     }
-    return content.mediaType === 'VIDEO' ? <VideoBlock lessonId={lessonId} level={level} content={content} /> : <LottieBlock lessonId={lessonId} level={level} content={content} />;
+    return content.mediaType === 'VIDEO' ? <VideoBlock lessonId={lessonId} level={level} content={content} appActive={appActive} /> : <LottieBlock lessonId={lessonId} level={level} content={content} isVisible={isVisible} appActive={appActive} />;
   }
-  return <AnimatedWebpBlock lessonId={lessonId} level={level} content={content} />;
+  return <AnimatedWebpBlock lessonId={lessonId} level={level} content={content} isVisible={isVisible} appActive={appActive} />;
 }
 
-function AnimatedWebpBlock({ lessonId, level, content }: { lessonId: string; level: LearningLevel; content: Record<string, unknown> }) {
+function AnimatedWebpBlock({ lessonId, level, content, isVisible, appActive }: { lessonId: string; level: LearningLevel; content: Record<string, unknown>; isVisible: boolean; appActive: boolean }) {
   const { spacing, colors, radius } = useTheme();
   const reduceMotion = useReduceMotion();
-  const [playing, setPlaying] = useState(false);
+  // `null` means follow the visibility preference; an explicit Play or Pause temporarily overrides it until the block leaves view.
+  const [manualPlaying, setManualPlaying] = useState<boolean | null>(null);
   const [ratio, setRatio] = useState(16 / 9);
   const [failed, setFailed] = useState(false);
 
@@ -98,16 +104,22 @@ function AnimatedWebpBlock({ lessonId, level, content }: { lessonId: string; lev
   const posterRemote = posterId ? lessonImageUrl(lessonId, posterId, level) : null;
   const uri = useAssetUri(mediaId, remote);
   const posterUri = useAssetUri(posterId, posterRemote);
+  useEffect(() => {
+    if (!appActive || !isVisible) setManualPlaying(null);
+  }, [appActive, isVisible]);
 
   if (content.mediaType !== undefined && content.mediaType !== 'ANIMATED_IMAGE') {
     // A type this version of the app does not know (a newer one may): said plainly and without pretending, nothing is shown in its place and nothing is downloaded.
     return <Note variant="unsupported" title="Media not supported" message="This kind of media cannot be played in this version of the app yet. The rest of the lesson is not affected." />;
   }
-  if (content.mediaType !== 'ANIMATED_IMAGE' || !mediaId || !isText(content.altText) || (content.caption !== undefined && typeof content.caption !== 'string')) {
+  if ((content.mediaType !== undefined && content.mediaType !== 'ANIMATED_IMAGE') || !mediaId || !isText(content.altText) || (content.caption !== undefined && typeof content.caption !== 'string') || (content.description !== undefined && typeof content.description !== 'string')) {
     return <Note title="Animation is incomplete" message="Part of this block could not be read, so it is not shown. The rest of the lesson is not affected." />;
   }
   const alt = content.altText;
   const caption = typeof content.caption === 'string' && content.caption.trim() ? content.caption.trim() : '';
+  const description = typeof content.description === 'string' && content.description.trim() ? content.description.trim() : '';
+  const settings = mediaPlaybackSettings(content, 'ANIMATED_IMAGE');
+  const playing = appActive && (manualPlaying ?? (!reduceMotion && settings.autoplayWhenVisible && isVisible));
 
   if (!uri || failed) {
     return (
@@ -136,10 +148,10 @@ function AnimatedWebpBlock({ lessonId, level, content }: { lessonId: string; lev
   const shownUri = showPoster ? posterUri : uri;
 
   return (
-    <View style={{ gap: spacing.sm }} accessible={false}>
+    <Reveal offset={motion.offset.subtle} style={{ gap: spacing.sm }} accessible={false}>
       <View style={{ borderRadius: radius.lg, overflow: 'hidden', backgroundColor: colors.surface, aspectRatio: ratio, width: '100%' }}>
         <Image
-          key={`${playing ? 'play' : 'still'}:${showPoster ? 'poster' : 'file'}`}
+          key={showPoster ? `poster:${posterId}` : `file:${mediaId}`}
           source={{ uri: shownUri ?? undefined }}
           style={{ width: '100%', height: '100%' }}
           contentFit="contain"
@@ -165,9 +177,9 @@ function AnimatedWebpBlock({ lessonId, level, content }: { lessonId: string; lev
       </View>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={playing ? 'Stop the animation' : 'Play the animation'}
+        accessibilityLabel={playing ? 'Pause the animation' : 'Play the animation'}
         accessibilityState={{ selected: playing }}
-        onPress={() => setPlaying((p) => !p)}
+        onPress={() => setManualPlaying(playing ? false : true)}
         style={({ pressed }) => ({
           alignSelf: 'flex-start',
           minHeight: 44,
@@ -179,7 +191,7 @@ function AnimatedWebpBlock({ lessonId, level, content }: { lessonId: string; lev
           backgroundColor: pressed ? colors.surfaceElevated : colors.surface,
         })}>
         <AppText variant="label" color="primaryHighlight">
-          {playing ? 'Stop animation' : 'Play animation'}
+          {playing ? 'Pause animation' : 'Play animation'}
         </AppText>
       </Pressable>
       {reduceMotion ? (
@@ -192,6 +204,7 @@ function AnimatedWebpBlock({ lessonId, level, content }: { lessonId: string; lev
           {caption}
         </AppText>
       ) : null}
-    </View>
+      {description ? <AppText variant="bodySmall" color="textSecondary">{description}</AppText> : null}
+    </Reveal>
   );
 }

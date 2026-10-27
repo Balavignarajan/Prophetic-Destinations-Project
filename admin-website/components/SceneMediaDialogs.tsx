@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { fillIfEmpty } from '../lib/media-api';
 import { ANIMATION_KINDS, type AnimationKind } from '../lib/media-kinds';
+import { youtubeThumbnailUrl, youtubeVideoId } from '../lib/youtube';
 import {
   ANIMATION_LIMITS,
   EMPTY_ANIMATION,
@@ -133,8 +134,18 @@ export function SceneDialog({ isOpen, onClose, initial, ...rest }: CommonProps &
 function AnimationBody({ mode, lessonLevels, initial, saving, error, onSave, requestClose, dirtyRef }: BodyProps & { initial: AnimationContent | null }) {
   const start = initial ?? EMPTY_ANIMATION;
   const [draft, setDraft] = useState<AnimationContent>(start);
+  const [youtubeUrl, setYoutubeUrl] = useState(start.youtubeVideoId ? `https://www.youtube.com/watch?v=${start.youtubeVideoId}` : '');
   const [levels, setLevels] = useState<LearningLevel[]>(lessonLevels);
   const patch = (changes: Partial<AnimationContent>) => setDraft((d) => ({ ...d, ...changes }));
+  const switchType = (mediaType: AnimationKind) => {
+    setYoutubeUrl('');
+    setDraft((d) => ({ ...d, mediaType, mediaId: '', youtubeVideoId: '', autoplayWhenVisible: mediaType === 'VIDEO' || mediaType === 'YOUTUBE' ? false : true, loop: mediaType === 'VIDEO' || mediaType === 'YOUTUBE' ? false : true, showControls: true }));
+  };
+  const setYoutubeLink = (value: string) => {
+    setYoutubeUrl(value);
+    patch({ youtubeVideoId: youtubeVideoId(value) ?? '' });
+  };
+  const isYoutube = draft.mediaType === 'YOUTUBE';
   dirtyRef.current = JSON.stringify(buildAnimation(draft)) !== JSON.stringify(buildAnimation(start));
   const canSave = !saving && (mode === 'edit' || levels.length > 0);
 
@@ -155,12 +166,16 @@ function AnimationBody({ mode, lessonLevels, initial, saving, error, onSave, req
           </>
         ) : draft.mediaType === 'LOTTIE' ? (
           <>
-            A <strong>Lottie animation</strong> (plain .json, without expressions or links to other files). It never starts by itself: learners press Play. It is loaded over the
+            A <strong>Lottie animation</strong> (plain .json, without expressions or links to other files). It can start when learners reach it, if you enable that setting. It is loaded over the
             internet when played and is <strong>not saved for offline reading</strong>. The poster is saved with the lesson.
+          </>
+        ) : isYoutube ? (
+          <>
+            A <strong>YouTube video</strong>. Learners need an internet connection and choose when to open it through YouTube. The link is stored only as a validated video reference, not as arbitrary embedded content.
           </>
         ) : (
           <>
-            An <strong>animated WebP</strong> file; a still image is refused when you save. The animation never starts by itself: learners press Play. It is saved for offline
+            An <strong>animated WebP</strong> file; a still image is refused when you save. It can start when learners reach it, if you enable that setting. It is saved for offline
             reading with the lesson.
           </>
         )}
@@ -172,7 +187,7 @@ function AnimationBody({ mode, lessonLevels, initial, saving, error, onSave, req
           <select
             id="ma-type"
             value={draft.mediaType}
-            onChange={(e) => patch({ mediaType: e.target.value as AnimationKind, mediaId: '' })}
+            onChange={(e) => switchType(e.target.value as AnimationKind)}
             aria-describedby="ma-type-help"
             className={FIELD}
           >
@@ -180,29 +195,49 @@ function AnimationBody({ mode, lessonLevels, initial, saving, error, onSave, req
               <option key={kind.value} value={kind.value}>{kind.label}</option>
             ))}
           </select>
-          <p id="ma-type-help" className={HELP}>Changing the kind clears the chosen file, because a file only fits its own kind.</p>
+          <p id="ma-type-help" className={HELP}>Changing the kind clears its incompatible media reference. Caption, description and poster remain available.</p>
         </div>
-        <CoverImageField
-          key={draft.mediaType}
-          subject={draft.mediaType === 'VIDEO' ? 'video' : draft.mediaType === 'LOTTIE' ? 'lottie' : 'animation'}
-          contentType={ANIMATION_KINDS.find((kind) => kind.value === draft.mediaType)?.contentType}
-          value={draft.mediaId || null}
-          onChange={(mediaId, asset) => patch(mediaId ? { mediaId, altText: fillIfEmpty(draft.altText, asset?.altText), caption: fillIfEmpty(draft.caption, asset?.caption) } : { mediaId: '' })}
-          disabled={saving}
-        />
+        {isYoutube ? (
+          <div>
+            <label htmlFor="ma-youtube" className={LABEL}>YouTube video link <span className="text-rose-700">(required before publishing)</span></label>
+            <input id="ma-youtube" type="url" placeholder="Paste a YouTube video URL" value={youtubeUrl} onChange={(e) => setYoutubeLink(e.target.value)} className={FIELD} aria-describedby="ma-youtube-help" />
+            <p id="ma-youtube-help" className={HELP}>{draft.youtubeVideoId ? 'Valid YouTube link. Its canonical video reference will be saved.' : 'Enter a valid YouTube video link.'}</p>
+            {draft.youtubeVideoId ? <img src={youtubeThumbnailUrl(draft.youtubeVideoId)} alt="YouTube video thumbnail preview" className="mt-3 max-h-48 rounded-lg border border-slate-200 object-contain" /> : null}
+          </div>
+        ) : (
+          <CoverImageField
+            key={draft.mediaType}
+            subject={draft.mediaType === 'VIDEO' ? 'video' : draft.mediaType === 'LOTTIE' ? 'lottie' : 'animation'}
+            contentType={ANIMATION_KINDS.find((kind) => kind.value === draft.mediaType)?.contentType}
+            value={draft.mediaId || null}
+            onChange={(mediaId, asset) => patch(mediaId ? { mediaId, altText: fillIfEmpty(draft.altText, asset?.altText), caption: fillIfEmpty(draft.caption, asset?.caption) } : { mediaId: '' })}
+            disabled={saving}
+          />
+        )}
         <CoverImageField subject="poster" value={draft.posterMediaId || null} onChange={(mediaId) => patch({ posterMediaId: mediaId ?? '' })} disabled={saving} />
         <p className={HELP}>
           The poster is the still picture learners see before they press Play.{' '}
-          {draft.mediaType === 'ANIMATED_IMAGE' ? 'Without one, the first frame of the animation is shown.' : 'Without one, learners see a plain play button.'}
+          {draft.mediaType === 'ANIMATED_IMAGE' ? 'Without one, the first frame of the animation is shown.' : draft.mediaType === 'YOUTUBE' ? 'Without one, the YouTube thumbnail is shown.' : 'Without one, learners see a plain play button.'}
         </p>
+        {draft.mediaType !== 'YOUTUBE' ? (
+          <div className="space-y-3 rounded-lg border border-slate-200 p-3">
+            <p className="text-sm font-semibold text-slate-800">Playback settings</p>
+            {(draft.mediaType === 'ANIMATED_IMAGE' || draft.mediaType === 'LOTTIE') ? <label className="flex gap-2 text-sm text-slate-800"><input type="checkbox" checked={draft.autoplayWhenVisible} onChange={(e) => patch({ autoplayWhenVisible: e.target.checked })} />Start this animation automatically when learners reach it.</label> : <p className={HELP}>Learners tap Play to watch this video.</p>}
+            {draft.mediaType === 'LOTTIE' ? <label className="flex gap-2 text-sm text-slate-800"><input type="checkbox" checked={draft.loop} onChange={(e) => patch({ loop: e.target.checked })} />Repeat the animation while it is playing.</label> : null}
+          </div>
+        ) : <p className="p-3 rounded-lg bg-slate-50 text-sm text-slate-800">Learners need an internet connection. The video plays through YouTube.</p>}
         <div>
           <label htmlFor="ma-alt" className={LABEL}>Accessibility text</label>
           <textarea id="ma-alt" rows={2} maxLength={ANIMATION_LIMITS.altText} value={draft.altText} onChange={(e) => patch({ altText: e.target.value })} className={FIELD} />
-          <p className={HELP}>Describe what the {draft.mediaType === 'VIDEO' ? 'video' : 'animation'} shows, for people who cannot see it. Required before publishing.</p>
+          <p className={HELP}>Describe what the {draft.mediaType === 'VIDEO' || draft.mediaType === 'YOUTUBE' ? 'video' : 'animation'} shows, for people who cannot see it. Required before publishing.</p>
         </div>
         <div>
           <label htmlFor="ma-caption" className={LABEL}>Caption (optional)</label>
           <textarea id="ma-caption" rows={2} maxLength={ANIMATION_LIMITS.caption} value={draft.caption} onChange={(e) => patch({ caption: e.target.value })} className={FIELD} />
+        </div>
+        <div>
+          <label htmlFor="ma-description" className={LABEL}>Description (optional)</label>
+          <textarea id="ma-description" rows={3} maxLength={2000} value={draft.description} onChange={(e) => patch({ description: e.target.value })} className={FIELD} />
         </div>
       </fieldset>
       <Missing items={animationReadiness(draft)} />
@@ -215,7 +250,7 @@ function AnimationBody({ mode, lessonLevels, initial, saving, error, onSave, req
 export function AnimationDialog({ isOpen, onClose, initial, ...rest }: CommonProps & { initial: AnimationContent | null }) {
   const { dirtyRef, requestClose } = useGuardedClose(rest.saving, onClose);
   return (
-    <Modal isOpen={isOpen} onClose={requestClose} title={rest.mode === 'create' ? 'Add a video or animation' : 'Edit video or animation'} description="An animated WebP, an MP4 video or a Lottie animation from your Media Library that learners start themselves." maxWidth="xl">
+    <Modal isOpen={isOpen} onClose={requestClose} title={rest.mode === 'create' ? 'Add a video or animation' : 'Edit video or animation'} description="An animated WebP, MP4 video, Lottie animation, or a safe YouTube video reference." maxWidth="xl">
       <AnimationBody {...rest} initial={initial} requestClose={requestClose} dirtyRef={dirtyRef} />
     </Modal>
   );

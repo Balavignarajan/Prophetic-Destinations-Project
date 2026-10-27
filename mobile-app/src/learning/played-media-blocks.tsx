@@ -1,13 +1,17 @@
-import { Suspense, lazy, useCallback, useState } from 'react';
-import { ActivityIndicator, Pressable, View } from 'react-native';
+import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Linking, Pressable, View } from 'react-native';
+import { Image } from 'expo-image';
 
 import { useReduceMotion } from '@/accessibility/use-reduce-motion';
-import { AppText, BlockNotice, SecondaryButton } from '@/components/ui';
+import { AppText, BlockNotice, Reveal, SecondaryButton } from '@/components/ui';
 import { lessonImageUrl } from '@/learning/lesson-image';
 import type { LearningLevel } from '@/learning/levels';
 import { MediaErrorBoundary } from '@/learning/media-error-boundary';
+import { EmbeddedYoutubePlayer } from '@/learning/embedded-youtube-player';
+import { isYouTubeVideoId, mediaPlaybackSettings, youtubeThumbnailUrl, youtubeWatchUrl } from '@/learning/media-settings';
 import { FramePlaceholder, MediaFrame, MediaPoster } from '@/learning/media-poster';
 import { useTheme } from '@/theme';
+import { motion } from '@/theme/motion';
 
 /**
  * The MEDIA_ANIMATION blocks of type VIDEO (MP4) and LOTTIE (backend/src/modules/lessons/domain/blocks/scene-media.ts):
@@ -92,12 +96,17 @@ function Failure({ kind, alt, reason, onRetry }: { kind: Kind; alt: string; reas
   );
 }
 
-function Details({ caption, note }: { caption: string; note: string }) {
+function Details({ caption, description, note }: { caption: string; description: string; note: string }) {
   return (
     <>
       {caption ? (
         <AppText variant="bodySmall" color="textSecondary">
           {caption}
+        </AppText>
+      ) : null}
+      {description ? (
+        <AppText variant="bodySmall" color="textSecondary">
+          {description}
         </AppText>
       ) : null}
       <AppText variant="bodySmall" color="textMuted">
@@ -115,12 +124,13 @@ function read(content: Record<string, unknown>) {
     posterId: isText(content.posterMediaId) ? content.posterMediaId.trim() : '',
     alt: isText(content.altText) ? content.altText.trim() : '',
     caption: isText(content.caption) ? content.caption.trim() : '',
+    description: isText(content.description) ? content.description.trim() : '',
   };
 }
 
-export function VideoBlock({ lessonId, level, content }: Props) {
+export function VideoBlock({ lessonId, level, content, appActive = true }: Props & { appActive?: boolean }) {
   const { spacing } = useTheme();
-  const { mediaId, posterId, alt, caption } = read(content);
+  const { mediaId, posterId, alt, caption, description } = read(content);
   const [phase, setPhase] = useState<Phase>('idle');
   const [attempt, setAttempt] = useState(0);
   const [ratio, setRatio] = useState(16 / 9);
@@ -144,7 +154,7 @@ export function VideoBlock({ lessonId, level, content }: Props) {
             </View>
           )}>
           <Suspense fallback={<Loading />}>
-            <VideoPlayback key={attempt} uri={uri} onFailed={onFailed} />
+            <VideoPlayback key={attempt} uri={uri} onFailed={onFailed} active={appActive} />
           </Suspense>
         </MediaErrorBoundary>
       ) : (
@@ -157,40 +167,52 @@ export function VideoBlock({ lessonId, level, content }: Props) {
   );
 
   return (
-    <View style={{ gap: spacing.sm }} accessible={false}>
+    <Reveal offset={motion.offset.subtle} style={{ gap: spacing.sm }} accessible={false}>
       {frame}
       {phase === 'failed' ? <Failure kind="video" alt={alt} onRetry={retry} /> : null}
       {phase === 'playing' ? <SecondaryButton size="small" label="Stop and show the poster" onPress={() => setPhase('idle')} style={{ alignSelf: 'flex-start' }} /> : null}
-      <Details caption={caption} note="This video plays only when you press Play, and needs an internet connection: it is not saved for offline reading." />
-    </View>
+      <Details caption={caption} description={description} note="This video plays only when you press Play, and needs an internet connection: it is not saved for offline reading." />
+    </Reveal>
   );
 }
 
-export function LottieBlock({ lessonId, level, content }: Props) {
+export function LottieBlock({ lessonId, level, content, isVisible = true, appActive = true }: Props & { isVisible?: boolean; appActive?: boolean }) {
   const { spacing } = useTheme();
   const reduceMotion = useReduceMotion();
-  const { mediaId, posterId, alt, caption } = read(content);
+  const { mediaId, posterId, alt, caption, description } = read(content);
   const [phase, setPhase] = useState<Phase>('idle');
   const [attempt, setAttempt] = useState(0);
   const [ratio, setRatio] = useState(1);
   const [reason, setReason] = useState<'unreachable' | 'unusable'>('unreachable');
   const uri = lessonImageUrl(lessonId, mediaId, level);
+  const settings = mediaPlaybackSettings(content, 'LOTTIE');
+  const shouldAutoPlay = settings.autoplayWhenVisible && !reduceMotion && isVisible && appActive;
   const onFinished = useCallback(() => setPhase('finished'), []);
   const onFailed = useCallback((why: 'unreachable' | 'unusable') => {
     setReason(why);
     setPhase('failed');
   }, []);
 
-  if (!uri) {
-    return <BlockNotice variant="offline" title={`Animation: ${alt}`} message="The server address is not set up in this build, so the animation cannot be played." />;
-  }
   const play = () => {
     setAttempt((n) => n + 1);
     setPhase('playing');
   };
 
+  // A visible animation begins only when its configured autoplay is on. Leaving the reading area or app stops it cleanly; returning creates a fresh playback.
+  useEffect(() => {
+    if (shouldAutoPlay && phase === 'idle') {
+      setAttempt((n) => n + 1);
+      setPhase('playing');
+    }
+    if (!shouldAutoPlay && phase !== 'idle' && settings.autoplayWhenVisible) setPhase('idle');
+  }, [shouldAutoPlay, phase, settings.autoplayWhenVisible]);
+
+  if (!uri) {
+    return <BlockNotice variant="offline" title={`Animation: ${alt}`} message="The server address is not set up in this build, so the animation cannot be played." />;
+  }
+
   return (
-    <View style={{ gap: spacing.sm }} accessible={false}>
+    <Reveal offset={motion.offset.subtle} style={{ gap: spacing.sm }} accessible={false}>
       <MediaFrame ratio={ratio}>
         {phase === 'playing' ? (
           <View accessible accessibilityRole="image" accessibilityLabel={`Animation: ${alt}`} style={{ flex: 1 }}>
@@ -201,7 +223,7 @@ export function LottieBlock({ lessonId, level, content }: Props) {
                 </View>
               )}>
               <Suspense fallback={<Loading />}>
-                <LottiePlayback key={attempt} uri={uri} onFinished={onFinished} onFailed={onFailed} onRatio={setRatio} />
+                <LottiePlayback key={attempt} uri={uri} onFinished={onFinished} onFailed={onFailed} onRatio={setRatio} loop={settings.loop} active={appActive && isVisible} />
               </Suspense>
             </MediaErrorBoundary>
           </View>
@@ -219,7 +241,64 @@ export function LottieBlock({ lessonId, level, content }: Props) {
           Your device is set to reduce motion. This animation plays only when you press Play.
         </AppText>
       ) : null}
-      <Details caption={caption} note="This animation plays once, only when you press Play, and needs an internet connection: it is not saved for offline reading." />
-    </View>
+      <Details caption={caption} description={description} note="This animation needs an internet connection and is not saved for offline reading." />
+    </Reveal>
+  );
+}
+
+/** A user-triggered YouTube presentation that embeds when supported and retains the canonical external action as a fallback. */
+export function YouTubeBlock({ lessonId, level, content, isVisible = true, appActive = true }: Props & { isVisible?: boolean; appActive?: boolean }) {
+  const { spacing, radius, colors } = useTheme();
+  const { posterId, alt, caption, description } = read(content);
+  const id = isYouTubeVideoId(content.youtubeVideoId) ? content.youtubeVideoId : '';
+  const [thumbnailFailed, setThumbnailFailed] = useState(false);
+  const [openFailed, setOpenFailed] = useState(false);
+  const [ratio, setRatio] = useState(16 / 9);
+  const [phase, setPhase] = useState<'idle' | 'loading' | 'playing' | 'failed'>('idle');
+  const open = useCallback(() => {
+    if (!id) return;
+    setOpenFailed(false);
+    void Linking.openURL(youtubeWatchUrl(id)).catch(() => setOpenFailed(true));
+  }, [id]);
+  const play = useCallback(() => {
+    setOpenFailed(false);
+    setPhase('loading');
+  }, []);
+  const onPlayerReady = useCallback(() => setPhase('playing'), []);
+  const onPlayerFailed = useCallback(() => setPhase('failed'), []);
+  const onPlayerReleased = useCallback(() => setPhase('idle'), []);
+  // YouTube does not provide a robust native pause handle through a raw WebView. Releasing the player is predictable:
+  // it prevents background audio, avoids retaining several players in a lesson, and always requires an explicit replay on return.
+  useEffect(() => {
+    if (!isVisible || !appActive) setPhase((current) => (current === 'loading' || current === 'playing' ? 'idle' : current));
+  }, [isVisible, appActive]);
+  useEffect(() => {
+    if (phase !== 'loading') return;
+    const timeout = setTimeout(() => setPhase('failed'), 20_000);
+    return () => clearTimeout(timeout);
+  }, [phase]);
+  if (!id) return <BlockNotice title="YouTube video is incomplete" message="This video cannot be played here." />;
+  return (
+    <Reveal offset={motion.offset.subtle} style={{ gap: spacing.sm }} accessible={false}>
+      <MediaFrame ratio={ratio}>
+        {phase === 'loading' || phase === 'playing' ? (
+          <EmbeddedYoutubePlayer videoId={id} accessibilityLabel={`YouTube video: ${alt}`} onReady={onPlayerReady} onFailed={onPlayerFailed} onReleased={onPlayerReleased} />
+        ) : (
+          <>
+            {posterId ? <MediaPoster lessonId={lessonId} level={level} mediaId={posterId} onRatio={setRatio} /> : !thumbnailFailed ? <Image source={{ uri: youtubeThumbnailUrl(id) }} style={{ width: '100%', height: '100%' }} contentFit="contain" accessible={false} onError={() => setThumbnailFailed(true)} /> : <FramePlaceholder kind="YouTube video" />}
+            <PlayOverlay label={`${phase === 'failed' ? 'Retry YouTube video' : 'Play YouTube video'}: ${alt}`} onPress={play} />
+          </>
+        )}
+      </MediaFrame>
+      {phase === 'failed' ? <BlockNotice variant="offline" title="Unable to play this YouTube video here." message="This video can't be played here. Try again or watch it on YouTube." /> : null}
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+        {phase === 'failed' ? <Pressable accessibilityRole="button" accessibilityLabel={`Retry ${alt}`} onPress={play} style={({ pressed }) => ({ minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.lg, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderGold, backgroundColor: pressed ? colors.surfaceElevated : colors.surface })}><AppText variant="label" color="primaryHighlight">Retry</AppText></Pressable> : null}
+      <Pressable accessibilityRole="button" accessibilityLabel={`Watch ${alt} on YouTube`} onPress={open} style={({ pressed }) => ({ minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.lg, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderGold, backgroundColor: pressed ? colors.surfaceElevated : colors.surface })}>
+        <AppText variant="label" color="primaryHighlight">Watch on YouTube</AppText>
+      </Pressable>
+      </View>
+      {openFailed ? <BlockNotice variant="offline" title="This video can't be played here." message="Check your connection and try Watch on YouTube again." /> : null}
+      <Details caption={caption} description={description} note="Hosted on YouTube. An internet connection is required and this video is not saved for offline reading." />
+    </Reveal>
   );
 }

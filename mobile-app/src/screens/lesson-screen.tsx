@@ -1,4 +1,4 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent, ScrollView, View } from 'react-native';
 
@@ -183,6 +183,15 @@ export function LessonScreen() {
   // and restored the next time an unfinished lesson is opened. A completed lesson opens at the top.
   // The lesson a position belongs to is captured WHEN IT IS SCROLLED, so moving to the next lesson can never save the old lesson's position against the new one.
   const scrollRef = useRef<ScrollView>(null);
+  const [mediaVisibleBlocks, setMediaVisibleBlocks] = useState<Set<string>>(() => new Set());
+  const [appActive, setAppActive] = useState(AppState.currentState === 'active');
+  const [screenFocused, setScreenFocused] = useState(true);
+  useFocusEffect(
+    useCallback(() => {
+      setScreenFocused(true);
+      return () => setScreenFocused(false);
+    }, []),
+  );
   // The measured sizes of the scrolling area and of the lesson inside it, and the latest scroll offset.
   const metrics = useRef({ content: 0, viewport: 0, viewportWidth: 0, offset: 0 });
   // Where each block of the lesson body sits (measured as it is laid out), for turning an offset into an anchor and back.
@@ -247,6 +256,22 @@ export function LessonScreen() {
     }
     return boxList.current;
   }, []);
+  // Media is the only block family that responds to visibility. This reuses the reader's measured block boxes and throttled scroll events,
+  // so no per-frame measurements or nested scrollers are introduced. Hysteresis starts at 55% visible and stops at 45%, avoiding rapid toggles at the edge.
+  const updateMediaVisibility = useCallback(() => {
+    const { offset, viewport } = metrics.current;
+    if (viewport <= 0) return;
+    setMediaVisibleBlocks((current) => {
+      const next = new Set<string>();
+      for (const box of boxes()) {
+        const visible = Math.max(0, Math.min(box.top + box.height, offset + viewport) - Math.max(box.top, offset));
+        const threshold = current.has(box.blockId) ? 0.45 : 0.55;
+        if (box.height > 0 && visible / box.height >= threshold) next.add(box.blockId);
+      }
+      if (current.size === next.size && [...current].every((id) => next.has(id))) return current;
+      return next;
+    });
+  }, [boxes]);
 
   // Puts the reader on the saved place once the lesson is laid out far enough to reach it. Text and images keep changing the lesson's height while it loads, so the place is
   // found again from the CONTENT (the saved block, wherever it is now) every time the lesson changes shape, until the layout has settled; the learner scrolling first, or
@@ -302,6 +327,7 @@ export function LessonScreen() {
     liveAnchor.current = null;
     blockBoxes.current.clear();
     boxList.current = null;
+    setMediaVisibleBlocks(new Set());
     programmatic.current = null;
     clearRestoreTimer();
     return () => {
@@ -343,6 +369,7 @@ export function LessonScreen() {
   }, [contentHash, restoreKey, reanchor]);
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {
+      setAppActive(state === 'active');
       if (state !== 'active') flush();
     });
     return () => subscription.remove();
@@ -400,11 +427,13 @@ export function LessonScreen() {
       metrics.current.offset = event.nativeEvent.contentOffset.y;
       handleScroll(event);
       updatePercent();
+      updateMediaVisibility();
     },
     onContentSizeChange: (width: number, height: number) => {
       metrics.current.content = height;
       handleContentSize(width, height);
       updatePercent();
+      updateMediaVisibility();
     },
   };
 
@@ -476,7 +505,8 @@ export function LessonScreen() {
   const onBodyLayout = useCallback((y: number) => {
     layoutY.current.body = y;
     boxList.current = null;
-  }, []);
+    updateMediaVisibility();
+  }, [updateMediaVisibility]);
   // Every block reports where it sits as it is laid out (and again whenever its place or size changes, for instance when an image above it loads). The contents sheet,
   // "reveal in block" and the reading position all read from this one record.
   const onBlockLayout = useCallback(
@@ -485,12 +515,13 @@ export function LessonScreen() {
       blockBoxes.current.set(blockId, { y, height });
       boxList.current = null;
       lastLayoutChange.current = Date.now();
+      updateMediaVisibility();
       if (restore.current !== null) {
         tryRestore(false);
         waitForLayout();
       }
     },
-    [tryRestore, waitForLayout],
+    [tryRestore, waitForLayout, updateMediaVisibility],
   );
   // The blocks the lesson on screen now has: a block that is gone is forgotten, so a saved place in it is never matched against stale measurements.
   const onBlocks = useCallback((ids: string[]) => {
@@ -498,7 +529,8 @@ export function LessonScreen() {
     for (const id of [...blockBoxes.current.keys()]) if (!present.has(id)) blockBoxes.current.delete(id);
     for (const id of Object.keys(layoutY.current.sections)) if (!present.has(id)) delete layoutY.current.sections[id];
     boxList.current = null;
-  }, []);
+    updateMediaVisibility();
+  }, [updateMediaVisibility]);
   const jumpToSection = (blockId: string) => {
     const y = layoutY.current.sections[blockId];
     setContentsOpen(false);
@@ -561,6 +593,7 @@ export function LessonScreen() {
           metrics.current.viewport = height;
           metrics.current.viewportWidth = width;
           updatePercent();
+          updateMediaVisibility();
           // The screen was resized or turned: the text reflows, so the reader is kept on the block they were reading rather than on the old pixel offset.
           if (previousWidth > 0 && Math.abs(width - previousWidth) > 1) reanchor();
           tryRestore(false);
@@ -613,7 +646,7 @@ export function LessonScreen() {
           </AppText>
         ) : null}
 
-        {lesson.status === 'success' ? <LessonBody lessonId={lessonId} contentHash={lesson.data.value.contentHash} publicationVersion={lesson.data.value.publicationVersion} lessonBlocks={lesson.data.value.snapshot.blocks} snapshotLesson={lesson.data.value.snapshot.lesson} level={level} onBodyLayout={onBodyLayout} onBlockLayout={onBlockLayout} onBlocks={onBlocks} onRevealInBlock={revealInBlock} onBlockStep={scrollToBlockTop} /> : null}
+        {lesson.status === 'success' ? <LessonBody lessonId={lessonId} contentHash={lesson.data.value.contentHash} publicationVersion={lesson.data.value.publicationVersion} lessonBlocks={lesson.data.value.snapshot.blocks} snapshotLesson={lesson.data.value.snapshot.lesson} level={level} visibleMediaBlocks={mediaVisibleBlocks} appActive={appActive && screenFocused} onBodyLayout={onBodyLayout} onBlockLayout={onBlockLayout} onBlocks={onBlocks} onRevealInBlock={revealInBlock} onBlockStep={scrollToBlockTop} /> : null}
 
         {lesson.status === 'success' ? <RelatedLessons lessonId={lessonId} level={level} contentHash={lesson.data.value.contentHash} /> : null}
 
@@ -721,6 +754,8 @@ const LessonBody = memo(function LessonBody({
   lessonBlocks,
   snapshotLesson,
   level,
+  visibleMediaBlocks,
+  appActive,
   onBodyLayout,
   onBlockLayout,
   onBlocks,
@@ -735,6 +770,8 @@ const LessonBody = memo(function LessonBody({
   lessonBlocks: LessonSnapshotBlock[];
   snapshotLesson: { title: string; subtitle: string | null; introduction: string | null; estimatedMinutes: number | null; coverMediaId: string | null };
   level: keyof typeof LEVEL_LABELS;
+  visibleMediaBlocks: ReadonlySet<string>;
+  appActive: boolean;
   /** Where this body starts inside its column, and where each block starts (and how tall it is) inside the body: for the contents sheet, revealing part of a block and the reading position. */
   onBodyLayout: (y: number) => void;
   onBlockLayout: (blockId: string, y: number, height: number) => void;
@@ -814,6 +851,8 @@ const LessonBody = memo(function LessonBody({
           level={level}
           contentHash={contentHash}
           publicationVersion={publicationVersion}
+          mediaVisible={visibleMediaBlocks.has(block.blockId)}
+          appActive={appActive}
           onBlockLayout={onBlockLayout}
           onRevealInBlock={onRevealInBlock}
           onBlockStep={onBlockStep}
@@ -848,6 +887,8 @@ const LessonBlockView = memo(function LessonBlockView({
   level,
   contentHash,
   publicationVersion,
+  mediaVisible,
+  appActive,
   onBlockLayout,
   onRevealInBlock,
   onBlockStep,
@@ -858,6 +899,8 @@ const LessonBlockView = memo(function LessonBlockView({
   level: keyof typeof LEVEL_LABELS;
   contentHash: string;
   publicationVersion: number;
+  mediaVisible: boolean;
+  appActive: boolean;
   onBlockLayout: (blockId: string, y: number, height: number) => void;
   onRevealInBlock: (blockId: string, localY: number, height: number) => void;
   onBlockStep: (blockId: string) => void;
@@ -902,7 +945,7 @@ const LessonBlockView = memo(function LessonBlockView({
     ) : type === 'NARRATIVE_SCENE' ? (
       <NarrativeSceneBlock lessonId={lessonId} level={level} content={content} />
     ) : type === 'MEDIA_ANIMATION' ? (
-      <AnimatedImageBlock lessonId={lessonId} level={level} content={content} />
+      <AnimatedImageBlock lessonId={lessonId} level={level} content={content} isVisible={mediaVisible} appActive={appActive} />
     ) : type === 'WORD_STUDY' ? (
       <WordStudyBlock content={content} />
     ) : type === 'SYMBOL_STUDY' ? (

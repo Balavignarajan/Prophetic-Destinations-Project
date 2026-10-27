@@ -7,7 +7,7 @@
  * Whether the server accepts video and Lottie uploads at all, and the largest file, is the server's configuration (MEDIA_ALLOWED_TYPES, MEDIA_MAX_BYTES): the
  * rules it reports are passed in as `rules`, so the messages below quote the real limits and never a guess.
  */
-export type AnimationKind = 'ANIMATED_IMAGE' | 'VIDEO' | 'LOTTIE';
+export type AnimationKind = 'ANIMATED_IMAGE' | 'VIDEO' | 'LOTTIE' | 'YOUTUBE';
 export type UploadKind = 'image' | 'video' | 'lottie';
 
 export interface UploadRules {
@@ -15,10 +15,11 @@ export interface UploadRules {
   allowedTypes: string[];
 }
 
-export const ANIMATION_KINDS: { value: AnimationKind; label: string; contentType: 'image/webp' | 'video/mp4' | 'application/json'; upload: UploadKind }[] = [
+export const ANIMATION_KINDS: { value: AnimationKind; label: string; contentType?: 'image/webp' | 'video/mp4' | 'application/json'; upload?: UploadKind }[] = [
   { value: 'ANIMATED_IMAGE', label: 'Animated image (WebP)', contentType: 'image/webp', upload: 'image' },
   { value: 'VIDEO', label: 'Video (MP4)', contentType: 'video/mp4', upload: 'video' },
   { value: 'LOTTIE', label: 'Lottie animation (JSON)', contentType: 'application/json', upload: 'lottie' },
+  { value: 'YOUTUBE', label: 'YouTube video (URL)' },
 ];
 
 /** A Lottie file is plain JSON data; the server refuses larger ones (backend LOTTIE_LIMITS.maxBytes). */
