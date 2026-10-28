@@ -27,7 +27,7 @@ const LABEL = 'block text-xs font-semibold uppercase tracking-wider text-slate-7
  * Add or edit one Home Entry: the title and optional description of the topic, an optional card picture, whether it is shown and (when adding) where it goes. There is NO course field:
  * an entry holds no course of its own, courses join it from the course form, and an entry can be saved with none. The form only edits a draft: nothing is saved until Save. Closing
  * with unsaved changes asks first, a reload or tab close warns, and a conflicting edit by someone else keeps what was typed and says so. The order is not set here when editing (the
- * arrows in the list do that); a new entry can be placed anywhere, and is added at the end by default.
+ * list's drag handles, arrow keys and Move up / Move down do that); a new entry can be placed anywhere, and is added at the end by default.
  */
 export default function HomeEntryDialog({ isOpen, entry, entryCount, onClose, onSaved, onReload }: Props) {
   const editing = entry !== null;
