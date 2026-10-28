@@ -87,6 +87,7 @@ import RichTextVersionDialog from '../../../components/RichTextVersionDialog';
 import InsertReusableBlockDialog from '../../../components/InsertReusableBlockDialog';
 import SaveAsReusableDialog from '../../../components/SaveAsReusableDialog';
 import { REUSABLE_PICKER_KEY, levelName } from '../../../lib/reusable-blocks';
+import LessonPreviewDialog from '../../../components/lesson-preview/LessonPreviewDialog';
 import OrderBar from '../../../components/OrderBar';
 import { rowShift, usePointerSort } from '../../../lib/pointer-sort';
 import { useDraftOrder } from '../../../lib/use-draft-order';
@@ -113,20 +114,8 @@ export default function LessonAuthoringPage() {
   // Active level tab for authoring & preview
   const [selectedLevel, setSelectedLevel] = useState<LearningLevel>('BEGINNER');
 
-  // Preview data
-  const [previewData, setPreviewData] = useState<{
-    level: LearningLevel;
-    blocks: {
-      blockId: string;
-      type: string;
-      ordinal: number;
-      source: 'VARIANT' | 'SHARED' | null;
-      content: Record<string, unknown> | null;
-    }[];
-  } | null>(null);
+  // The Lesson Preview (components/lesson-preview): it asks the server for the working copy itself, for the level chosen inside it.
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
-  const [loadingPreview, setLoadingPreview] = useState(false);
-  const [previewError, setPreviewError] = useState<string | null>(null);
 
   // Edit Lesson Metadata
   const [editLessonModalOpen, setEditLessonModalOpen] = useState(false);
@@ -1364,30 +1353,6 @@ export default function LessonAuthoringPage() {
     }
   };
 
-  const handlePreview = async (level: LearningLevel) => {
-    setLoadingPreview(true);
-    setPreviewError(null);
-    setPreviewModalOpen(true);
-
-    try {
-      const res = await api.request<{
-        level: LearningLevel;
-        blocks: {
-          blockId: string;
-          type: string;
-          ordinal: number;
-          source: 'VARIANT' | 'SHARED' | null;
-          content: Record<string, unknown> | null;
-        }[];
-      }>(`/admin/lessons/${lessonId}/preview?level=${level}`);
-      setPreviewData(res);
-    } catch (err: unknown) {
-      setPreviewError(friendlyError(err, 'Failed to load the lesson preview.'));
-    } finally {
-      setLoadingPreview(false);
-    }
-  };
-
   /** Opens the existing editor for a block (the same one its "Edit" button opens). */
   const editBlock = (block: LessonBlock) => {
           if (block.type === 'SECTION_INTRO') {
@@ -1673,14 +1638,14 @@ export default function LessonAuthoringPage() {
 
           <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
             <button
-              onClick={() => handlePreview(selectedLevel)}
+              onClick={() => setPreviewModalOpen(true)}
               className="px-3.5 py-2 text-xs font-medium bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg flex items-center gap-1.5 transition-colors"
             >
               <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
               </svg>
-              Preview for {readableLevel(selectedLevel)}
+              Preview Lesson
             </button>
 
             <button
@@ -2765,107 +2730,10 @@ export default function LessonAuthoringPage() {
         isLoading={deletingBlock}
       />
 
-      {/* Learner Preview Modal */}
-      <Modal
-        isOpen={previewModalOpen}
-        onClose={() => setPreviewModalOpen(false)}
-        title={`Learner preview: ${readableLevel(selectedLevel)} (working copy)`}
-        description="This preview shows the current working content, including unpublished changes."
-        maxWidth="2xl"
-      >
-        {blockOrder.dirty && (
-          <p role="status" className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">
-            <span className="font-semibold">You have unsaved order changes.</span> This preview shows the <strong>saved</strong> order of the blocks. Choose Save Order to apply the new one.
-          </p>
-        )}
-        {loadingPreview ? (
-          <LoadingSpinner text="Assembling lesson preview..." />
-        ) : previewError ? (
-          <div role="alert" className="p-6 text-center text-rose-800 bg-rose-50 border border-rose-200 rounded-lg space-y-3">
-            <p>{previewError}</p>
-            <button onClick={() => handlePreview(selectedLevel)} className="px-3 py-1.5 text-xs font-semibold rounded-md bg-white border border-rose-300 hover:bg-rose-100">Retry preview</button>
-          </div>
-        ) : !previewData || previewData.blocks.length === 0 ? (
-          <div className="p-8 text-center text-slate-500 text-sm">
-            No visible content blocks for {selectedLevel} level.
-          </div>
-        ) : (
-          <div className="mx-auto w-full max-w-sm space-y-6 max-h-[60vh] overflow-y-auto rounded-[2rem] border-8 border-slate-800 bg-white p-5 shadow-xl">
-            <div className="border-b border-slate-200 pb-4">
-              <span className="text-xs font-semibold text-amber-700 tracking-wider uppercase">
-                {selectedLevel} Level{workflowState?.contentRevision ? ` · Working Revision ${workflowState.contentRevision}` : ''}
-              </span>
-              <h2 className="font-serif text-2xl font-bold text-slate-900 mt-1">
-                {lesson.title}
-              </h2>
-              {lesson.subtitle && (
-                <p className="text-sm text-slate-600 mt-0.5">{lesson.subtitle}</p>
-              )}
-            </div>
-
-            <div className="space-y-4">
-              {previewData.blocks.map((blk) => {
-                return (
-                  <div key={blk.blockId} className="p-4 bg-slate-50 rounded-lg border border-slate-200/80">
-                    {blk.type === 'IMAGE' ? (
-                      <ImageBlockView content={blk.content} />
-                    ) : blk.type === 'SUMMARY' ? (
-                      <SummaryBlockView content={blk.content} />
-                    ) : blk.type === 'SECTION_INTRO' ? (
-                      <SectionBlockView content={blk.content} />
-                    ) : blk.type === 'PROPHECY_EQUIVALENCE' ? (
-                      <EquivalenceView content={blk.content} />
-                    ) : blk.type === 'PROPHECY_COMPARISON' ? (
-                      <ComparisonView content={blk.content} />
-                    ) : blk.type === 'PROPHECY_CALCULATION' ? (
-                      <CalculationView content={blk.content} />
-                    ) : blk.type === 'REFLECTION_STUDY_ACTIVITY' ? (
-                      <ReflectionView content={blk.content} />
-                    ) : blk.type === 'GUIDED_DISCOVERY_QUESTION' ? (
-                      <DiscoveryView content={blk.content} />
-                    ) : blk.type === 'CONTINUE_EXPLORING' ? (
-                      <ExploringBlockView content={blk.content} lessonId={lessonId} blockId={blk.blockId ?? ''} mode="preview" level={selectedLevel} />
-                    ) : blk.type === 'NARRATIVE_SCENE' ? (
-                      <SceneView content={blk.content} />
-                    ) : blk.type === 'MEDIA_ANIMATION' ? (
-                      <AnimationView content={blk.content} />
-                    ) : blk.type === 'INTERACTIVE_3D_MODEL' ? (
-                      <Model3DView content={blk.content} />
-                    ) : blk.type === 'WORD_STUDY' ? (
-                      <WordStudyView content={blk.content} />
-                    ) : blk.type === 'SYMBOL_STUDY' ? (
-                      <SymbolStudyView content={blk.content} />
-                    ) : blk.type === 'MAP' ? (
-                      <HotspotBlockView content={blk.content} variant="map" />
-                    ) : blk.type === 'EXPLORE_DEEPER' ? (
-                      <ExploreDeeperView content={blk.content} defaultOpen={false} />
-                    ) : blk.type === 'SCRIPTURE_CONNECTION' ? (
-                      <ScriptureConnectionView content={blk.content} />
-                    ) : blk.type === 'CALLOUT' ? (
-                      <CalloutBlockView content={blk.content} />
-                    ) : blk.type === 'HISTORICAL_EVIDENCE' ? (
-                      <EvidenceBlockView content={blk.content} />
-                    ) : blk.type === 'SCRIPTURE_PASSAGE' ? (
-                      <ScriptureBlockView content={blk.content} />
-                    ) : blk.type === 'TIMELINE' ? (
-                      <TimelineBlockView content={blk.content} />
-                    ) : blk.type === 'INTERACTIVE_IMAGE' ? (
-                      <HotspotBlockView content={blk.content} />
-                    ) : blk.type === 'QUIZ' ? (
-                      <QuizBlockView content={blk.content} level={selectedLevel} />
-                    ) : (
-                      <RichTextView content={blk.content} className="font-serif text-sm leading-relaxed text-slate-800" />
-                    )}
-                    <div className="mt-2 text-[10px] text-slate-400 font-mono">
-                      Block #{blk.ordinal} · {blk.source === 'VARIANT' ? `${readableLevel(selectedLevel)} version` : blk.source === 'SHARED' ? 'Shared content' : 'Source: default'}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-      </Modal>
+      {/* Lesson Preview: the lesson as a learner reads it in the mobile app (components/lesson-preview). Read-only; it asks the server for the working copy itself. */}
+      {previewModalOpen && lesson && (
+        <LessonPreviewDialog lessonId={lessonId} lesson={lesson} initialLevel={selectedLevel} workflow={workflowState} orderUnsaved={blockOrder.dirty} onClose={() => setPreviewModalOpen(false)} />
+      )}
 
       {/* Workflow Action Modal */}
       <Modal
