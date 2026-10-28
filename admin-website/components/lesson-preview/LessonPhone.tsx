@@ -117,7 +117,7 @@ function drawBlock(block: PreviewBlock, content: Record<string, unknown>): React
 }
 
 /** One block of the lesson: its wrapper (which the Contents list scrolls to), a boundary that keeps a block that cannot be drawn from taking the rest of the lesson with it, and the block itself. */
-const BlockView = memo(function BlockView({ block }: { block: PreviewBlock }) {
+export const BlockView = memo(function BlockView({ block }: { block: PreviewBlock }) {
   const content = isRecord(block.content) ? block.content : null;
   return (
     <div data-block-id={block.blockId}>
