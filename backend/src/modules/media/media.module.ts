@@ -7,6 +7,7 @@ import { MediaFacade } from './application/media.facade.js';
 import {
   MEDIA_SETTINGS,
   buildMediaSettings,
+  uploadCeiling,
 } from './application/media-settings.js';
 import { MediaService } from './application/media.service.js';
 import { MediaAssetEntity } from './persistence/media-asset.entity.js';
@@ -23,12 +24,13 @@ import { MEDIA_STORAGE } from './storage/media-storage.js';
   imports: [
     TypeOrmModule.forFeature([MediaAssetEntity]),
     // Uploads are parsed into memory and capped while they are read, so an oversized body is refused (413) without
-    // being buffered in full.
+    // being buffered in full. The cap is the general limit, or the GLB model limit when models are allowed and it is the larger; the service
+    // then applies the exact limit of the detected type.
     MulterModule.registerAsync({
       inject: [APP_CONFIG],
       useFactory: (config: AppConfig) => ({
         limits: {
-          fileSize: config.mediaMaxBytes,
+          fileSize: uploadCeiling(buildMediaSettings(config)),
           files: 1,
           fields: 0,
           parts: 2,

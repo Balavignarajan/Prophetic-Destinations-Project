@@ -33,6 +33,7 @@ import { symbolStudyMediaId, validateSymbolStudyComplete, validateSymbolStudySha
 import { validateCalculationComplete, validateCalculationShape, validateComparisonComplete, validateComparisonShape, validateEquivalenceComplete, validateEquivalenceShape } from './prophecy.js';
 import { validateDiscoveryComplete, validateDiscoveryShape, validateReflectionComplete, validateReflectionShape } from './reflection-discovery.js';
 import { validateContinueExploringComplete, validateContinueExploringShape } from './continue-exploring.js';
+import { model3DMedia, validateModel3DComplete, validateModel3DShape } from './interactive-3d-model.js';
 import { animationMedia, sceneMediaId, validateAnimationComplete, validateAnimationShape, validateSceneComplete, validateSceneShape } from './scene-media.js';
 import { validateScriptureConnectionComplete, validateScriptureConnectionShape } from './scripture-connection.js';
 import { validateScripturePassageComplete, validateScripturePassageShape } from './scripture-passage.js';
@@ -55,8 +56,8 @@ export interface BlockReference {
   targetId: string;
   /** MEDIA only: the asset must be an animated WebP (checked from its bytes when the block is saved). */
   animated?: boolean;
-  /** MEDIA only: the asset must be a stored MP4 video or Lottie JSON file (the type detected from its bytes at upload). Absent = an image. */
-  mediaKind?: 'video' | 'lottie';
+  /** MEDIA only: the asset must be a stored MP4 video, Lottie JSON file or GLB 3D model (the type detected from its bytes at upload). Absent = an image. */
+  mediaKind?: 'video' | 'lottie' | 'model';
 }
 
 /** Everything the application needs to know about one block type. */
@@ -315,6 +316,22 @@ const MEDIA_ANIMATION: BlockTypeDefinition = {
   },
 };
 
+const INTERACTIVE_3D_MODEL: BlockTypeDefinition = {
+  type: 'INTERACTIVE_3D_MODEL',
+  // Level-specific models are undecided, so no variants (visibility per level still works).
+  variants: 'UNCONFIRMED',
+  validateShape: validateModel3DShape,
+  validateComplete: validateModel3DComplete,
+  extractReferences: (content) => {
+    const { mediaId, posterMediaId } = model3DMedia(content);
+    // The model must be a stored GLB (checked from its detected type when the block is saved); the poster is an ordinary image.
+    return [
+      ...(mediaId ? [{ kind: 'MEDIA' as const, targetId: mediaId, mediaKind: 'model' as const }] : []),
+      ...(posterMediaId ? [{ kind: 'MEDIA' as const, targetId: posterMediaId }] : []),
+    ];
+  },
+};
+
 const QUIZ: BlockTypeDefinition = {
   type: 'QUIZ',
   // How a quiz would differ by level is undecided, so no variants (visibility per level still works).
@@ -367,6 +384,7 @@ export class BlockTypeRegistry {
     [CONTINUE_EXPLORING.type, CONTINUE_EXPLORING],
     [NARRATIVE_SCENE.type, NARRATIVE_SCENE],
     [MEDIA_ANIMATION.type, MEDIA_ANIMATION],
+    [INTERACTIVE_3D_MODEL.type, INTERACTIVE_3D_MODEL],
   ]);
 
   get(type: BlockType): BlockTypeDefinition | undefined {

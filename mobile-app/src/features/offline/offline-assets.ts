@@ -23,7 +23,7 @@ const isText = (value: unknown): value is string => typeof value === 'string' &&
 
 /**
  * The images a piece of PUBLISHED content needs, each with the learner route that serves it. Only what the delivered content
- * actually names: a lesson's IMAGE, INTERACTIVE_IMAGE, MAP, SYMBOL_STUDY, NARRATIVE_SCENE visuals, MEDIA_ANIMATION files and posters and TIMELINE-event images, the images of blocks nested inside an EXPLORE_DEEPER block, and cover; a course's cover and the covers of the lessons it lists; the covers of the
+ * actually names: a lesson's IMAGE, INTERACTIVE_IMAGE, MAP, SYMBOL_STUDY, NARRATIVE_SCENE visuals, MEDIA_ANIMATION files and posters, INTERACTIVE_3D_MODEL posters (never the model) and TIMELINE-event images, the images of blocks nested inside an EXPLORE_DEEPER block, and cover; a course's cover and the covers of the lessons it lists; the covers of the
  * courses in the catalog list; the picture each Home card shows (its own picture, otherwise its course's cover). (Lesson images and lesson covers use the same learner route.)
  */
 export function assetsOf(kind: CacheKind, id: string, level: LearningLevel, data: unknown): AssetRef[] | null {
@@ -35,6 +35,12 @@ export function assetsOf(kind: CacheKind, id: string, level: LearningLevel, data
       if (isText(mediaId)) out.push({ mediaId, url: lessonCoverUrl(id, mediaId, level) });
     }
     for (const block of lesson.snapshot?.blocks ?? []) {
+      if (block.type === 'INTERACTIVE_3D_MODEL') {
+        // Only the poster (an ordinary image) is saved with the lesson. The GLB model is online-only and is NEVER collected here: this list is for images.
+        const poster = (block.content as { posterMediaId?: unknown } | null)?.posterMediaId;
+        if (isText(poster)) out.push({ mediaId: poster, url: lessonCoverUrl(id, poster, level) });
+        continue;
+      }
       if (block.type === 'MEDIA_ANIMATION') {
         // An animated image: the animated file AND its poster are both needed to show the block, so both are collected (and tracked, deduplicated and cleaned up like every image).
         // A VIDEO or LOTTIE file is NEVER collected, and YouTube is always online-only. Their poster is an ordinary still image and is saved with the lesson.

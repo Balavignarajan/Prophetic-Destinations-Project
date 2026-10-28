@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { PICKER_GROUPS, filterPickerBlocks } from '../lib/block-picker';
 import { REUSABLE_PICKER_KEY } from '../lib/reusable-blocks';
 import { useScriptureInfo } from '../lib/scripture-info';
+import CubeIcon from './CubeIcon';
 import { Modal } from './ui';
 
 interface Props {
@@ -86,7 +87,14 @@ function Body({ onClose, onChoose }: Omit<Props, 'isOpen'>) {
                           onClick={() => onChoose(block.type)}
                           className="h-full w-full text-left rounded-xl border border-slate-200 bg-white p-3.5 hover:border-amber-500 hover:bg-amber-50/40 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500"
                         >
-                          <span className="block text-sm font-semibold text-slate-900">{block.name}</span>
+                          <span className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                            {block.icon === 'cube' && (
+                              <span className="text-amber-800">
+                                <CubeIcon className="h-5 w-5" />
+                              </span>
+                            )}
+                            {block.name}
+                          </span>
                           <span className="mt-0.5 block text-xs text-slate-700">{block.description}</span>
                           {note && <span className="mt-1.5 block text-xs text-amber-900">{note}</span>}
                         </button>

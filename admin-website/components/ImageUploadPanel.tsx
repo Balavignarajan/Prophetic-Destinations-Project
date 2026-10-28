@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { IMAGE_MAX_BYTES, checkImageFile, fileKindLabel, formatBytes, friendlyMediaError } from '../lib/image-block';
 import { getUploadRules, uploadMedia } from '../lib/media-api';
-import { type UploadKind, type UploadRules, acceptFor, checkMediaFile, kindLabel } from '../lib/media-kinds';
+import { GLB_DEFAULT_MAX_BYTES, type UploadKind, type UploadRules, acceptFor, checkMediaFile, kindLabel, uploadContentType } from '../lib/media-kinds';
 import { largeFileWarning } from '../lib/media-size-warning';
 import type { MediaAsset } from '../lib/types';
 import LargeFileNotice from './LargeFileNotice';
@@ -12,7 +12,7 @@ interface Props {
   /** Called once with the stored asset after a successful upload. The file is uploaded exactly once. */
   onUploaded: (asset: MediaAsset) => void;
   buttonLabel?: string;
-  /** What is being uploaded: a picture (the default), an MP4 video or a Lottie animation. The server decides in the end; this only checks and explains first. */
+  /** What is being uploaded: a picture (the default), an MP4 video, a Lottie animation or a GLB 3D model. The server decides in the end; this only checks and explains first. */
   kind?: UploadKind;
 }
 
@@ -26,6 +26,11 @@ const KIND_TEXT: Record<UploadKind, { label: string; help: (rules: UploadRules |
   lottie: {
     label: 'Lottie animation (JSON)',
     help: () => 'A Lottie animation saved as a plain .json file, up to 2 MB, without expressions or links to other files. The server checks the file itself.',
+  },
+  model: {
+    label: '3D model (GLB)',
+    help: (rules) =>
+      `A single self-contained .glb file, up to ${formatBytes(rules?.glbMaxBytes ?? GLB_DEFAULT_MAX_BYTES)} on this server. Smaller is better: an optimized model loads much faster on a phone. The server checks the file itself, not only its name. Models are loaded over the internet and are not saved for offline reading.`,
   },
 };
 
@@ -143,7 +148,7 @@ export default function ImageUploadPanel({ onUploaded, buttonLabel = 'Upload ima
             <span className="font-semibold break-all">{file.name}</span>
             <br />
             <span className="text-xs text-slate-700">
-              {kind === 'image' ? fileKindLabel(file.type) : kindLabel(kind === 'video' ? 'video/mp4' : 'application/json')} · {formatBytes(file.size)}
+              {kind === 'image' ? fileKindLabel(file.type) : kindLabel(uploadContentType(kind))} · {formatBytes(file.size)}
               {largeWarning && <span className="font-semibold text-amber-800"> · Large file</span>}
             </span>
           </p>

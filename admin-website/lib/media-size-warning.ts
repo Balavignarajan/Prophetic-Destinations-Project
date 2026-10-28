@@ -16,6 +16,8 @@ export const MEDIA_SIZE_WARNING_BYTES: Readonly<Record<UploadKind, number>> = {
   video: 20 * 1024 * 1024,
   /** A Lottie animation (JSON). The server accepts up to 2 MB. */
   lottie: 512 * 1024,
+  /** A GLB 3D model. The server accepts up to 20 MB, but an optimized model is far smaller and loads much faster on a phone. */
+  model: 5 * 1024 * 1024,
 };
 
 export interface LargeFileWarning {
@@ -43,6 +45,9 @@ export function largeFileAdvice(kind: UploadKind): string {
   }
   if (kind === 'lottie') {
     return 'A large animation can take longer to load. Lottie animations are played over the internet and are not saved for offline reading.';
+  }
+  if (kind === 'model') {
+    return 'A large 3D model can be slow to load on a phone. Models are loaded over the internet and are not saved for offline reading. Reducing the polygon count and texture sizes before exporting makes a model much smaller.';
   }
   return 'Large media files may take longer to load and to save for offline reading.';
 }

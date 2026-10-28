@@ -47,6 +47,9 @@ import ContinueExploringDialog from '../../../components/ContinueExploringDialog
 import ExploringBlockView from '../../../components/ExploringBlockView';
 import { AnimationDialog, SceneDialog } from '../../../components/SceneMediaDialogs';
 import { AnimationView, SceneView } from '../../../components/SceneMediaViews';
+import Model3DDialog from '../../../components/Model3DDialog';
+import { Model3DView } from '../../../components/Model3DView';
+import { readModel3D } from '../../../lib/model-3d';
 import { readAnimation, readScene } from '../../../lib/scene-media';
 import AddContentPicker from '../../../components/AddContentPicker';
 import EvidenceBlockDialog from '../../../components/EvidenceBlockDialog';
@@ -212,6 +215,9 @@ export default function LessonAuthoringPage() {
   const [animDialog, setAnimDialog] = useState<{ mode: 'create' } | { mode: 'edit'; block: LessonBlock } | null>(null);
   const [savingAnim, setSavingAnim] = useState(false);
   const [animError, setAnimError] = useState<string | null>(null);
+  const [modelDialog, setModelDialog] = useState<{ mode: 'create' } | { mode: 'edit'; block: LessonBlock } | null>(null);
+  const [savingModel, setSavingModel] = useState(false);
+  const [modelError, setModelError] = useState<string | null>(null);
   const [savingWord, setSavingWord] = useState(false);
   const [wordError, setWordError] = useState<string | null>(null);
   const [symbolDialog, setSymbolDialog] = useState<{ mode: 'create' } | { mode: 'edit'; block: LessonBlock } | null>(null);
@@ -647,6 +653,10 @@ export default function LessonAuthoringPage() {
         setAnimError(null);
         setAnimDialog({ mode: 'create' });
         break;
+      case 'INTERACTIVE_3D_MODEL':
+        setModelError(null);
+        setModelDialog({ mode: 'create' });
+        break;
       case 'WORD_STUDY':
         setWordError(null);
         setWordDialog({ mode: 'create' });
@@ -832,6 +842,22 @@ export default function LessonAuthoringPage() {
       setAnimError(summaryErrorMessage(err, 'Could not save the video or animation.'));
     } finally {
       setSavingAnim(false);
+    }
+  };
+
+  const handleSaveModel = async (content: Record<string, unknown>, levels: LearningLevel[]) => {
+    if (!modelDialog || savingModel) return;
+    setSavingModel(true);
+    setModelError(null);
+    try {
+      await saveSimpleBlock('INTERACTIVE_3D_MODEL', modelDialog, content, levels);
+      setModelDialog(null);
+      setSuccessMessage('Interactive 3D model saved.');
+      fetchLessonData();
+    } catch (err: unknown) {
+      setModelError(summaryErrorMessage(err, 'Could not save the interactive 3D model.'));
+    } finally {
+      setSavingModel(false);
     }
   };
 
@@ -1418,6 +1444,11 @@ export default function LessonAuthoringPage() {
             setAnimDialog({ mode: 'edit', block });
             return;
           }
+          if (block.type === 'INTERACTIVE_3D_MODEL') {
+            setModelError(null);
+            setModelDialog({ mode: 'edit', block });
+            return;
+          }
           if (block.type === 'WORD_STUDY') {
             setWordError(null);
             setWordDialog({ mode: 'edit', block });
@@ -1915,6 +1946,8 @@ export default function LessonAuthoringPage() {
                       <SceneView content={displayContent} />
                     ) : block.type === 'MEDIA_ANIMATION' ? (
                       <AnimationView content={displayContent} />
+                    ) : block.type === 'INTERACTIVE_3D_MODEL' ? (
+                      <Model3DView content={displayContent} />
                     ) : block.type === 'WORD_STUDY' ? (
                       <WordStudyView content={displayContent} />
                     ) : block.type === 'SYMBOL_STUDY' ? (
@@ -1974,7 +2007,7 @@ export default function LessonAuthoringPage() {
                           onClick={() => editBlock(block)}
                           className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
                         >
-                          {block.type === 'IMAGE' ? 'Edit Image' : block.type === 'SUMMARY' ? 'Edit Summary' : block.type === 'QUIZ' ? 'Change quiz' : block.type === 'INTERACTIVE_IMAGE' ? 'Edit Interactive Image' : block.type === 'TIMELINE' ? 'Edit Timeline' : block.type === 'SCRIPTURE_PASSAGE' ? 'Edit Passage' : block.type === 'HISTORICAL_EVIDENCE' ? 'Edit Evidence' : block.type === 'SECTION_INTRO' ? 'Edit Heading' : block.type === 'CALLOUT' ? 'Edit Callout' : block.type === 'SCRIPTURE_CONNECTION' ? 'Edit Connection' : block.type === 'MAP' ? 'Edit Map' : block.type === 'PROPHECY_EQUIVALENCE' ? 'Edit Equivalence' : block.type === 'PROPHECY_COMPARISON' ? 'Edit Comparison' : block.type === 'PROPHECY_CALCULATION' ? 'Edit Calculation' : block.type === 'REFLECTION_STUDY_ACTIVITY' ? 'Edit Activity' : block.type === 'GUIDED_DISCOVERY_QUESTION' ? 'Edit Question' : block.type === 'CONTINUE_EXPLORING' ? 'Edit Links' : block.type === 'NARRATIVE_SCENE' ? 'Edit Scene' : block.type === 'MEDIA_ANIMATION' ? 'Edit Media' : block.type === 'WORD_STUDY' ? 'Edit Word Study' : block.type === 'SYMBOL_STUDY' ? 'Edit Symbol Study' : block.type === 'EXPLORE_DEEPER' ? 'Edit Section' : 'Edit Shared'}
+                          {block.type === 'IMAGE' ? 'Edit Image' : block.type === 'SUMMARY' ? 'Edit Summary' : block.type === 'QUIZ' ? 'Change quiz' : block.type === 'INTERACTIVE_IMAGE' ? 'Edit Interactive Image' : block.type === 'TIMELINE' ? 'Edit Timeline' : block.type === 'SCRIPTURE_PASSAGE' ? 'Edit Passage' : block.type === 'HISTORICAL_EVIDENCE' ? 'Edit Evidence' : block.type === 'SECTION_INTRO' ? 'Edit Heading' : block.type === 'CALLOUT' ? 'Edit Callout' : block.type === 'SCRIPTURE_CONNECTION' ? 'Edit Connection' : block.type === 'MAP' ? 'Edit Map' : block.type === 'PROPHECY_EQUIVALENCE' ? 'Edit Equivalence' : block.type === 'PROPHECY_COMPARISON' ? 'Edit Comparison' : block.type === 'PROPHECY_CALCULATION' ? 'Edit Calculation' : block.type === 'REFLECTION_STUDY_ACTIVITY' ? 'Edit Activity' : block.type === 'GUIDED_DISCOVERY_QUESTION' ? 'Edit Question' : block.type === 'CONTINUE_EXPLORING' ? 'Edit Links' : block.type === 'NARRATIVE_SCENE' ? 'Edit Scene' : block.type === 'MEDIA_ANIMATION' ? 'Edit Media' : block.type === 'INTERACTIVE_3D_MODEL' ? 'Edit 3D Model' : block.type === 'WORD_STUDY' ? 'Edit Word Study' : block.type === 'SYMBOL_STUDY' ? 'Edit Symbol Study' : block.type === 'EXPLORE_DEEPER' ? 'Edit Section' : 'Edit Shared'}
                         </button>
                         <button
                           onClick={() => handleDuplicateBlock(block.id)}
@@ -2598,6 +2631,17 @@ export default function LessonAuthoringPage() {
         onSave={(content, levels) => void handleSaveAnim(content, levels)}
       />
 
+      <Model3DDialog
+        isOpen={modelDialog !== null}
+        mode={modelDialog?.mode ?? 'create'}
+        lessonLevels={lesson.levels}
+        initial={modelDialog?.mode === 'edit' ? readModel3D(modelDialog.block.sharedContent) : null}
+        saving={savingModel}
+        error={modelError}
+        onClose={() => setModelDialog(null)}
+        onSave={(content, levels) => void handleSaveModel(content, levels)}
+      />
+
       <WordStudyDialog
         isOpen={wordDialog !== null}
         mode={wordDialog?.mode ?? 'create'}
@@ -2779,6 +2823,8 @@ export default function LessonAuthoringPage() {
                       <SceneView content={blk.content} />
                     ) : blk.type === 'MEDIA_ANIMATION' ? (
                       <AnimationView content={blk.content} />
+                    ) : blk.type === 'INTERACTIVE_3D_MODEL' ? (
+                      <Model3DView content={blk.content} />
                     ) : blk.type === 'WORD_STUDY' ? (
                       <WordStudyView content={blk.content} />
                     ) : blk.type === 'SYMBOL_STUDY' ? (

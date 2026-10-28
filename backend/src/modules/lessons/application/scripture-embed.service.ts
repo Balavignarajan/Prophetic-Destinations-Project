@@ -26,6 +26,7 @@ type FieldSpec = { kind: 'items'; list: string; label: string } | { kind: 'direc
 const SCRIPTURE_LISTS: Record<string, FieldSpec[]> = {
   TIMELINE: [{ kind: 'items', list: 'events', label: 'Event' }],
   INTERACTIVE_IMAGE: [{ kind: 'items', list: 'hotspots', label: 'Hotspot' }],
+  INTERACTIVE_3D_MODEL: [{ kind: 'items', list: 'hotspots', label: 'Hotspot' }],
   SCRIPTURE_CONNECTION: [{ kind: 'items', list: 'connections', label: 'Connection' }],
   MAP: [{ kind: 'items', list: 'hotspots', label: 'Marker' }],
   REFLECTION_STUDY_ACTIVITY: [{ kind: 'direct', field: 'scripture', label: 'Reference' }],

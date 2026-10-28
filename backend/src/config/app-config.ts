@@ -20,6 +20,8 @@ export interface AppConfig {
   scriptureDataPath: string | null;
   /** Largest accepted media upload, in bytes. */
   mediaMaxBytes: number;
+  /** Largest accepted GLB 3D model upload, in bytes. A ceiling, not a recommendation; separate from `mediaMaxBytes`, which keeps governing every other type. */
+  mediaGlbMaxBytes: number;
   /** MIME types accepted for upload. The media module checks them against the types it can verify. */
   mediaAllowedTypes: string[];
 }
@@ -31,7 +33,9 @@ const NODE_ENVS = ['development', 'test', 'production'] as const;
 /** Conservative media defaults: 5 MiB, common raster image types only (no SVG, which can carry script). */
 const DEFAULT_MEDIA_MAX_BYTES = 5 * 1024 * 1024;
 const HARD_MEDIA_MAX_BYTES = 100 * 1024 * 1024;
-const DEFAULT_MEDIA_ALLOWED_TYPES = 'image/png,image/jpeg,image/webp';
+/** GLB 3D models get their own ceiling (20 MiB); a model that is much smaller loads much faster on a phone. */
+const DEFAULT_MEDIA_GLB_MAX_BYTES = 20 * 1024 * 1024;
+const DEFAULT_MEDIA_ALLOWED_TYPES = 'image/png,image/jpeg,image/webp,model/gltf-binary';
 
 /**
  * Validates raw environment variables and returns typed config.
@@ -113,6 +117,17 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
       `MEDIA_MAX_BYTES must not exceed ${HARD_MEDIA_MAX_BYTES} (100 MiB)`,
     );
   }
+  const mediaGlbMaxBytes = positiveInt(
+    env,
+    'MEDIA_GLB_MAX_BYTES',
+    DEFAULT_MEDIA_GLB_MAX_BYTES,
+    problems,
+  );
+  if (mediaGlbMaxBytes > HARD_MEDIA_MAX_BYTES) {
+    problems.push(
+      `MEDIA_GLB_MAX_BYTES must not exceed ${HARD_MEDIA_MAX_BYTES} (100 MiB)`,
+    );
+  }
   const mediaAllowedTypes = (
     env.MEDIA_ALLOWED_TYPES ?? DEFAULT_MEDIA_ALLOWED_TYPES
   )
@@ -145,6 +160,7 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
     mediaStorageRoot,
     scriptureDataPath,
     mediaMaxBytes,
+    mediaGlbMaxBytes,
     mediaAllowedTypes,
   };
 }

@@ -8,6 +8,7 @@ import {
 } from '../../../shared-kernel/index.js';
 import { MEDIA_METADATA_LIMITS, cleanMetadataText, cleanTags, sameMetadata } from '../domain/metadata.js';
 import { newStorageKey, sanitizeFilename } from '../domain/filename.js';
+import { glbProblem, looksLikeGlb } from '../domain/glb.js';
 import { lottieProblem, looksLikeJsonObject } from '../domain/lottie.js';
 import { detectMediaType, findSupportedType } from '../domain/media-types.js';
 import type { MediaAsset, StoredMediaAsset } from '../domain/models.js';
@@ -18,7 +19,7 @@ import {
   type MediaStorage,
   StoredObjectNotFoundError,
 } from '../storage/media-storage.js';
-import { MEDIA_SETTINGS, type MediaSettings } from './media-settings.js';
+import { MEDIA_SETTINGS, type MediaSettings, maxBytesFor, uploadCeiling } from './media-settings.js';
 
 /** The part of an uploaded file the service needs (the HTTP layer maps its parser's object to this). */
 export interface UploadedMediaFile {
@@ -56,8 +57,8 @@ export class MediaService {
   ) {}
 
   /** What an upload may be, as configured: shown to authors so they are told the real limits before they choose a file. */
-  uploadRules(): { maxBytes: number; allowedTypes: string[] } {
-    return { maxBytes: this.settings.maxBytes, allowedTypes: [...this.settings.allowedTypes] };
+  uploadRules(): { maxBytes: number; glbMaxBytes: number; allowedTypes: string[] } {
+    return { maxBytes: this.settings.maxBytes, glbMaxBytes: this.settings.glbMaxBytes, allowedTypes: [...this.settings.allowedTypes] };
   }
 
   async upload(
@@ -76,10 +77,12 @@ export class MediaService {
         code: 'EMPTY_FILE',
       });
     }
-    if (bytes.length > this.settings.maxBytes) {
+    // Nothing above the largest limit that applies to any allowed type is looked at; the limit of the detected type is applied below.
+    const ceiling = uploadCeiling(this.settings);
+    if (bytes.length > ceiling) {
       throw new BusinessRuleError(
-        `The file is larger than the ${this.settings.maxBytes} byte limit`,
-        { code: 'FILE_TOO_LARGE', maxBytes: this.settings.maxBytes },
+        `The file is larger than the ${ceiling} byte limit`,
+        { code: 'FILE_TOO_LARGE', maxBytes: ceiling },
       );
     }
     // The type comes from the bytes. The client's Content-Type and extension are not consulted at all.
@@ -88,11 +91,23 @@ export class MediaService {
       // Someone meant to upload a JSON file (a Lottie animation): say what is wrong with it instead of a bare "type not accepted".
       throw new BusinessRuleError(lottieProblem(bytes) ?? 'This file type is not accepted', { code: 'LOTTIE_INVALID' });
     }
+    if (!detected && looksLikeGlb(bytes)) {
+      // It says it is a GLB model but is not an acceptable one (damaged, truncated, another version, or depends on other files): say why.
+      throw new BusinessRuleError(glbProblem(bytes) ?? 'This file type is not accepted', { code: 'GLB_INVALID' });
+    }
     if (!detected || !this.settings.allowedTypes.has(detected.mime)) {
       throw new BusinessRuleError('This file type is not accepted', {
         code: 'UNSUPPORTED_TYPE',
         allowedTypes: [...this.settings.allowedTypes],
       });
+    }
+    // Each kind of file has its own limit: a model may be larger than a picture, but never lets a picture or a video through at the model's size.
+    const limit = maxBytesFor(this.settings, detected.mime);
+    if (bytes.length > limit) {
+      throw new BusinessRuleError(
+        `The file is larger than the ${limit} byte limit for this kind of file`,
+        { code: 'FILE_TOO_LARGE', maxBytes: limit },
+      );
     }
 
     const storageKey = newStorageKey();

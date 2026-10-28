@@ -19,6 +19,8 @@ import type { ContentProblem } from './rich-text.js';
  */
 export const ITEM_LEVEL_LISTS: Readonly<Record<string, string>> = {
   INTERACTIVE_IMAGE: 'hotspots',
+  // The hotspots of a 3D model are the same kind of item (a labelled, explained point with Scripture) and follow the same rule.
+  INTERACTIVE_3D_MODEL: 'hotspots',
   MAP: 'hotspots',
   TIMELINE: 'events',
 };

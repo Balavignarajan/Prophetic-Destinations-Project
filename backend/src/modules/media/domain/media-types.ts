@@ -1,3 +1,4 @@
+import { isGlb } from './glb.js';
 import { isLottieJson } from './lottie.js';
 
 /**
@@ -7,7 +8,8 @@ import { isLottieJson } from './lottie.js';
  *
  * SVG is deliberately absent: it is markup that can carry script. Audio is absent. MP4 video and Lottie JSON (BLK-016) can be verified here, but they are
  * NOT in the default allow-list: an operator turns them on with MEDIA_ALLOWED_TYPES (and sets MEDIA_MAX_BYTES for the size of video that is acceptable),
- * because their hosting and size policy is not decided. Adding a type means adding a signature check here.
+ * because their hosting and size policy is not decided. A GLB 3D model (`model/gltf-binary`, glb.ts) is verified from its header and chunks; it is in the default
+ * allow-list and has its own size limit (MEDIA_GLB_MAX_BYTES), so allowing models never raises the limit for pictures or video. Adding a type means adding a signature check here.
  */
 export interface SupportedMediaType {
   readonly mime: string;
@@ -73,6 +75,14 @@ export const SUPPORTED_MEDIA_TYPES: readonly SupportedMediaType[] = [
     inline: false,
     matches: isLottieJson,
   },
+  {
+    // A GLB 3D model (glTF 2.0 binary). Accepted only when the whole container passes the GLB rules (glb.ts): a sound header and chunks, a declared length equal to
+    // the real size, and nothing it depends on outside the file. A browser cannot show it, so the admin tool offers it as a download.
+    mime: 'model/gltf-binary',
+    extension: 'glb',
+    inline: false,
+    matches: isGlb,
+  },
 ];
 
 const MP4_BRANDS = ['isom', 'iso2', 'iso3', 'iso4', 'iso5', 'iso6', 'mp41', 'mp42', 'avc1', 'dash'];
@@ -87,6 +97,7 @@ export function isMp4(bytes: Buffer): boolean {
 
 export const isVideoMime = (mime: string): boolean => mime === 'video/mp4';
 export const isLottieMime = (mime: string): boolean => mime === 'application/json';
+export const isGlbMime = (mime: string): boolean => mime === 'model/gltf-binary';
 
 /**
  * Whether the bytes (at least the first few KB) are an ANIMATED WebP: a RIFF/WEBP container whose first chunk is VP8X with the animation flag set and which

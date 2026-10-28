@@ -27,6 +27,8 @@ export interface BlockCatalogEntry {
   /** 'passage': the block's whole purpose is choosing a Bible passage, which needs the Bible text. */
   scripture?: 'passage';
   actions: { create: boolean; edit: boolean };
+  /** A small picture shown beside the name in the Add content picker; only blocks that have one set it. */
+  icon?: 'cube';
 }
 
 const BOTH = { create: true, edit: true } as const;
@@ -52,6 +54,7 @@ export const IMPLEMENTED_BLOCKS: readonly BlockCatalogEntry[] = [
   { type: 'CONTINUE_EXPLORING', name: 'Continue exploring', description: 'Links to other lessons you choose for learners to read next, each with an optional label. Separate from the lesson\u2019s Related lessons list.', group: 'Text and sources', actions: BOTH },
   { type: 'NARRATIVE_SCENE', name: 'Narrative scene', description: 'A short story moment: an optional picture, a few lines of your own narrative and optional Bible passages. Shown still, without motion effects.', group: 'Images and timelines', actions: BOTH },
   { type: 'MEDIA_ANIMATION', name: 'Video or animation', description: 'An animated WebP, MP4 video, Lottie animation, or YouTube video with a poster, caption and description. Videos, Lottie and YouTube need an internet connection.', group: 'Images and timelines', actions: BOTH },
+  { type: 'INTERACTIVE_3D_MODEL', name: 'Interactive 3D Model', description: 'A 3D model (GLB file) from your Media Library with an optional title, poster and description. Learners rotate and zoom it in the app, and you can place numbered hotspots on its surface that open an explanation and Scripture. Needs an internet connection.', group: 'Images and timelines', icon: 'cube', actions: BOTH },
   { type: 'MAP', name: 'Map or diagram', description: 'A static map or diagram from your Media Library, with an optional description and optional numbered markers that show an explanation.', group: 'Images and timelines', actions: BOTH },
   { type: 'TIMELINE', name: 'Timeline', description: 'Events in order, each with a date or period, a title and an explanation.', group: 'Images and timelines', actions: BOTH },
   { type: 'QUIZ', name: 'Quiz', description: 'Add one of your existing quizzes so learners can check what they have learned.', group: 'Check understanding', actions: BOTH },

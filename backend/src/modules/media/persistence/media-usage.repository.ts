@@ -56,10 +56,10 @@ export interface MediaUsageDetail {
 /**
  * The structured match of a published snapshot's blocks that reference an image, as one jsonpath filter predicate (the single place it is written, so
  * the usage COUNT that guards deletion and the usage LIST agree). It is an exact structural match on ids, never a text search:
- * an IMAGE, INTERACTIVE_IMAGE or MAP block's content.mediaId, a TIMELINE event's mediaId, a HISTORICAL_EVIDENCE, SECTION_INTRO, SYMBOL_STUDY or NARRATIVE_SCENE image's mediaId, and a MEDIA_ANIMATION block's mediaId or posterMediaId.
+ * an IMAGE, INTERACTIVE_IMAGE or MAP block's content.mediaId, a TIMELINE event's mediaId, a HISTORICAL_EVIDENCE, SECTION_INTRO, SYMBOL_STUDY or NARRATIVE_SCENE image's mediaId, and a MEDIA_ANIMATION or INTERACTIVE_3D_MODEL block's mediaId or posterMediaId.
  */
 const PUBLISHED_BLOCK_REFERENCE =
-  '((@.type == "IMAGE" || @.type == "INTERACTIVE_IMAGE" || @.type == "MAP") && @.content.mediaId == $id) || (@.type == "TIMELINE" && exists(@.content.events[*] ? (@.mediaId == $id))) || ((@.type == "HISTORICAL_EVIDENCE" || @.type == "SECTION_INTRO" || @.type == "SYMBOL_STUDY" || @.type == "NARRATIVE_SCENE") && @.content.image.mediaId == $id) || (@.type == "MEDIA_ANIMATION" && (@.content.mediaId == $id || @.content.posterMediaId == $id)) || (@.type == "EXPLORE_DEEPER" && exists(@.content.blocks[*] ? (' +
+  '((@.type == "IMAGE" || @.type == "INTERACTIVE_IMAGE" || @.type == "MAP") && @.content.mediaId == $id) || (@.type == "TIMELINE" && exists(@.content.events[*] ? (@.mediaId == $id))) || ((@.type == "HISTORICAL_EVIDENCE" || @.type == "SECTION_INTRO" || @.type == "SYMBOL_STUDY" || @.type == "NARRATIVE_SCENE") && @.content.image.mediaId == $id) || ((@.type == "MEDIA_ANIMATION" || @.type == "INTERACTIVE_3D_MODEL") && (@.content.mediaId == $id || @.content.posterMediaId == $id)) || (@.type == "EXPLORE_DEEPER" && exists(@.content.blocks[*] ? (' +
   // an Explore Deeper section can hold an IMAGE, or a SYMBOL_STUDY / HISTORICAL_EVIDENCE with an image (the nested block types that reference media)
   '(@.type == "IMAGE" && @.content.mediaId == $id) || ((@.type == "SYMBOL_STUDY" || @.type == "HISTORICAL_EVIDENCE") && @.content.image.mediaId == $id))))';
 
@@ -97,7 +97,7 @@ export class MediaUsageRepository {
            WHERE "type" IN ('HISTORICAL_EVIDENCE', 'SECTION_INTRO', 'SYMBOL_STUDY', 'NARRATIVE_SCENE') AND "shared_content"->'image'->>'mediaId' = $1
          UNION ALL
          SELECT "lesson_id" FROM "lesson_blocks"
-           WHERE "type" = 'MEDIA_ANIMATION' AND ("shared_content"->>'mediaId' = $1 OR "shared_content"->>'posterMediaId' = $1)
+           WHERE "type" IN ('MEDIA_ANIMATION', 'INTERACTIVE_3D_MODEL') AND ("shared_content"->>'mediaId' = $1 OR "shared_content"->>'posterMediaId' = $1)
          UNION ALL
          SELECT "lesson_id" FROM "lesson_blocks"
            WHERE "type" = 'EXPLORE_DEEPER'
@@ -216,7 +216,7 @@ export class MediaUsageRepository {
            WHERE "type" IN ('HISTORICAL_EVIDENCE', 'SECTION_INTRO', 'SYMBOL_STUDY', 'NARRATIVE_SCENE') AND "shared_content"->'image'->>'mediaId' = $1
          UNION ALL
          SELECT "lesson_id", "type" FROM "lesson_blocks"
-           WHERE "type" = 'MEDIA_ANIMATION' AND ("shared_content"->>'mediaId' = $1 OR "shared_content"->>'posterMediaId' = $1)
+           WHERE "type" IN ('MEDIA_ANIMATION', 'INTERACTIVE_3D_MODEL') AND ("shared_content"->>'mediaId' = $1 OR "shared_content"->>'posterMediaId' = $1)
          UNION ALL
          SELECT "lesson_id", "type" FROM "lesson_blocks"
            WHERE "type" = 'EXPLORE_DEEPER'

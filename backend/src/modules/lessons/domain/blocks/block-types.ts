@@ -8,8 +8,8 @@
  * lists.
  *
  * Listing a type here only makes its identifier valid (API validation and the database CHECK). Whether a type can actually be used is decided
- * by the BlockTypeRegistry: it currently registers twenty-three (RICH_TEXT, IMAGE, SUMMARY, QUIZ, INTERACTIVE_IMAGE, TIMELINE, SCRIPTURE_PASSAGE,
- * HISTORICAL_EVIDENCE, SECTION_INTRO, CALLOUT, SCRIPTURE_CONNECTION, MAP, EXPLORE_DEEPER, WORD_STUDY, SYMBOL_STUDY, PROPHECY_EQUIVALENCE, PROPHECY_COMPARISON, PROPHECY_CALCULATION, REFLECTION_STUDY_ACTIVITY, GUIDED_DISCOVERY_QUESTION, CONTINUE_EXPLORING, NARRATIVE_SCENE, MEDIA_ANIMATION). The admin catalog (admin-website/lib/block-catalog.ts) and the mobile renderer list must match it.
+ * by the BlockTypeRegistry: it currently registers twenty-four (RICH_TEXT, IMAGE, SUMMARY, QUIZ, INTERACTIVE_IMAGE, TIMELINE, SCRIPTURE_PASSAGE,
+ * HISTORICAL_EVIDENCE, SECTION_INTRO, CALLOUT, SCRIPTURE_CONNECTION, MAP, EXPLORE_DEEPER, WORD_STUDY, SYMBOL_STUDY, PROPHECY_EQUIVALENCE, PROPHECY_COMPARISON, PROPHECY_CALCULATION, REFLECTION_STUDY_ACTIVITY, GUIDED_DISCOVERY_QUESTION, CONTINUE_EXPLORING, NARRATIVE_SCENE, MEDIA_ANIMATION, INTERACTIVE_3D_MODEL). The admin catalog (admin-website/lib/block-catalog.ts) and the mobile renderer list must match it.
  */
 export const BLOCK_TYPES = [
   'RICH_TEXT',
@@ -39,6 +39,8 @@ export const BLOCK_TYPES = [
   'CONTINUE_EXPLORING',
   // Workbook BLK-016 "Media / Animation Asset" (open decision D1). PROPOSED identifier. Added with migration AddMediaAnimationBlockType1791820000000.
   'MEDIA_ANIMATION',
+  // Interactive 3D Model (open decision D1; no document lists it). PROPOSED identifier. Added with migration AddInteractive3dModelBlockType1791940000000.
+  'INTERACTIVE_3D_MODEL',
 ] as const;
 
 export type BlockType = (typeof BLOCK_TYPES)[number];

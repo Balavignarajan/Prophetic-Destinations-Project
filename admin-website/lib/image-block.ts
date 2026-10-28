@@ -49,7 +49,7 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export const fileKindLabel = (contentType: string): string => (contentType.split('/')[1] ?? contentType).toUpperCase();
+export const fileKindLabel = (contentType: string): string => (contentType === 'model/gltf-binary' ? '3D Model (GLB)' : (contentType.split('/')[1] ?? contentType).toUpperCase());
 
 /** What the server said, in plain words, for the errors an author can act on. */
 export function friendlyMediaError(error: unknown, fallback: string): string {
@@ -57,13 +57,17 @@ export function friendlyMediaError(error: unknown, fallback: string): string {
   const code = e?.payload?.details?.code ?? e?.payload?.code;
   switch (code) {
     case 'UNSUPPORTED_TYPE':
-      return 'This file type is not accepted by this server. Images (PNG, JPEG, WEBP) are; MP4 video and Lottie animations only when the server has been set up for them.';
+      return 'This file type is not accepted by this server. Images (PNG, JPEG, WEBP) and GLB 3D models are; MP4 video and Lottie animations only when the server has been set up for them.';
     case 'FILE_TOO_LARGE': {
       const limit = (e?.payload?.details as { maxBytes?: unknown } | undefined)?.maxBytes;
       return typeof limit === 'number' ? `This file is larger than the ${formatBytes(limit)} this server accepts. Choose a smaller one.` : 'This file is larger than the server accepts. Choose a smaller one.';
     }
     case 'LOTTIE_INVALID':
       return e?.payload?.message ?? 'This is not an acceptable Lottie animation.';
+    case 'GLB_INVALID':
+      return e?.payload?.message ?? 'This is not an acceptable GLB 3D model.';
+    case 'MEDIA_NOT_A_MODEL':
+      return 'The selected file is not a 3D model. Choose a GLB model from the Media Library.';
     case 'MEDIA_NOT_A_VIDEO':
       return 'The selected file is not an MP4 video. Choose an MP4 video from the Media Library.';
     case 'MEDIA_NOT_LOTTIE':

@@ -53,6 +53,8 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "check:theme": "tsx scripts/check-theme.ts",
+    "sync:glb-engine": "node scripts/sync-glb-engine.mjs",
+    "check:glb-engine": "node scripts/sync-glb-engine.mjs --check",
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test \"src/**/*.test.ts\""
   },

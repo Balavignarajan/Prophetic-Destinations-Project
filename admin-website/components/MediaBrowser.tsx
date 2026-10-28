@@ -7,6 +7,7 @@ import type { MediaAsset } from '../lib/types';
 import MediaDetailsPanel from './MediaDetailsPanel';
 import MediaFileTile from './MediaFileTile';
 import MediaImage from './MediaImage';
+import Model3DViewer from './Model3DViewer';
 import { ConfirmDialog, EmptyState, LoadingSpinner, Modal } from './ui';
 
 const PAGE = 24;
@@ -23,10 +24,10 @@ interface Props {
   selectedId?: string | null;
   onSelect?: (asset: MediaAsset) => void;
   /**
-   * Only list files of this exact type (pickers for fields that accept one kind of file: animated WebP, MP4 video, Lottie JSON). A picker that does not name one
-   * lists images only, so a video or an animation file can never be offered where a picture is needed. The Media Library page (`manage`) lists every file.
+   * Only list files of this exact type (pickers for fields that accept one kind of file: animated WebP, MP4 video, Lottie JSON, a GLB 3D model). A picker that does not name one
+   * lists images only, so a video, an animation or a model file can never be offered where a picture is needed. The Media Library page (`manage`) lists every file.
    */
-  contentType?: 'image/webp' | 'video/mp4' | 'application/json';
+  contentType?: 'image/webp' | 'video/mp4' | 'application/json' | 'model/gltf-binary';
 }
 
 const dateOf = (iso: string) => new Date(iso).toLocaleDateString(undefined, { dateStyle: 'medium' });
@@ -37,7 +38,9 @@ const dateOf = (iso: string) => new Date(iso).toLocaleDateString(undefined, { da
  */
 export default function MediaBrowser({ mode, canWrite, reloadToken = 0, selectedId = null, onSelect, contentType: wanted }: Props) {
   const contentType = wanted ?? (mode === 'select' ? 'image/*' : undefined);
-  const noun = wanted === 'video/mp4' ? 'video' : wanted === 'application/json' ? 'animation' : mode === 'manage' ? 'file' : 'image';
+  const noun = wanted === 'video/mp4' ? 'video' : wanted === 'application/json' ? 'animation' : wanted === 'model/gltf-binary' ? 'model' : mode === 'manage' ? 'file' : 'image';
+  // The empty-list wording is exactly what it was ("image"), except in the picker for 3D models.
+  const emptyNoun = wanted === 'model/gltf-binary' ? noun : 'image';
   const [typed, setTyped] = useState('');
   const [query, setQuery] = useState('');
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -64,6 +67,8 @@ export default function MediaBrowser({ mode, canWrite, reloadToken = 0, selected
     detailsDirty.current = false;
     setPreviewAsset(null);
   };
+  // A GLB model opened in the live 3D viewer (the Media Library page only). The viewer exists only while this window is open.
+  const [view3d, setView3d] = useState<MediaAsset | null>(null);
   const [deleteAsset, setDeleteAsset] = useState<MediaAsset | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -215,8 +220,14 @@ export default function MediaBrowser({ mode, canWrite, reloadToken = 0, selected
         <LoadingSpinner text="Loading images…" />
       ) : items.length === 0 && !error ? (
         <EmptyState
-          title={query ? 'No images match' : 'No images yet'}
-          description={query ? 'No file name, title or tag contains that text. Clear the search to see every image.' : 'Upload a PNG, JPEG or WEBP image to start the library.'}
+          title={query ? `No ${emptyNoun}s match` : `No ${emptyNoun}s yet`}
+          description={
+            query
+              ? `No file name, title or tag contains that text. Clear the search to see every ${emptyNoun}.`
+              : wanted === 'model/gltf-binary'
+                ? 'Upload a .glb 3D model to the Media Library, or use the Upload tab here.'
+                : 'Upload a PNG, JPEG or WEBP image to start the library.'
+          }
         />
       ) : (
         <ul className={`grid gap-4 ${mode === 'select' ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'}`}>
@@ -243,9 +254,16 @@ export default function MediaBrowser({ mode, canWrite, reloadToken = 0, selected
                   </div>
                   {mode === 'manage' && (
                     <div className="flex items-center justify-between pt-2 border-t border-slate-100">
-                      <button type="button" onClick={() => setPreviewAsset(asset)} className="text-sm font-medium text-amber-900 underline min-h-6" aria-label={`Details and where ${asset.originalFilename} is used`}>
-                        Details and usage
-                      </button>
+                      <div className="flex items-center gap-3">
+                        <button type="button" onClick={() => setPreviewAsset(asset)} className="text-sm font-medium text-amber-900 underline min-h-6" aria-label={`Details and where ${asset.originalFilename} is used`}>
+                          Details and usage
+                        </button>
+                        {asset.contentType === 'model/gltf-binary' && (
+                          <button type="button" onClick={() => setView3d(asset)} className="text-sm font-medium text-amber-900 underline min-h-6" aria-label={`View ${asset.originalFilename} in 3D`}>
+                            View 3D
+                          </button>
+                        )}
+                      </div>
                       {canWrite && (
                         <button
                           type="button"
@@ -310,17 +328,30 @@ export default function MediaBrowser({ mode, canWrite, reloadToken = 0, selected
         )}
       </Modal>
 
+      <Modal isOpen={Boolean(view3d)} onClose={() => setView3d(null)} title={view3d?.title?.trim() || view3d?.originalFilename || '3D model'} description="A live preview of the model. It is loaded only while this window is open." maxWidth="4xl">
+        {view3d && (
+          <div className="space-y-4">
+            <Model3DViewer mediaId={view3d.id} title={view3d.title?.trim() || view3d.originalFilename} heightClass="h-[55vh]" />
+            <div className="flex justify-end">
+              <button type="button" onClick={() => setView3d(null)} className="px-4 py-2 text-sm font-medium bg-white border border-slate-300 rounded-lg hover:bg-slate-50">
+                Close
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
       <ConfirmDialog
         isOpen={Boolean(deleteAsset)}
         onClose={() => !deleting && setDeleteAsset(null)}
         onConfirm={() => void confirmDelete()}
-        title="Delete this image?"
+        title={deleteAsset?.contentType === 'model/gltf-binary' ? 'Delete this 3D model?' : 'Delete this image?'}
         message={
           deleteError
             ? deleteError
             : `“${deleteAsset?.originalFilename ?? ''}” will be permanently deleted from storage. An image that a lesson or course still uses cannot be deleted: open "Details and usage" to see where, and change it there first.`
         }
-        confirmLabel="Delete image"
+        confirmLabel={deleteAsset?.contentType === 'model/gltf-binary' ? 'Delete 3D model' : 'Delete image'}
         isDestructive
         isLoading={deleting}
       />

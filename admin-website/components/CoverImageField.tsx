@@ -9,7 +9,7 @@ import MediaImage from './MediaImage';
 
 interface Props {
   /** What this is the cover of, used in labels: "course" or "lesson". */
-  subject: 'course' | 'lesson' | 'home' | 'event' | 'evidence' | 'section' | 'symbol' | 'scene' | 'animation' | 'video' | 'lottie' | 'poster';
+  subject: 'course' | 'lesson' | 'home' | 'event' | 'evidence' | 'section' | 'symbol' | 'scene' | 'animation' | 'video' | 'lottie' | 'poster' | 'model' | 'modelposter';
   /** The cover currently chosen in the form (a media asset id), or null. */
   value: string | null;
   /** Called with the chosen asset id, or null for "Remove cover". Nothing is saved here: the form's Save button saves it. */
@@ -23,8 +23,8 @@ interface Props {
   mode?: 'create' | 'edit';
   /** The exact label of the form's submit button ("Add lesson", "Create Course", "Save lesson details"), quoted in the help text. */
   saveLabel?: string;
-  /** Only offer library files of this exact type (an animated-WebP field accepts WebP only; a video field MP4; a Lottie field JSON). The server still checks the file itself when the block is saved. */
-  contentType?: 'image/webp' | 'video/mp4' | 'application/json';
+  /** Only offer library files of this exact type (an animated-WebP field accepts WebP only; a video field MP4; a Lottie field JSON; a 3D model field GLB). The server still checks the file itself when the block is saved. */
+  contentType?: 'image/webp' | 'video/mp4' | 'application/json' | 'model/gltf-binary';
 }
 
 const BTN = 'px-3.5 py-2 text-sm font-medium bg-white border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500';
@@ -37,8 +37,8 @@ const BTN = 'px-3.5 py-2 text-sm font-medium bg-white border border-slate-300 ro
 export default function CoverImageField({ subject, value, onChange, disabled = false, contentType, mode = 'edit', saveLabel }: Props) {
   const isContent = subject !== 'course' && subject !== 'lesson';
   // A video or a Lottie file is not a picture: it is shown as a file tile, picked and uploaded as that kind of file.
-  const fileKind = subject === 'video' ? 'video' : subject === 'lottie' ? 'lottie' : null;
-  const noun = fileKind === 'video' ? 'video' : fileKind === 'lottie' ? 'animation' : 'image';
+  const fileKind = subject === 'video' ? 'video' : subject === 'lottie' ? 'lottie' : subject === 'model' ? 'model' : null;
+  const noun = fileKind === 'video' ? 'video' : fileKind === 'lottie' ? 'animation' : fileKind === 'model' ? 'model' : 'image';
   const [picking, setPicking] = useState(false);
   const [tab, setTab] = useState<'upload' | 'library'>('library');
   const [picked, setPicked] = useState<MediaAsset | null>(null);
@@ -54,15 +54,15 @@ export default function CoverImageField({ subject, value, onChange, disabled = f
 
   return (
     <fieldset className="space-y-3" disabled={disabled}>
-      <legend className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5">{subject === 'animation' ? 'Animated image (WebP)' : subject === 'video' ? 'Video (MP4)' : subject === 'lottie' ? 'Lottie animation (JSON)' : subject === 'poster' ? 'Poster still (optional)' : subject === 'scene' ? 'Visual (optional)' : subject === 'event' ? 'Event image (optional)' : subject === 'section' ? 'Picture (optional)' : subject === 'symbol' ? 'Illustration (optional)' : subject === 'evidence' ? 'Evidence image (optional)' : subject === 'home' ? 'Card image (optional)' : 'Cover image'}</legend>
+      <legend className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5">{subject === 'model' ? '3D model (GLB)' : subject === 'modelposter' ? 'Poster image (optional)' : subject === 'animation' ? 'Animated image (WebP)' : subject === 'video' ? 'Video (MP4)' : subject === 'lottie' ? 'Lottie animation (JSON)' : subject === 'poster' ? 'Poster still (optional)' : subject === 'scene' ? 'Visual (optional)' : subject === 'event' ? 'Event image (optional)' : subject === 'section' ? 'Picture (optional)' : subject === 'symbol' ? 'Illustration (optional)' : subject === 'evidence' ? 'Evidence image (optional)' : subject === 'home' ? 'Card image (optional)' : 'Cover image'}</legend>
 
       {value ? (
         <div className="flex items-start gap-4">
           <div className="w-40 shrink-0 overflow-hidden rounded-lg border border-slate-300 bg-slate-100">
             {fileKind ? (
-              <MediaFileTile mediaId={value} contentType={fileKind === 'video' ? 'video/mp4' : 'application/json'} className="h-24 w-full" />
+              <MediaFileTile mediaId={value} contentType={fileKind === 'video' ? 'video/mp4' : fileKind === 'model' ? 'model/gltf-binary' : 'application/json'} className="h-24 w-full" />
             ) : (
-            <MediaImage mediaId={value} alt={subject === 'animation' ? 'The animated image (shown still here)' : subject === 'poster' ? 'Poster for this animation' : subject === 'scene' ? 'Visual for this scene' : subject === 'event' ? 'Image for this event' : subject === 'section' ? 'Picture for this heading' : subject === 'symbol' ? 'Illustration for this symbol' : subject === 'evidence' ? 'Image for this evidence' : subject === 'home' ? 'Image for this Home card' : `Cover image of this ${subject}`} className="h-24 w-full" />
+            <MediaImage mediaId={value} alt={subject === 'modelposter' ? 'Poster for this 3D model' : subject === 'animation' ? 'The animated image (shown still here)' : subject === 'poster' ? 'Poster for this animation' : subject === 'scene' ? 'Visual for this scene' : subject === 'event' ? 'Image for this event' : subject === 'section' ? 'Picture for this heading' : subject === 'symbol' ? 'Illustration for this symbol' : subject === 'evidence' ? 'Image for this evidence' : subject === 'home' ? 'Image for this Home card' : `Cover image of this ${subject}`} className="h-24 w-full" />
             )}
           </div>
           <div className="space-y-2">
@@ -70,7 +70,7 @@ export default function CoverImageField({ subject, value, onChange, disabled = f
               {subject === 'home'
                 ? `Shown on this entry's card on the Home screen instead of a course cover. The image is kept when you select ${saveLabel ?? 'Save'}; it is only referenced, never copied. Learners see a change as soon as the entry is shown to them, with no publishing step.`
                 : isContent
-                ? 'Shown with this ' + (subject === 'event' ? 'event' : subject === 'section' ? 'heading' : subject === 'symbol' ? 'symbol' : subject === 'scene' ? 'scene' : subject === 'animation' || subject === 'poster' || fileKind ? 'animation' : 'evidence') + `. The ${noun} is kept when you save this form; it is only referenced, never copied.`
+                ? 'Shown with this ' + (subject === 'modelposter' ? '3D model' : subject === 'event' ? 'event' : subject === 'section' ? 'heading' : subject === 'symbol' ? 'symbol' : subject === 'scene' ? 'scene' : fileKind === 'model' ? '3D model' : subject === 'animation' || subject === 'poster' || fileKind ? 'animation' : 'evidence') + `. The ${noun} is kept when you save this form; it is only referenced, never copied.`
                 : mode === 'create'
                 ? subject === 'course'
                   ? `The cover is saved when you select ${saveLabel ?? 'the button below'}. Learners see it once the course is published.`
@@ -81,7 +81,7 @@ export default function CoverImageField({ subject, value, onChange, disabled = f
             </p>
             <div className="flex flex-wrap gap-2">
               <button type="button" className={BTN} onClick={() => setPicking((open) => !open)} aria-expanded={picking}>
-                {fileKind ? `Change ${noun}` : 'Change image'}
+                {fileKind === 'model' ? 'Replace model' : fileKind ? `Change ${noun}` : 'Change image'}
               </button>
               <button type="button" className={BTN} onClick={() => { onChange(null); setPicking(false); }}>
                 {fileKind ? `Remove ${noun}` : isContent ? 'Remove image' : 'Remove cover'}
@@ -125,7 +125,7 @@ export default function CoverImageField({ subject, value, onChange, disabled = f
           {tab === 'upload' ? (
             <div role="tabpanel" className="space-y-2">
               <p className="text-sm text-slate-700">The {noun} is saved in the Media Library, so you can use it again elsewhere.</p>
-              <ImageUploadPanel kind={fileKind ?? 'image'} buttonLabel={fileKind ? `Upload and use for this animation` : subject === 'scene' ? 'Upload and use for this scene' : subject === 'animation' || subject === 'poster' ? 'Upload and use for this animation' : subject === 'event' ? 'Upload and use for this event' : subject === 'section' ? 'Upload and use for this heading' : subject === 'symbol' ? 'Upload and use for this symbol' : subject === 'evidence' ? 'Upload and use for this evidence' : subject === 'home' ? 'Upload and use for this card' : 'Upload and use as cover'} onUploaded={choose} />
+              <ImageUploadPanel kind={fileKind ?? 'image'} buttonLabel={fileKind === 'model' ? 'Upload and use for this 3D model' : subject === 'modelposter' ? 'Upload and use as the poster' : fileKind ? `Upload and use for this animation` : subject === 'scene' ? 'Upload and use for this scene' : subject === 'animation' || subject === 'poster' ? 'Upload and use for this animation' : subject === 'event' ? 'Upload and use for this event' : subject === 'section' ? 'Upload and use for this heading' : subject === 'symbol' ? 'Upload and use for this symbol' : subject === 'evidence' ? 'Upload and use for this evidence' : subject === 'home' ? 'Upload and use for this card' : 'Upload and use as cover'} onUploaded={choose} />
             </div>
           ) : (
             <div role="tabpanel" className="space-y-3">
@@ -142,7 +142,7 @@ export default function CoverImageField({ subject, value, onChange, disabled = f
                   onClick={() => picked && choose(picked)}
                   className="px-4 py-2 text-sm font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-lg disabled:opacity-50 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500"
                 >
-                  {subject === 'scene' ? 'Use for this scene' : subject === 'animation' || subject === 'poster' || fileKind ? 'Use for this animation' : subject === 'event' ? 'Use for this event' : subject === 'section' ? 'Use for this heading' : subject === 'symbol' ? 'Use for this symbol' : subject === 'evidence' ? 'Use for this evidence' : subject === 'home' ? 'Use for this card' : 'Use as cover'}
+                  {fileKind === 'model' ? 'Use for this 3D model' : subject === 'modelposter' ? 'Use as the poster' : subject === 'scene' ? 'Use for this scene' : subject === 'animation' || subject === 'poster' || fileKind ? 'Use for this animation' : subject === 'event' ? 'Use for this event' : subject === 'section' ? 'Use for this heading' : subject === 'symbol' ? 'Use for this symbol' : subject === 'evidence' ? 'Use for this evidence' : subject === 'home' ? 'Use for this card' : 'Use as cover'}
                 </button>
               </div>
             </div>

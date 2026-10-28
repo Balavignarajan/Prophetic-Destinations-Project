@@ -49,7 +49,7 @@ interface ParsedUpload {
 export class MediaController {
   constructor(private readonly media: MediaService) {}
 
-  /** multipart/form-data with the file in a field named `file`. The size limit comes from MEDIA_MAX_BYTES. */
+  /** multipart/form-data with the file in a field named `file`. The size limit comes from MEDIA_MAX_BYTES (MEDIA_GLB_MAX_BYTES for a GLB 3D model). */
   @Post()
   @Roles(...WRITE_ROLES)
   @Header('Cache-Control', 'no-store')
@@ -82,11 +82,11 @@ export class MediaController {
     };
   }
 
-  /** The upload rules as configured (largest file, accepted types). Declared before ':mediaId' so it is never read as an id. */
+  /** The upload rules as configured (largest file, largest GLB 3D model, accepted types). Declared before ':mediaId' so it is never read as an id. */
   @Get('settings')
   @Roles(...READ_ROLES)
   @Header('Cache-Control', 'no-store')
-  settings(): { maxBytes: number; allowedTypes: string[] } {
+  settings(): { maxBytes: number; glbMaxBytes: number; allowedTypes: string[] } {
     return this.media.uploadRules();
   }
 

@@ -9,6 +9,7 @@ import ImageBlockView from './ImageBlockView';
 import { CalculationView, ComparisonView, EquivalenceView } from './ProphecyViews';
 import { DiscoveryView, ReflectionView } from './ReflectionDiscoveryViews';
 import RichTextView, { hasRichTextContent } from './RichTextView';
+import { Model3DView } from './Model3DView';
 import { AnimationView, SceneView } from './SceneMediaViews';
 import ScriptureBlockView from './ScriptureBlockView';
 import ScriptureConnectionView from './ScriptureConnectionView';
@@ -42,6 +43,8 @@ export default function ReusableBlockView({ type, content }: { type: string; con
       return <SceneView content={content} />;
     case 'MEDIA_ANIMATION':
       return <AnimationView content={content} />;
+    case 'INTERACTIVE_3D_MODEL':
+      return <Model3DView content={content} />;
     case 'WORD_STUDY':
       return <WordStudyView content={content} />;
     case 'SYMBOL_STUDY':

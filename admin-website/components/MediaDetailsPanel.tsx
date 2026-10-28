@@ -202,6 +202,9 @@ export default function MediaDetailsPanel({ asset, canWrite, onSaved, dirtyRef, 
   const [saved, setSaved] = useState(false);
   const savingRef = useRef(false);
 
+  // A 3D model has no alternative text or caption of its own to offer a lesson (its block has a title and a description), so its details panel says so and leaves those two out.
+  const isModel = current.contentType === 'model/gltf-binary';
+  const kindName = isModel ? 'model' : 'image';
   const tags = parseTags(tagText);
   const dirty =
     title.trim() !== (current.title ?? '') ||
@@ -264,10 +267,11 @@ export default function MediaDetailsPanel({ asset, canWrite, onSaved, dirtyRef, 
         className="space-y-4"
         aria-labelledby="media-details-heading"
       >
-        <h3 id="media-details-heading" className="text-base font-semibold text-slate-900">Image details</h3>
+        <h3 id="media-details-heading" className="text-base font-semibold text-slate-900">{isModel ? '3D Model details' : 'Image details'}</h3>
         <p className="text-xs text-slate-700">
-          All optional. They describe the image in the library; the file itself cannot be changed here. Alternative text, caption and source are offered as starting text when someone chooses
-          this image for a lesson, only where that lesson field is empty, and they can edit it there. Changing them here never changes lessons or anything already published.
+          {isModel
+            ? 'All optional. They describe the 3D model in the library; the file itself cannot be changed here. Changing them never changes lessons or anything already published.'
+            : 'All optional. They describe the image in the library; the file itself cannot be changed here. Alternative text, caption and source are offered as starting text when someone chooses this image for a lesson, only where that lesson field is empty, and they can edit it there. Changing them here never changes lessons or anything already published.'}
         </p>
         {error && (
           <p role="alert" className="p-3 rounded-lg bg-rose-50 border border-rose-300 text-sm text-rose-900">
@@ -276,11 +280,13 @@ export default function MediaDetailsPanel({ asset, canWrite, onSaved, dirtyRef, 
         )}
         {saved && !dirty && <p role="status" className="p-3 rounded-lg bg-emerald-50 border border-emerald-300 text-sm text-emerald-950">Details saved.</p>}
         <fieldset className="space-y-4" disabled={!canWrite || saving}>
-          <legend className="sr-only">Image details</legend>
+          <legend className="sr-only">{isModel ? '3D Model details' : 'Image details'}</legend>
           <div>
             <label htmlFor="media-title" className={LABEL}>Title</label>
             <input id="media-title" type="text" maxLength={LIMITS.title} value={title} onChange={(e) => setTitle(e.target.value)} className={FIELD} />
           </div>
+          {!isModel && (
+          <>
           <div>
             <label htmlFor="media-alt" className={LABEL}>Default alternative text</label>
             <textarea id="media-alt" rows={2} maxLength={LIMITS.altText} value={altText} onChange={(e) => setAltText(e.target.value)} className={FIELD} />
@@ -291,6 +297,8 @@ export default function MediaDetailsPanel({ asset, canWrite, onSaved, dirtyRef, 
             <textarea id="media-caption" rows={2} maxLength={LIMITS.caption} value={caption} onChange={(e) => setCaption(e.target.value)} className={FIELD} />
             <p className={HELP}>Offered as the caption only where a lesson block has a caption field and it is empty. Blocks without a caption field do not use it.</p>
           </div>
+          </>
+          )}
           <div>
             <label htmlFor="media-source" className={LABEL}>Source or credit</label>
             <input id="media-source" type="text" maxLength={LIMITS.source} value={source} onChange={(e) => setSource(e.target.value)} className={FIELD} />
@@ -326,7 +334,7 @@ export default function MediaDetailsPanel({ asset, canWrite, onSaved, dirtyRef, 
       </form>
 
       <section aria-labelledby="media-usage-heading" className="space-y-3">
-        <h3 id="media-usage-heading" className="text-base font-semibold text-slate-900">Where this image is used</h3>
+        <h3 id="media-usage-heading" className="text-base font-semibold text-slate-900">Where this {kindName} is used</h3>
         <UsageSection asset={current} />
       </section>
     </div>

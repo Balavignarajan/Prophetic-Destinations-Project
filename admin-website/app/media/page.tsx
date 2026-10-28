@@ -22,7 +22,7 @@ export default function MediaLibraryPage() {
         <div>
           <h1 className="font-serif text-2xl font-bold text-slate-900">Media Library</h1>
           <p className="text-sm text-slate-700 mt-0.5">
-            Every image, MP4 video and Lottie animation stored for the curriculum. You are managing the library here. To put an image in a lesson, open the lesson and use <strong>Add Image</strong>: you can upload there or pick from this library.
+            Every image, MP4 video, Lottie animation and 3D model (GLB) stored for the curriculum. You are managing the library here. To put an image in a lesson, open the lesson and use <strong>Add Image</strong>: you can upload there or pick from this library.
           </p>
         </div>
 
@@ -48,13 +48,14 @@ export default function MediaLibraryPage() {
 
       <MediaBrowser mode="manage" canWrite={canWrite} reloadToken={reload} />
 
-      <Modal isOpen={uploadOpen} onClose={() => setUploadOpen(false)} title="Upload a file" description="A picture, an MP4 video or a Lottie animation. The server says which of these it accepts.">
+      <Modal isOpen={uploadOpen} onClose={() => setUploadOpen(false)} title="Upload a file" description="A picture, an MP4 video, a Lottie animation or a GLB 3D model. The server says which of these it accepts.">
         <div role="radiogroup" aria-label="Kind of file" className="mb-4 flex flex-wrap gap-2">
           {(
             [
               ['image', 'Image'],
               ['video', 'MP4 video'],
               ['lottie', 'Lottie animation'],
+              ['model', '3D model (GLB)'],
             ] as const
           ).map(([value, label]) => (
             <button
@@ -72,7 +73,7 @@ export default function MediaLibraryPage() {
         <ImageUploadPanel
           key={uploadKind}
           kind={uploadKind}
-          buttonLabel={uploadKind === 'image' ? 'Upload image' : uploadKind === 'video' ? 'Upload video' : 'Upload animation'}
+          buttonLabel={uploadKind === 'image' ? 'Upload image' : uploadKind === 'video' ? 'Upload video' : uploadKind === 'model' ? 'Upload 3D model' : 'Upload animation'}
           onUploaded={(asset) => {
             setUploadOpen(false);
             setNotice(`“${asset.originalFilename}” was added to the library.`);

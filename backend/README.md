@@ -77,8 +77,8 @@ A suggested walkthrough:
 
 Uploaded media lives on the local filesystem during development, behind a storage interface so deployment can use object storage instead.
 
-- `MEDIA_STORAGE_ROOT` (default `./storage/media`), `MEDIA_MAX_BYTES` (default 5 MiB) and `MEDIA_ALLOWED_TYPES` (default `image/png,image/jpeg,image/webp`)
-  are set in `.env`; see `.env.example`. `/storage/` is git-ignored, so uploads are never committed.
+- `MEDIA_STORAGE_ROOT` (default `./storage/media`), `MEDIA_MAX_BYTES` (default 5 MiB), `MEDIA_ALLOWED_TYPES` (default `image/png,image/jpeg,image/webp,model/gltf-binary`)
+  and `MEDIA_GLB_MAX_BYTES` (default 20 MiB, the limit for GLB 3D models only) are set in `.env`; see `.env.example`. `/storage/` is git-ignored, so uploads are never committed.
 - Back up the storage directory together with the database (the database lists the assets, the directory holds the bytes). Deleting an asset through the API
   removes both; deleting the directory by hand leaves rows that answer 404 on `content`.
 - The library is admin-only (`/api/v1/admin/media`, see [docs/api-reference.md](docs/api-reference.md)); nothing is served to the public.

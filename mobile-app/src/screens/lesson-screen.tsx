@@ -46,6 +46,7 @@ import { RelatedLessons } from '@/learning/related-lessons';
 import { CalloutBlock } from '@/learning/callout-block';
 import { ContinueExploringBlock } from '@/learning/continue-exploring-block';
 import { ExploreDeeperBlock } from '@/learning/explore-deeper-block';
+import { Model3DBlock } from '@/learning/model-3d-block';
 import { AnimatedImageBlock, NarrativeSceneBlock } from '@/learning/scene-media-blocks';
 import { GuidedQuestionBlock, StudyActivityBlock } from '@/learning/study-prompt-blocks';
 import { CalculationBlock, ComparisonBlock, EquivalenceBlock } from '@/learning/prophecy-blocks';
@@ -60,7 +61,7 @@ import { SummaryContent } from '@/learning/summary-block';
 import { useTheme } from '@/theme';
 
 /** The block types this version of the app can show: every type of the backend's block registry. A type that is not in this set is left out of the lesson and reported (see `LessonBody`). */
-const SUPPORTED_BLOCKS = new Set(['RICH_TEXT', 'IMAGE', 'SUMMARY', 'QUIZ', 'INTERACTIVE_IMAGE', 'TIMELINE', 'SCRIPTURE_PASSAGE', 'HISTORICAL_EVIDENCE', 'SECTION_INTRO', 'CALLOUT', 'SCRIPTURE_CONNECTION', 'MAP', 'EXPLORE_DEEPER', 'WORD_STUDY', 'SYMBOL_STUDY', 'PROPHECY_EQUIVALENCE', 'PROPHECY_COMPARISON', 'PROPHECY_CALCULATION', 'REFLECTION_STUDY_ACTIVITY', 'GUIDED_DISCOVERY_QUESTION', 'CONTINUE_EXPLORING', 'NARRATIVE_SCENE', 'MEDIA_ANIMATION']);
+const SUPPORTED_BLOCKS = new Set(['RICH_TEXT', 'IMAGE', 'SUMMARY', 'QUIZ', 'INTERACTIVE_IMAGE', 'TIMELINE', 'SCRIPTURE_PASSAGE', 'HISTORICAL_EVIDENCE', 'SECTION_INTRO', 'CALLOUT', 'SCRIPTURE_CONNECTION', 'MAP', 'EXPLORE_DEEPER', 'WORD_STUDY', 'SYMBOL_STUDY', 'PROPHECY_EQUIVALENCE', 'PROPHECY_COMPARISON', 'PROPHECY_CALCULATION', 'REFLECTION_STUDY_ACTIVITY', 'GUIDED_DISCOVERY_QUESTION', 'CONTINUE_EXPLORING', 'NARRATIVE_SCENE', 'MEDIA_ANIMATION', 'INTERACTIVE_3D_MODEL']);
 
 /** How long the lesson body must stay the same size before the reader stops being kept on the saved place (and a position beyond its end is clamped to the end; see `tryRestore`). */
 const RESTORE_SETTLE_MS = 1200;
@@ -946,6 +947,8 @@ const LessonBlockView = memo(function LessonBlockView({
       <NarrativeSceneBlock lessonId={lessonId} level={level} content={content} />
     ) : type === 'MEDIA_ANIMATION' ? (
       <AnimatedImageBlock lessonId={lessonId} level={level} content={content} isVisible={mediaVisible} appActive={appActive} />
+    ) : type === 'INTERACTIVE_3D_MODEL' ? (
+      <Model3DBlock lessonId={lessonId} level={level} content={content} appActive={appActive} />
     ) : type === 'WORD_STUDY' ? (
       <WordStudyBlock content={content} />
     ) : type === 'SYMBOL_STUDY' ? (

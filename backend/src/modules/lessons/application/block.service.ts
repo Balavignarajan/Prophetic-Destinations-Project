@@ -442,6 +442,16 @@ export class BlockService {
           { code: 'MEDIA_NOT_FOUND', mediaId: reference.targetId },
         );
       }
+      if (reference.mediaKind === 'model') {
+        // The stored type was detected from the file's own bytes at upload (a valid GLB container), so a renamed file cannot be passed off as a model.
+        if (asset.contentType !== 'model/gltf-binary') {
+          throw new BusinessRuleError('The selected file is not a 3D model. Choose a GLB model from the Media Library.', {
+            code: 'MEDIA_NOT_A_MODEL',
+            mediaId: reference.targetId,
+          });
+        }
+        continue;
+      }
       if (reference.mediaKind === 'video' || reference.mediaKind === 'lottie') {
         // The stored type was detected from the file's own bytes at upload, so this cannot be passed off by naming a file differently.
         const wanted = reference.mediaKind === 'video' ? 'video/mp4' : 'application/json';

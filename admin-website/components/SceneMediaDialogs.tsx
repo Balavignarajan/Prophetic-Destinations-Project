@@ -37,7 +37,7 @@ interface CommonProps {
 }
 type BodyProps = Omit<CommonProps, 'isOpen' | 'onClose'> & { requestClose: () => void; dirtyRef: React.MutableRefObject<boolean> };
 
-function ErrorNote({ error }: { error: string | null }) {
+export function ErrorNote({ error }: { error: string | null }) {
   if (!error) return null;
   return (
     <p role="alert" className="p-3 rounded-lg bg-rose-50 border border-rose-300 text-sm text-rose-900">
@@ -46,7 +46,7 @@ function ErrorNote({ error }: { error: string | null }) {
   );
 }
 
-function Missing({ items }: { items: string[] }) {
+export function Missing({ items }: { items: string[] }) {
   if (items.length === 0) return null;
   return (
     <div role="status" className="text-xs text-slate-700">

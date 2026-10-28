@@ -19,11 +19,13 @@ export type LessonMediaRepresentation =
 
 /** The file type each playable media kind must have. A MEDIA_ANIMATION block names its kind; the asset's own stored (byte-detected) type must agree. */
 const PLAYABLE_TYPES: Record<string, string> = { VIDEO: 'video/mp4', LOTTIE: 'application/json' };
+/** The one file type an INTERACTIVE_3D_MODEL block's model may have: a GLB (detected from its bytes at upload). */
+const MODEL_TYPE = 'model/gltf-binary';
 
 /**
- * The video and Lottie assets an active published snapshot actually names: the `mediaId` of a MEDIA_ANIMATION block whose `mediaType` is VIDEO or LOTTIE,
- * with the one file type that kind may be. A poster is an image and is covered by `publishedImageIds`. Nothing else in the snapshot can make a video or a
- * JSON file servable.
+ * The non-image assets an active published snapshot actually names: the `mediaId` of a MEDIA_ANIMATION block whose `mediaType` is VIDEO or LOTTIE, and the `mediaId`
+ * of an INTERACTIVE_3D_MODEL block (its GLB model), each with the one file type it may be. A poster is an image and is covered by `publishedImageIds`. Nothing else in the
+ * snapshot can make a video, a JSON file or a 3D model servable.
  */
 export function publishedPlayableMedia(snapshot: Record<string, unknown>): Map<string, string> {
   const playable = new Map<string, string>();
@@ -32,6 +34,11 @@ export function publishedPlayableMedia(snapshot: Record<string, unknown>): Map<s
   for (const block of blocks) {
     if (typeof block !== 'object' || block === null) continue;
     const { type, content } = block as { type?: unknown; content?: unknown };
+    if (type === 'INTERACTIVE_3D_MODEL' && typeof content === 'object' && content !== null) {
+      const modelId = (content as { mediaId?: unknown }).mediaId;
+      if (typeof modelId === 'string') playable.set(modelId, MODEL_TYPE);
+      continue;
+    }
     if (type !== 'MEDIA_ANIMATION' || typeof content !== 'object' || content === null) continue;
     const { mediaType, mediaId } = content as { mediaType?: unknown; mediaId?: unknown };
     if (typeof mediaType === 'string' && typeof mediaId === 'string' && PLAYABLE_TYPES[mediaType]) playable.set(mediaId, PLAYABLE_TYPES[mediaType]);
@@ -39,7 +46,7 @@ export function publishedPlayableMedia(snapshot: Record<string, unknown>): Map<s
   return playable;
 }
 
-/** The image ids an active published snapshot actually uses: IMAGE, INTERACTIVE_IMAGE and MAP blocks and TIMELINE event images and HISTORICAL_EVIDENCE, SECTION_INTRO, SYMBOL_STUDY and NARRATIVE_SCENE images and MEDIA_ANIMATION assets and posters, and the images of the blocks nested inside an EXPLORE_DEEPER block, only; nothing else in the snapshot is trusted as a reference. */
+/** The image ids an active published snapshot actually uses: IMAGE, INTERACTIVE_IMAGE and MAP blocks and TIMELINE event images and HISTORICAL_EVIDENCE, SECTION_INTRO, SYMBOL_STUDY and NARRATIVE_SCENE images and MEDIA_ANIMATION assets and posters and INTERACTIVE_3D_MODEL models and posters, and the images of the blocks nested inside an EXPLORE_DEEPER block, only; nothing else in the snapshot is trusted as a reference. */
 export function publishedImageIds(snapshot: Record<string, unknown>): Set<string> {
   const ids = new Set<string>();
   // The lesson's published cover (absent in snapshots written before covers existed).
@@ -50,6 +57,14 @@ export function publishedImageIds(snapshot: Record<string, unknown>): Set<string
   for (const block of blocks) {
     if (typeof block !== 'object' || block === null) continue;
     const { type, content } = block as { type?: unknown; content?: unknown };
+    if (type === 'INTERACTIVE_3D_MODEL' && typeof content === 'object' && content !== null) {
+      // The model (a GLB) and its poster (an ordinary image). The model is servable only as the asset of THIS kind of block and only while its stored type is a GLB:
+      // `getImage` checks that through `publishedPlayableMedia`, so naming a non-GLB file here makes nothing servable.
+      const { mediaId: model, posterMediaId: poster } = content as { mediaId?: unknown; posterMediaId?: unknown };
+      if (typeof model === 'string') ids.add(model);
+      if (typeof poster === 'string') ids.add(poster);
+      continue;
+    }
     if (type === 'MEDIA_ANIMATION' && typeof content === 'object' && content !== null) {
       const { mediaId: animated, posterMediaId: poster } = content as { mediaId?: unknown; posterMediaId?: unknown };
       if (typeof animated === 'string') ids.add(animated);
@@ -149,8 +164,8 @@ export class LessonMediaDeliveryService {
   }
 
   /**
-   * One media file of a published lesson: an image of any image block, or the video / Lottie file of a MEDIA_ANIMATION block that names it. A video may be
-   * asked for in parts (`range`, `ifRange`): a player seeks by requesting the bytes it needs.
+   * One media file of a published lesson: an image of any image block, the video / Lottie file of a MEDIA_ANIMATION block that names it, or the GLB model of an
+   * INTERACTIVE_3D_MODEL block that names it. A video may be asked for in parts (`range`, `ifRange`): a player seeks by requesting the bytes it needs.
    */
   async getImage(
     lessonId: string,
@@ -170,8 +185,8 @@ export class LessonMediaDeliveryService {
 
     const asset = await this.media.find(mediaId);
     if (!asset) throw notFound();
-    // An image is served for any block that uses it. A video or JSON file is served only as the asset of a MEDIA_ANIMATION block of that kind, and only
-    // when the stored type agrees with the kind (a file of another type cannot be passed off as one).
+    // An image is served for any block that uses it. A video, JSON file or GLB model is served only as the asset of a block of that kind (MEDIA_ANIMATION, INTERACTIVE_3D_MODEL), and
+    // only when the stored type agrees with the kind (a file of another type cannot be passed off as one).
     if (!asset.contentType.startsWith('image/') && publishedPlayableMedia(snapshot).get(mediaId) !== asset.contentType) throw notFound();
 
     // Stored files never change, so the content hash identifies the bytes; the checks above still run on every revalidation.
