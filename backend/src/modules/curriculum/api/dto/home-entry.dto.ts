@@ -1,7 +1,10 @@
 import {
   ArrayMaxSize,
+  ArrayNotEmpty,
+  ArrayUnique,
   IsArray,
   IsBoolean,
+  IsIn,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -11,6 +14,7 @@ import {
   Min,
   ValidateIf,
 } from 'class-validator';
+import { LEARNING_LEVELS, type LearningLevel } from '../../../../shared-kernel/index.js';
 import type { HomeEntry } from '../../domain/models.js';
 import { HOME_ENTRY_DESCRIPTION_MAX_LENGTH, HOME_ENTRY_TITLE_MAX_LENGTH } from '../../domain/home-entry-rules.js';
 import { Trim } from './text-fields.js';
@@ -46,6 +50,14 @@ export class CreateHomeEntryDto {
   @IsInt()
   @Min(1)
   position?: number;
+
+  /** The learning levels that see the entry on Home: at least one, each at most once. Omitted = all three. */
+  @IsOptional()
+  @IsArray()
+  @ArrayNotEmpty()
+  @ArrayUnique()
+  @IsIn(LEARNING_LEVELS as unknown as string[], { each: true })
+  visibleLevels?: LearningLevel[];
 }
 
 export class UpdateHomeEntryDto {
@@ -71,6 +83,14 @@ export class UpdateHomeEntryDto {
   @IsOptional()
   @IsBoolean()
   isEnabled?: boolean;
+
+  /** The learning levels that see the entry on Home: at least one, each at most once. Omitted = leave the choice as it is. */
+  @IsOptional()
+  @IsArray()
+  @ArrayNotEmpty()
+  @ArrayUnique()
+  @IsIn(LEARNING_LEVELS as unknown as string[], { each: true })
+  visibleLevels?: LearningLevel[];
 
   /** The version the editor last saw; if it is stale the update is refused (409). */
   @IsOptional()
@@ -100,6 +120,8 @@ export class HomeEntryResponseDto {
   imageMediaId: string | null;
   position: number;
   isEnabled: boolean;
+  /** The learning levels the administrators chose to show this entry at (all three unless a choice was made). Not a promise that learners see it: that also needs a published course. */
+  visibleLevels: LearningLevel[];
   version: number;
   /** How many courses are assigned to this entry (any status). 0 = "No courses assigned" in the CMS. */
   courseCount: number;
@@ -116,6 +138,7 @@ export class HomeEntryResponseDto {
       imageMediaId: entry.imageMediaId,
       position: entry.position,
       isEnabled: entry.isEnabled,
+      visibleLevels: entry.visibleLevels,
       version: entry.version,
       courseCount: entry.courseCount,
       courses: entry.courses.map((course) => ({ id: course.id, title: course.title, status: course.status })),

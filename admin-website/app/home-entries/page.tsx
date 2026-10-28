@@ -470,6 +470,7 @@ export default function HomeEntriesPage() {
         {infoOpen && (
           <ul id={infoId} className="mt-2 list-disc space-y-1 pl-5 text-[13px]">
             <li>The entry must be <strong>enabled</strong>.</li>
+            <li>The learner&rsquo;s level must be one of the entry&rsquo;s <strong>selected levels</strong> (Edit &rarr; Visible to Learning Levels). That is your choice; the rules below decide whether anything is there to show at a selected level.</li>
             <li>At least one course assigned to it must be <strong>published</strong> and eligible.</li>
             <li>That course needs <strong>published lessons at the learner&rsquo;s selected level</strong>, so an entry can be visible at some levels and not others. The badge on each row shows which.</li>
             <li>Draft courses (and any course that is not published) are never visible. Tapping an entry lists just its published courses.</li>

@@ -67,27 +67,29 @@ export class PublishedCatalogRepository {
   }
 
   /**
-   * The enabled Home Entries in the administrators' Home order (`home_entries.position`, then id). Disabled entries are never selected. Like the manual course order
+   * The enabled Home Entries the administrators chose to show at `level`, in the administrators' Home order (`home_entries.position`, then id). Disabled entries are never selected,
+   * and neither is an entry whose chosen levels (`visible_levels`; NULL = every level) leave `level` out, so a hidden entry is not even read. Like the manual course order
    * and the legacy `book`, this is the live Home setting, not part of a published snapshot; it can never bring an unpublished course into view because the catalog
    * service keeps only the courses that are currently published at the learner's level.
    */
-  async listEnabledHomeEntries(): Promise<EnabledHomeEntry[]> {
+  async listEnabledHomeEntries(level: LearningLevel): Promise<EnabledHomeEntry[]> {
     const rows: HomeEntryRow[] = await this.dataSource.query(
       `SELECT h."id", h."title", h."description", h."image_media_id", h."position"
          FROM "home_entries" h
-        WHERE h."is_enabled" = true
+        WHERE h."is_enabled" = true AND (h."visible_levels" IS NULL OR $1 = ANY(h."visible_levels"))
         ORDER BY h."position", h."id"`,
+      [level],
     );
     return rows.map(toEnabledHomeEntry);
   }
 
-  /** One enabled Home Entry, or null if it does not exist or is disabled. */
-  async findEnabledHomeEntry(entryId: string): Promise<EnabledHomeEntry | null> {
+  /** One enabled Home Entry that is shown at `level`, or null if it does not exist, is disabled, or the administrators did not choose this level for it. */
+  async findEnabledHomeEntry(entryId: string, level: LearningLevel): Promise<EnabledHomeEntry | null> {
     const rows: HomeEntryRow[] = await this.dataSource.query(
       `SELECT h."id", h."title", h."description", h."image_media_id", h."position"
          FROM "home_entries" h
-        WHERE h."id" = $1 AND h."is_enabled" = true`,
-      [entryId],
+        WHERE h."id" = $1 AND h."is_enabled" = true AND (h."visible_levels" IS NULL OR $2 = ANY(h."visible_levels"))`,
+      [entryId, level],
     );
     return rows[0] ? toEnabledHomeEntry(rows[0]) : null;
   }

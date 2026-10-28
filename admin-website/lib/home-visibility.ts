@@ -103,8 +103,32 @@ export function fallbackCoverId(entryId: string, data: VisibilityData): string |
   return null;
 }
 
-/** The short label of a visibility, always stating the levels when it is not all of them. */
-export function visibilityLabel(visibility: Visibility): string {
+/** The chosen levels in level order (Beginner, Intermediate, Advanced), whatever order they arrive in. */
+export const orderedLevels = (levels: readonly LearningLevel[]): LearningLevel[] => HOME_LEVELS.filter((level) => levels.includes(level));
+
+/** Whether two choices hold the same levels, whatever their order. */
+export const sameLevels = (a: readonly LearningLevel[], b: readonly LearningLevel[]): boolean => a.length === b.length && a.every((level) => b.includes(level));
+
+/** The administrators' choice in words: "Beginner only", "Beginner + Intermediate", "Intermediate + Advanced", "All 3 levels". */
+export function levelsLabel(levels: readonly LearningLevel[]): string {
+  const chosen = orderedLevels(levels);
+  if (chosen.length === HOME_LEVELS.length) return 'All 3 levels';
+  if (chosen.length === 0) return 'No levels';
+  if (chosen.length === 1) return `${HOME_LEVEL_NAMES[chosen[0]]} only`;
+  return chosen.map((level) => HOME_LEVEL_NAMES[level]).join(' + ');
+}
+
+/** The selected levels of `visibility` at which a learner can actually open something right now (the server's answer), for the badge's "some selected levels have nothing yet" note. */
+export function selectedLevelsWithoutContent(visibility: Visibility, selected: readonly LearningLevel[]): LearningLevel[] {
+  if (visibility.kind !== 'visible') return [];
+  return orderedLevels(selected).filter((level) => !visibility.perLevel[level]);
+}
+
+/**
+ * The short label of a visibility. While the entry is visible it names the levels the administrators selected ("Beginner only", "All 3 levels"...): that is the choice made in the form. Whether
+ * each selected level actually has a published course to show is told in the details, level by level, so the choice and the content are never mixed up.
+ */
+export function visibilityLabel(visibility: Visibility, selected: readonly LearningLevel[] = HOME_LEVELS): string {
   switch (visibility.kind) {
     case 'checking':
       return 'Checking visibility…';
@@ -115,6 +139,6 @@ export function visibilityLabel(visibility: Visibility): string {
     case 'hidden':
       return 'Hidden — No eligible published courses';
     case 'visible':
-      return visibility.levels.length === HOME_LEVELS.length ? 'Visible at all 3 levels' : `Visible at ${visibility.levels.length} of ${HOME_LEVELS.length} levels`;
+      return levelsLabel(selected);
   }
 }

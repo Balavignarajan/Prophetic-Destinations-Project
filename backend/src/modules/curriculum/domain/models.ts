@@ -1,4 +1,4 @@
-import type { ContentStatus } from '../../../shared-kernel/index.js';
+import type { ContentStatus, LearningLevel } from '../../../shared-kernel/index.js';
 
 export interface Course {
   id: string;
@@ -35,6 +35,11 @@ export interface HomeEntry {
   position: number;
   /** A disabled entry is kept but not shown to learners. */
   isEnabled: boolean;
+  /**
+   * The learning levels the administrators chose to show this entry at (always an explicit, non-empty list in level order; all three for an entry that never had a choice made). Only
+   * the administrators' choice: a learner at one of these levels still only sees the entry while it is enabled and one of its courses is published with a lesson at that level.
+   */
+  visibleLevels: LearningLevel[];
   /** Incremented on every content change; used to detect conflicting edits. */
   version: number;
   /** How many courses are assigned (any status). */

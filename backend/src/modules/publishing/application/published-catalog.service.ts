@@ -105,14 +105,15 @@ export class PublishedCatalogService {
   }
 
   /**
-   * The Home Entries a learner at `level` may see, in the administrators' Home order. An entry is shown only if ALL of these hold right now: it is enabled, and at least one
+   * The Home Entries a learner at `level` may see, in the administrators' Home order. An entry is shown only if ALL of these hold right now: it is enabled, the administrators chose
+   * this level for it (`visible_levels`, applied in the query so a hidden entry is not even read; it never widens what is shown), and at least one
    * course assigned to it is published and has a lesson deliverable at `level`. "Published and deliverable at the level" is decided by `listCourses` itself (the very same rules
    * and query as the course list, nothing is repeated here), so an entry vanishes by itself when its last eligible course is unpublished or has nothing at the level, and
    * returns by itself when one qualifies again. A draft or unpublished course is never in `listCourses`, so it can neither appear nor keep an entry alive. No entry qualifies ->
    * an empty list, never an error.
    */
   async listHomeEntries(level: LearningLevel): Promise<PublishedHomeEntryView[]> {
-    const entries = await this.catalog.listEnabledHomeEntries();
+    const entries = await this.catalog.listEnabledHomeEntries(level);
     if (entries.length === 0) return [];
     const byEntry = await this.eligibleCoursesByEntry(level);
     return entries.flatMap((entry) => {
@@ -126,7 +127,7 @@ export class PublishedCatalogService {
    * disabled, or has no eligible course at that level. All of those are the same answer, so a caller cannot tell a disabled entry from a missing one or from one with only drafts.
    */
   async findHomeEntryCourses(entryId: string, level: LearningLevel): Promise<PublishedHomeEntryCourses | null> {
-    const entry = await this.catalog.findEnabledHomeEntry(entryId);
+    const entry = await this.catalog.findEnabledHomeEntry(entryId, level);
     if (!entry) return null;
     const courses = (await this.eligibleCoursesByEntry(level)).get(entry.id);
     return courses && courses.length > 0 ? { entry: toHomeEntryView(entry, courses), courses } : null;

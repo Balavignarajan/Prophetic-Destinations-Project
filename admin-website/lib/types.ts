@@ -64,6 +64,8 @@ export interface HomeEntry {
   /** 1-based place on Home. */
   position: number;
   isEnabled: boolean;
+  /** The learning levels the administrators chose to show this entry at (all three unless a choice was made). Not a promise that learners see it: that also needs a published course at the level. */
+  visibleLevels: LearningLevel[];
   version: number;
   /** How many courses are assigned (any status). */
   courseCount: number;

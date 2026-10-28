@@ -11,7 +11,7 @@ import {
   positionsFor,
   resolveInsertPosition,
 } from '../../../shared-kernel/index.js';
-import { checkHomeEntryTitle, checkReference, normalizeHomeEntryDescription } from '../domain/home-entry-rules.js';
+import { checkHomeEntryTitle, checkReference, checkVisibleLevels, normalizeHomeEntryDescription, visibleLevelsToStored } from '../domain/home-entry-rules.js';
 import type { HomeEntry } from '../domain/models.js';
 import { HomeEntryRepository } from '../persistence/home-entry.repository.js';
 
@@ -24,6 +24,8 @@ export interface CreateHomeEntryInput {
   isEnabled?: boolean;
   /** 1-based place on Home; omitted = at the end. */
   position?: number;
+  /** The learning levels that see the entry; omitted = all three. At least one, each at most once. */
+  visibleLevels?: readonly string[];
 }
 
 export interface UpdateHomeEntryInput {
@@ -33,6 +35,8 @@ export interface UpdateHomeEntryInput {
   /** undefined = leave alone, null = no card image (the image itself is never deleted). */
   imageMediaId?: string | null;
   isEnabled?: boolean;
+  /** undefined = leave alone; otherwise the new choice (at least one level, each at most once). */
+  visibleLevels?: readonly string[];
   /** The version the editor last saw; a mismatch means a conflicting edit. */
   version?: number;
 }
@@ -64,6 +68,8 @@ export class HomeEntryService {
     const title = checkHomeEntryTitle(input.title);
     const description = normalizeHomeEntryDescription(input.description);
     const imageMediaId = input.imageMediaId ? checkReference(input.imageMediaId, 'imageMediaId') : null;
+    // Omitted = every level (stored as null, like an entry that never had a choice made).
+    const visibleLevels = input.visibleLevels === undefined ? null : visibleLevelsToStored(checkVisibleLevels(input.visibleLevels));
     if (imageMediaId) await this.media.requireImage(imageMediaId, IMAGE_SUBJECT);
 
     return this.transactions.run(async (manager) => {
@@ -73,7 +79,7 @@ export class HomeEntryService {
       const position = resolveInsertPosition(input.position, existing.length);
       // Created at the end, then moved into place: the whole list is renumbered in the same transaction, so positions stay 1..n with no gaps and no duplicates.
       const created = await this.entries.create(
-        { title, description, imageMediaId, isEnabled: input.isEnabled ?? true, position: existing.length + 1 },
+        { title, description, imageMediaId, isEnabled: input.isEnabled ?? true, position: existing.length + 1, visibleLevels },
         manager,
       );
       if (position === existing.length + 1) return created;
@@ -99,7 +105,9 @@ export class HomeEntryService {
     const title = input.title !== undefined ? checkHomeEntryTitle(input.title) : undefined;
     const description = input.description !== undefined ? normalizeHomeEntryDescription(input.description) : undefined;
     const imageMediaId = input.imageMediaId === undefined ? undefined : input.imageMediaId === null ? null : checkReference(input.imageMediaId, 'imageMediaId');
-    if (title === undefined && description === undefined && imageMediaId === undefined && input.isEnabled === undefined) {
+    // undefined = leave the levels alone; a value is validated (at least one, real levels, none twice) and stored (all three = null).
+    const visibleLevels = input.visibleLevels === undefined ? undefined : visibleLevelsToStored(checkVisibleLevels(input.visibleLevels));
+    if (title === undefined && description === undefined && imageMediaId === undefined && input.isEnabled === undefined && visibleLevels === undefined) {
       throw new BusinessRuleError('Nothing to update');
     }
 
@@ -120,6 +128,7 @@ export class HomeEntryService {
           ...(description !== undefined ? { description } : {}),
           ...(imageMediaId !== undefined ? { imageMediaId } : {}),
           ...(input.isEnabled !== undefined ? { isEnabled: input.isEnabled } : {}),
+          ...(visibleLevels !== undefined ? { visibleLevels } : {}),
         },
         manager,
       );

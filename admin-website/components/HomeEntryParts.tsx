@@ -3,8 +3,8 @@
 import React, { useId, useRef, useState } from 'react';
 import Link from 'next/link';
 import { courseCountText } from '../lib/home-entries';
-import { HOME_LEVELS, HOME_LEVEL_NAMES, type Visibility, visibilityLabel } from '../lib/home-visibility';
-import type { HomeEntry } from '../lib/types';
+import { HOME_LEVELS, HOME_LEVEL_NAMES, type Visibility, levelsLabel, orderedLevels, selectedLevelsWithoutContent, visibilityLabel } from '../lib/home-visibility';
+import type { HomeEntry, LearningLevel } from '../lib/types';
 import MediaImage from './MediaImage';
 import { useDismiss } from './RowMenu';
 import { StatusBadge } from './ui';
@@ -76,12 +76,17 @@ const TONES: Record<Visibility['kind'], string> = {
   visible: 'border-emerald-200 bg-emerald-50 text-emerald-800',
 };
 
+/** A selected level where nothing is published yet: the same family as "hidden", so it reads as "check this" rather than as success. */
+const PARTIAL_TONE = 'border-amber-200 bg-amber-50/70 text-amber-900';
+
 /**
- * What learners will see of this entry, level by level, as the SERVER works it out: "Visible at all 3 levels", "Visible at 2 of 3 levels", "Hidden — Disabled", "Hidden — No eligible published
- * courses". It is a button: pressing it (or Enter) opens the details, which list each level with what a learner there can open and, for a hidden entry, the likely reason. The details are
- * plain text on the page, not a tooltip, and Escape or pressing elsewhere closes them. An entry's own switch (Enabled/Disabled) is a separate badge: an enabled entry can still be hidden.
+ * Which learning levels see this entry. While the entry is visible the badge names the levels the administrators SELECTED in the form ("Beginner only", "Beginner + Intermediate", "All 3 levels"); it
+ * is amber when a selected level has nothing published to show yet. Otherwise it says why learners do not see the entry ("Hidden — Disabled", "Hidden — No eligible published courses"). It is a
+ * button: pressing it (or Enter) opens the details, which keep two things apart for each level: whether the level is SELECTED (the administrators' choice) and whether a published course with lessons
+ * is there to show (what the server works out). The details are plain text on the page, not a tooltip, and Escape or pressing elsewhere closes them. An entry's own switch (Enabled/Disabled) is a
+ * separate badge: an enabled entry can still be hidden.
  */
-export function VisibilityBadge({ visibility, onOpenChange }: { visibility: Visibility; onOpenChange?: (open: boolean) => void }) {
+export function VisibilityBadge({ visibility, selectedLevels, onOpenChange }: { visibility: Visibility; selectedLevels: readonly LearningLevel[]; onOpenChange?: (open: boolean) => void }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const panelId = useId();
@@ -90,7 +95,10 @@ export function VisibilityBadge({ visibility, onOpenChange }: { visibility: Visi
     onOpenChange?.(next);
   };
   useDismiss(open, () => change(false), wrapRef);
-  const label = visibilityLabel(visibility);
+  const selected = orderedLevels(selectedLevels);
+  const label = visibilityLabel(visibility, selected);
+  const empty = selectedLevelsWithoutContent(visibility, selected);
+  const tone = visibility.kind === 'visible' && empty.length > 0 ? PARTIAL_TONE : TONES[visibility.kind];
   return (
     <div ref={wrapRef} className="relative">
       <button
@@ -98,7 +106,8 @@ export function VisibilityBadge({ visibility, onOpenChange }: { visibility: Visi
         aria-expanded={open}
         aria-controls={open ? panelId : undefined}
         onClick={() => change(!open)}
-        className={`inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-left text-xs font-semibold focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500 ${TONES[visibility.kind]}`}
+        title={visibility.kind === 'visible' && empty.length > 0 ? 'Some selected levels have no published lessons yet' : undefined}
+        className={`inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-left text-xs font-semibold focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500 ${tone}`}
       >
         <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           {visibility.kind === 'visible' ? (
@@ -118,6 +127,13 @@ export function VisibilityBadge({ visibility, onOpenChange }: { visibility: Visi
       {open && (
         <div id={panelId} role="group" aria-label={`Learner visibility: ${label}`} className="absolute right-0 top-full z-40 mt-1 w-72 max-w-[calc(100vw-2rem)] space-y-2 rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-700 shadow-lg">
           <p className="text-sm font-semibold text-slate-900">{label}</p>
+          <p>
+            <span className="font-semibold text-slate-900">Selected levels: </span>
+            {levelsLabel(selected)}.{' '}
+            <span className="text-slate-600">
+              Chosen in the Edit form.{selected.length < HOME_LEVELS.length ? ' Learners at the other levels never see this entry.' : ''}
+            </span>
+          </p>
           {visibility.kind === 'disabled' && <p>This entry is switched off, so learners do not see it at any learning level. Nothing is deleted and its courses stay assigned. Enable it from the More actions menu.</p>}
           {visibility.kind === 'hidden' && (
             <>
@@ -133,17 +149,22 @@ export function VisibilityBadge({ visibility, onOpenChange }: { visibility: Visi
               <ul className="space-y-1">
                 {HOME_LEVELS.map((level) => {
                   const found = visibility.perLevel[level];
+                  const isSelected = selected.includes(level);
                   return (
                     <li key={level} className="flex items-baseline justify-between gap-3">
                       <span className="font-medium text-slate-900">{HOME_LEVEL_NAMES[level]}</span>
-                      <span className={found ? 'text-emerald-800' : 'text-slate-600'}>
-                        {found ? `Visible — ${courseCountText(found.courses)}, ${found.lessons} ${found.lessons === 1 ? 'lesson' : 'lessons'}` : 'Not visible'}
+                      <span className={!isSelected ? 'text-slate-600' : found ? 'text-emerald-800' : 'text-amber-900'}>
+                        {!isSelected
+                          ? 'Not selected — hidden'
+                          : found
+                            ? `Visible — ${courseCountText(found.courses)}, ${found.lessons} ${found.lessons === 1 ? 'lesson' : 'lessons'}`
+                            : 'Selected — nothing published yet'}
                       </span>
                     </li>
                   );
                 })}
               </ul>
-              {visibility.levels.length < HOME_LEVELS.length && <p>At the other levels none of its published courses has published lessons yet.</p>}
+              {empty.length > 0 && <p>At a selected level with nothing published yet, none of its published courses has published lessons there.</p>}
             </>
           )}
           <p className="border-t border-slate-100 pt-2 text-slate-600">Worked out by the same server rules the learner app uses. Course status badges show the courses&rsquo; own publishing state.</p>

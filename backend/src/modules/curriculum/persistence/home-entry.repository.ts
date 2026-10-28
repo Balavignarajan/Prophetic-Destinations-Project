@@ -2,7 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { type EntityManager, Repository } from 'typeorm';
 import { isForeignKeyViolation, isUniqueViolation } from '../../../database/pg-errors.js';
-import { BusinessRuleError, ConflictError, type ContentStatus } from '../../../shared-kernel/index.js';
+import { BusinessRuleError, ConflictError, type ContentStatus, type LearningLevel } from '../../../shared-kernel/index.js';
+import { visibleLevelsFromStored } from '../domain/home-entry-rules.js';
 import type { HomeEntry, HomeEntryCourse } from '../domain/models.js';
 import { HomeEntryEntity } from './home-entry.entity.js';
 
@@ -12,6 +13,8 @@ export interface NewHomeEntry {
   imageMediaId: string | null;
   isEnabled: boolean;
   position: number;
+  /** As stored: null = every level (see `visibleLevelsToStored`). */
+  visibleLevels: LearningLevel[] | null;
 }
 
 export interface HomeEntryChanges {
@@ -19,6 +22,8 @@ export interface HomeEntryChanges {
   description?: string | null;
   imageMediaId?: string | null;
   isEnabled?: boolean;
+  /** As stored: null = every level; undefined = leave alone. */
+  visibleLevels?: LearningLevel[] | null;
 }
 
 const DUPLICATE_MESSAGE = 'There is already a Home Entry with this title. Choose a different title, or edit the existing entry.';
@@ -162,6 +167,7 @@ function toHomeEntry(row: HomeEntryEntity, courses: HomeEntryCourse[]): HomeEntr
     imageMediaId: row.imageMediaId,
     position: row.position,
     isEnabled: row.isEnabled,
+    visibleLevels: visibleLevelsFromStored(row.visibleLevels),
     version: row.version,
     courseCount: courses.length,
     courses,

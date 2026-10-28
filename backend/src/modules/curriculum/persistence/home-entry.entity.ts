@@ -23,6 +23,10 @@ import {
 @Check('chk_home_entries_description', `"description" IS NULL OR char_length(btrim("description")) BETWEEN 1 AND 500`)
 @Check('chk_home_entries_position', `"position" >= 1`)
 @Check('chk_home_entries_version', `"version" >= 1`)
+@Check(
+  'chk_home_entries_visible_levels',
+  `"visible_levels" IS NULL OR (cardinality("visible_levels") >= 1 AND "visible_levels" <@ ARRAY['BEGINNER', 'INTERMEDIATE', 'ADVANCED']::text[] AND cardinality(array_positions("visible_levels", 'BEGINNER')) <= 1 AND cardinality(array_positions("visible_levels", 'INTERMEDIATE')) <= 1 AND cardinality(array_positions("visible_levels", 'ADVANCED')) <= 1)`,
+)
 export class HomeEntryEntity {
   @PrimaryColumn({ type: 'uuid', default: () => 'gen_random_uuid()' })
   id: string;
@@ -43,6 +47,13 @@ export class HomeEntryEntity {
 
   @Column({ name: 'is_enabled', type: 'boolean', default: true })
   isEnabled: boolean;
+
+  /**
+   * The learning levels the entry is shown at (Batch 54; migration AddHomeEntryVisibleLevels1791960000000). NULL = every level: every entry that existed before keeps showing at all three, and
+   * "all three" is stored as NULL too. Otherwise a non-empty subset of BEGINNER / INTERMEDIATE / ADVANCED, each at most once. The domain model always shows the explicit list.
+   */
+  @Column({ name: 'visible_levels', type: 'text', array: true, nullable: true })
+  visibleLevels: string[] | null;
 
   @VersionColumn({ default: 1 })
   version: number;

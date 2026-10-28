@@ -2,7 +2,7 @@
 
 import React, { memo, useCallback } from 'react';
 import type { SortHandle } from '../lib/pointer-sort';
-import type { Visibility } from '../lib/home-visibility';
+import { HOME_LEVELS, type Visibility } from '../lib/home-visibility';
 import type { HomeEntry } from '../lib/types';
 import { CoursesBlock, EntryStateBadge, HomeEntryThumb, VisibilityBadge } from './HomeEntryParts';
 import { type MenuItem, RowMenu } from './RowMenu';
@@ -134,7 +134,7 @@ function HomeEntryRowImpl({ entry, index, total, canWrite, busy, ordering, pendi
         </div>
 
         <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2">
-          <VisibilityBadge visibility={visibility} />
+          <VisibilityBadge visibility={visibility} selectedLevels={entry.visibleLevels ?? HOME_LEVELS} />
           {canWrite && (
             <>
               <button

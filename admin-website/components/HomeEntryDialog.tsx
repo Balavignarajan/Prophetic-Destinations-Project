@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import { HOME_ENTRY_DESCRIPTION_MAX, HOME_ENTRY_TITLE_MAX, courseCountText, homeEntryErrorMessage } from '../lib/home-entries';
-import type { HomeEntry } from '../lib/types';
+import { HOME_LEVELS, HOME_LEVEL_NAMES, orderedLevels, sameLevels } from '../lib/home-visibility';
+import type { HomeEntry, LearningLevel } from '../lib/types';
 import CoverImageField from './CoverImageField';
 import { Modal } from './ui';
 
@@ -35,10 +36,13 @@ export default function HomeEntryDialog({ isOpen, entry, entryCount, onClose, on
   const [description, setDescription] = useState('');
   const [imageMediaId, setImageMediaId] = useState<string | null>(null);
   const [enabled, setEnabled] = useState(true);
+  // The learning levels that see the entry: all three for a new entry, the saved choice when editing.
+  const [levels, setLevels] = useState<LearningLevel[]>([...HOME_LEVELS]);
   const [position, setPosition] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
+  const firstLevelRef = useRef<HTMLInputElement>(null);
 
   // A fresh form each time the dialog opens (or a different entry is opened). The list reloading behind an open dialog must not wipe what is being typed.
   useEffect(() => {
@@ -47,15 +51,19 @@ export default function HomeEntryDialog({ isOpen, entry, entryCount, onClose, on
     setDescription(entry?.description ?? '');
     setImageMediaId(entry?.imageMediaId ?? null);
     setEnabled(entry?.isEnabled ?? true);
+    setLevels(orderedLevels(entry?.visibleLevels ?? HOME_LEVELS));
     setPosition('');
     setSaving(false);
     setError(null);
     setConflict(false);
   }, [isOpen, entry?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const noLevels = levels.length === 0;
   const dirty = isOpen && (editing
-    ? title !== entry.title || description !== (entry.description ?? '') || imageMediaId !== entry.imageMediaId || enabled !== entry.isEnabled
-    : Boolean(title.trim() || description.trim() || imageMediaId || position.trim() || !enabled));
+    ? title !== entry.title || description !== (entry.description ?? '') || imageMediaId !== entry.imageMediaId || enabled !== entry.isEnabled || !sameLevels(levels, entry.visibleLevels ?? HOME_LEVELS)
+    : Boolean(title.trim() || description.trim() || imageMediaId || position.trim() || !enabled || levels.length !== HOME_LEVELS.length));
+
+  const toggleLevel = (level: LearningLevel, checked: boolean) => setLevels((current) => orderedLevels(checked ? [...current, level] : current.filter((item) => item !== level)));
 
   useEffect(() => {
     if (!dirty) return;
@@ -81,6 +89,11 @@ export default function HomeEntryDialog({ isOpen, entry, entryCount, onClose, on
       setError('Give the Home Entry a title.');
       return;
     }
+    if (noLevels) {
+      setError('Select at least one learning level.');
+      firstLevelRef.current?.focus();
+      return;
+    }
     let place: number | undefined;
     if (!editing && position.trim()) {
       place = Number(position);
@@ -101,6 +114,7 @@ export default function HomeEntryDialog({ isOpen, entry, entryCount, onClose, on
               description: description.trim() || null,
               imageMediaId,
               isEnabled: enabled,
+              visibleLevels: levels,
               version: entry.version,
             }),
           })
@@ -112,6 +126,7 @@ export default function HomeEntryDialog({ isOpen, entry, entryCount, onClose, on
               description: description.trim() || null,
               ...(imageMediaId ? { imageMediaId } : {}),
               isEnabled: enabled,
+              visibleLevels: levels,
               ...(place !== undefined ? { position: place } : {}),
             }),
           });
@@ -198,6 +213,35 @@ export default function HomeEntryDialog({ isOpen, entry, entryCount, onClose, on
 
         <CoverImageField subject="home" mode={editing ? 'edit' : 'create'} saveLabel="Save" value={imageMediaId} onChange={setImageMediaId} disabled={saving} />
         <p className="text-xs text-slate-600 -mt-2">Without a card image the Home screen shows the cover of the entry&apos;s first published course that has one.</p>
+
+        <fieldset disabled={saving} aria-describedby="home-entry-levels-help" className="min-w-0">
+          <legend className={LABEL}>Visible to Learning Levels</legend>
+          <p id="home-entry-levels-help" className="mb-2 text-xs text-slate-600">
+            Select which learning levels can see this Home Entry in the mobile app.
+          </p>
+          <div className="flex flex-wrap gap-x-7 gap-y-2">
+            {HOME_LEVELS.map((level, index) => (
+              <label key={level} className="flex items-center gap-2.5 text-sm font-medium text-slate-900">
+                <input
+                  ref={index === 0 ? firstLevelRef : undefined}
+                  type="checkbox"
+                  checked={levels.includes(level)}
+                  onChange={(e) => toggleLevel(level, e.target.checked)}
+                  aria-invalid={noLevels || undefined}
+                  className="h-4 w-4 rounded border-slate-400 text-amber-600 focus:ring-amber-500"
+                />
+                {HOME_LEVEL_NAMES[level]}
+              </label>
+            ))}
+          </div>
+          {noLevels ? (
+            <p role="alert" className="mt-1.5 text-xs font-medium text-rose-800">
+              Select at least one learning level.
+            </p>
+          ) : (
+            <p className="mt-1.5 text-xs text-slate-600">Learners at the other levels do not see this entry. It still needs to be enabled and have a published course with lessons at the level.</p>
+          )}
+        </fieldset>
 
         <div className="flex flex-wrap items-start gap-x-8 gap-y-4">
           <div>
