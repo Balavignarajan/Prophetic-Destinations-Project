@@ -55,19 +55,37 @@ function LessonRows({ lessons, truncated }: { lessons: UsedByLesson[]; truncated
   );
 }
 
-/** "Where this image is used": working and published usage kept apart, loaded from the server on demand. A cut-short list always says so. */
-function UsageSection({ asset }: { asset: MediaAsset }) {
+/** Whether the server's usage answer says the file is used anywhere the server protects it (the same places its delete rule checks). */
+const isUsed = (usage: MediaUsage): boolean => {
+  const t = usage.totals;
+  return t.draftLessons + t.publishedLessons + t.draftCourses + t.publishedCourses + (t.reusableBlocks ?? 0) + (t.homeEntries ?? 0) > 0;
+};
+
+/** What the usage check came to: still asking, could not be answered (never to be read as "not used"), used, or confirmed unused. */
+export type UsageStatus = 'loading' | 'error' | 'used' | 'unused';
+
+/**
+ * "Where this file is used": working and published usage kept apart, loaded from the server on demand. A cut-short list always says so. `noun` is what the file is called in a sentence.
+ * `onStatus` tells the caller how the check stands (the Media Library drawer only offers Delete once the server has confirmed the file is unused).
+ */
+export function UsageSection({ asset, noun = 'image', onStatus }: { asset: MediaAsset; noun?: string; onStatus?: (status: UsageStatus) => void }) {
   const [limit, setLimit] = useState(50);
   const [usage, setUsage] = useState<MediaUsage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
+  const report = useRef(onStatus);
+  report.current = onStatus;
+  const status: UsageStatus = error ? 'error' : !usage ? 'loading' : isUsed(usage) ? 'used' : 'unused';
+  useEffect(() => {
+    report.current?.(status);
+  }, [status]);
 
   useEffect(() => {
     let cancelled = false;
     setError(null);
     getMediaUsage(asset.id, limit)
       .then((u) => !cancelled && setUsage(u))
-      .catch((e) => !cancelled && setError(friendlyMediaError(e, 'Could not load where this image is used.')));
+      .catch((e) => !cancelled && setError(friendlyMediaError(e, 'The server did not answer.')));
     return () => {
       cancelled = true;
     };
@@ -76,20 +94,23 @@ function UsageSection({ asset }: { asset: MediaAsset }) {
   if (error) {
     return (
       <div role="alert" className="p-3 rounded-lg bg-rose-50 border border-rose-300 text-sm text-rose-900 flex items-center justify-between gap-3">
-        <span>{error}</span>
+        <span>
+          <span className="font-semibold">Unable to check usage right now.</span>
+          <span className="block text-xs">{error}</span>
+        </span>
         <button type="button" onClick={() => setRetry((n) => n + 1)} className="shrink-0 px-3 py-1 text-sm font-medium bg-white border border-rose-300 rounded-lg hover:bg-rose-100">
           Try again
         </button>
       </div>
     );
   }
-  if (!usage) return <p role="status" className="text-sm text-slate-700">Loading where this image is used…</p>;
+  if (!usage) return <p role="status" className="text-sm text-slate-700">Checking where this {noun} is used…</p>;
 
   const t = usage.totals;
   const reusable = t.reusableBlocks ?? 0;
   const homeCards = t.homeEntries ?? 0;
   const homeEntries = usage.working.homeEntries ?? [];
-  const anyUse = t.draftLessons + t.publishedLessons + t.draftCourses + t.publishedCourses + reusable + homeCards > 0;
+  const anyUse = isUsed(usage);
   const anyCut = Object.values(usage.truncated).some(Boolean);
   const Group = ({ title, note, lessons, courses, cutLessons, cutCourses }: { title: string; note: string; lessons: UsedByLesson[]; courses: { courseId: string; title: string }[]; cutLessons: boolean; cutCourses: boolean }) => (
     <section aria-label={title} className="rounded-lg border border-slate-200 p-3 space-y-2">
@@ -133,7 +154,7 @@ function UsageSection({ asset }: { asset: MediaAsset }) {
       </p>
       {reusable > 0 && (
         <p className="text-sm text-slate-800">
-          Also kept in {reusable} reusable {reusable === 1 ? 'block' : 'blocks'} in the library (not published anywhere). Delete {reusable === 1 ? 'it' : 'them'} in Reusable Blocks to free this image.
+          Also kept in {reusable} reusable {reusable === 1 ? 'block' : 'blocks'} in the library (not published anywhere). Delete {reusable === 1 ? 'it' : 'them'} in Reusable Blocks to free this {noun}.
         </p>
       )}
       {homeCards > 0 && (
@@ -146,7 +167,7 @@ function UsageSection({ asset }: { asset: MediaAsset }) {
           <h4 className="text-sm font-semibold text-slate-900">Home Entries</h4>
           <p className="text-xs text-slate-700">
             Cards on the learner Home screen that use this image as their picture. Unlike lessons and courses, a Home Entry is not published separately: learners see its picture
-            as soon as the card is shown to them. Change or remove the picture in <Link href="/home-entries" className="font-medium text-amber-900 underline">Home Entries</Link> to free this image.
+            as soon as the card is shown to them. Change or remove the picture in <Link href="/home-entries" className="font-medium text-amber-900 underline">Home Entries</Link> to free this {noun}.
           </p>
           <ul className="space-y-1">
             {homeEntries.map((entry) => (
@@ -168,11 +189,11 @@ function UsageSection({ asset }: { asset: MediaAsset }) {
       {anyCut && limit >= 200 && <p className="text-xs font-medium text-amber-900">Some groups are longer than this view can list. The counts above are exact.</p>}
       {anyUse ? (
         <p className="text-sm text-slate-800">
-          <strong>This image cannot be deleted while it is used.</strong> To free it, open each place above and choose another image (or remove this one); for published use,
+          <strong>This {noun} cannot be deleted while it is used.</strong> To free it, open each place above and choose another {noun} (or remove this one); for published use,
           then republish or unpublish that lesson or course. Nothing is removed or unpublished for you, and the server checks again at the moment you delete.
         </p>
       ) : (
-        <p className="text-sm text-slate-800">Not used anywhere right now. The server checks again at the moment you delete it.</p>
+        <p className="text-sm text-slate-800">Not currently used in any content. The server checks again at the moment you delete it.</p>
       )}
     </div>
   );
@@ -186,10 +207,17 @@ interface Props {
   /** Lets the dialog around this panel ask before closing with unsaved changes or while saving. */
   dirtyRef: React.MutableRefObject<boolean>;
   busyRef: React.MutableRefObject<boolean>;
+  /**
+   * The Media Library drawer shows the picture, the file facts and where the file is used in sections of its own and uses this panel for the editable details only. All three default to
+   * true, so every other use of the panel is exactly as it was.
+   */
+  showPreview?: boolean;
+  showFacts?: boolean;
+  showUsage?: boolean;
 }
 
 /** One accessible place for an image's file facts, its details (title, default alt text, source/credit, rights notes, tags) and where it is used. */
-export default function MediaDetailsPanel({ asset, canWrite, onSaved, dirtyRef, busyRef }: Props) {
+export default function MediaDetailsPanel({ asset, canWrite, onSaved, dirtyRef, busyRef, showPreview = true, showFacts = true, showUsage = true }: Props) {
   const [current, setCurrent] = useState(asset);
   const [title, setTitle] = useState(asset.title ?? '');
   const [altText, setAltText] = useState(asset.altText ?? '');
@@ -204,7 +232,8 @@ export default function MediaDetailsPanel({ asset, canWrite, onSaved, dirtyRef, 
 
   // A 3D model has no alternative text or caption of its own to offer a lesson (its block has a title and a description), so its details panel says so and leaves those two out.
   const isModel = current.contentType === 'model/gltf-binary';
-  const kindName = isModel ? 'model' : 'image';
+  const kindName = isModel ? 'model' : current.contentType === 'video/mp4' ? 'video' : current.contentType === 'application/json' ? 'animation' : 'image';
+  const detailsTitle = isModel ? '3D Model details' : `${kindName.charAt(0).toUpperCase()}${kindName.slice(1)} details`;
   const tags = parseTags(tagText);
   const dirty =
     title.trim() !== (current.title ?? '') ||
@@ -241,23 +270,27 @@ export default function MediaDetailsPanel({ asset, canWrite, onSaved, dirtyRef, 
 
   return (
     <div className="space-y-6">
-      <div className="flex max-h-72 items-center justify-center overflow-hidden rounded-xl border border-slate-300 bg-slate-100 p-2">
-        {current.contentType.startsWith('image/') ? (
-          <MediaImage mediaId={current.id} alt={current.altText?.trim() || current.title?.trim() || current.originalFilename} className="max-h-64 max-w-full" fit="contain" />
-        ) : (
-          <MediaFileTile contentType={current.contentType} className="h-40 w-full" />
-        )}
-      </div>
-      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm bg-slate-50 border border-slate-200 rounded-xl p-4">
-        <dt className="font-semibold text-slate-800">File</dt>
-        <dd className="break-all">{current.originalFilename}</dd>
-        <dt className="font-semibold text-slate-800">Format</dt>
-        <dd>{fileKindLabel(current.contentType)}</dd>
-        <dt className="font-semibold text-slate-800">Size</dt>
-        <dd>{formatBytes(current.sizeBytes)}</dd>
-        <dt className="font-semibold text-slate-800">Uploaded</dt>
-        <dd>{new Date(current.createdAt).toLocaleString()}</dd>
-      </dl>
+      {showPreview && (
+        <div className="flex max-h-72 items-center justify-center overflow-hidden rounded-xl border border-slate-300 bg-slate-100 p-2">
+          {current.contentType.startsWith('image/') ? (
+            <MediaImage mediaId={current.id} alt={current.altText?.trim() || current.title?.trim() || current.originalFilename} className="max-h-64 max-w-full" fit="contain" />
+          ) : (
+            <MediaFileTile contentType={current.contentType} className="h-40 w-full" />
+          )}
+        </div>
+      )}
+      {showFacts && (
+        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm bg-slate-50 border border-slate-200 rounded-xl p-4">
+          <dt className="font-semibold text-slate-800">File</dt>
+          <dd className="break-all">{current.originalFilename}</dd>
+          <dt className="font-semibold text-slate-800">Format</dt>
+          <dd>{fileKindLabel(current.contentType)}</dd>
+          <dt className="font-semibold text-slate-800">Size</dt>
+          <dd>{formatBytes(current.sizeBytes)}</dd>
+          <dt className="font-semibold text-slate-800">Uploaded</dt>
+          <dd>{new Date(current.createdAt).toLocaleString()}</dd>
+        </dl>
+      )}
 
       <form
         onSubmit={(e) => {
@@ -267,7 +300,7 @@ export default function MediaDetailsPanel({ asset, canWrite, onSaved, dirtyRef, 
         className="space-y-4"
         aria-labelledby="media-details-heading"
       >
-        <h3 id="media-details-heading" className="text-base font-semibold text-slate-900">{isModel ? '3D Model details' : 'Image details'}</h3>
+        <h3 id="media-details-heading" className="text-base font-semibold text-slate-900">{detailsTitle}</h3>
         <p className="text-xs text-slate-700">
           {isModel
             ? 'All optional. They describe the 3D model in the library; the file itself cannot be changed here. Changing them never changes lessons or anything already published.'
@@ -280,7 +313,7 @@ export default function MediaDetailsPanel({ asset, canWrite, onSaved, dirtyRef, 
         )}
         {saved && !dirty && <p role="status" className="p-3 rounded-lg bg-emerald-50 border border-emerald-300 text-sm text-emerald-950">Details saved.</p>}
         <fieldset className="space-y-4" disabled={!canWrite || saving}>
-          <legend className="sr-only">{isModel ? '3D Model details' : 'Image details'}</legend>
+          <legend className="sr-only">{detailsTitle}</legend>
           <div>
             <label htmlFor="media-title" className={LABEL}>Title</label>
             <input id="media-title" type="text" maxLength={LIMITS.title} value={title} onChange={(e) => setTitle(e.target.value)} className={FIELD} />
@@ -333,10 +366,12 @@ export default function MediaDetailsPanel({ asset, canWrite, onSaved, dirtyRef, 
         )}
       </form>
 
-      <section aria-labelledby="media-usage-heading" className="space-y-3">
-        <h3 id="media-usage-heading" className="text-base font-semibold text-slate-900">Where this {kindName} is used</h3>
-        <UsageSection asset={current} />
-      </section>
+      {showUsage && (
+        <section aria-labelledby="media-usage-heading" className="space-y-3">
+          <h3 id="media-usage-heading" className="text-base font-semibold text-slate-900">Where this {kindName} is used</h3>
+          <UsageSection asset={current} noun={kindName} />
+        </section>
+      )}
     </div>
   );
 }
