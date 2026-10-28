@@ -7,11 +7,14 @@ import { GLB_VIEWER_ENGINE } from '@/learning/glb-viewer-engine';
  * connections to that one origin, so it can load nothing else and the model's data is never run as code.
  *
  * MESSAGES to the app (JSON text through `ReactNativeWebView.postMessage`):
+ *   { t: 'boot' } (the page's commands exist: the app sends what it knows, such as the insets, now)
  *   { t: 'status', phase: 'download' | 'prepare', progress: 0..1 or -1 when unknown }   { t: 'ready' }   { t: 'interact' } (the learner touched the model for the first time)
  *   { t: 'hotspot', id } (a tap landed on a numbered marker: the app checks the id against the hotspots it knows before it does anything)
  *   { t: 'error', code }  with code one of: missing, server, network, timeout, invalid, unsupported, empty, too-large, memory, webgl, context-lost, script
- * COMMANDS from the app (run through `injectJavaScript`, each a fixed call with a JSON-text argument that the page parses and the engine validates; nothing from the lesson is ever run as code):
- *   `window.__glb.reset()`   `window.__focusHotspot(id, offsetY)` (frames a hotspot; never moves it)   `window.__setHotspots(jsonText)` (the markers: [{ id, position: [x,y,z], number }], model-space points)   `window.__setSelected(id or null)` (the highlighted marker).
+ * COMMANDS from the app (run through `injectJavaScript`, each a fixed call with plain numbers, ids or JSON text that the page parses and the engine validates; nothing from the lesson is ever run as code):
+ *   `window.__glb.reset()`   `window.__setInsets(top, bottom)` (how much of the view, in CSS pixels, the app covers with its own controls: the model is framed in the space between)
+ *   `window.__focusHotspot(id, offsetY, offsetX)` (frames a hotspot and comes closer; never moves it)   `window.__revealHotspot(id, offsetY, offsetX, freeBottom, freeRight)` (brings a hotspot out from under a
+ *   panel only if it is hidden, without changing the distance)   `window.__setHotspots(jsonText)` (the markers: [{ id, position: [x,y,z], number }], model-space points)   `window.__setSelected(id or null)`.
  * Commands never send messages back, so the two directions cannot loop: the page only reports what the learner did.
  *
  * The download has a stall timer: if nothing arrives for 25 seconds the request is aborted and reported as 'timeout', so the app never waits on a spinner forever.
@@ -64,6 +67,7 @@ const BOOT = `
       background: colorToArray(cfg.background),
       reducedMotion: Boolean(cfg.reducedMotion),
       markerStyle: cfg.markers,
+      stage: cfg.stage,
       maxTriangles: cfg.maxTriangles,
       onTap: function (tap) { if (tap && typeof tap.hotspotId === 'string') post({ t: 'hotspot', id: tap.hotspotId }); },
       onFirstInteraction: function () { post({ t: 'interact' }); },
@@ -82,10 +86,17 @@ const BOOT = `
   window.__setSelected = function (id) {
     viewer.setSelected(typeof id === 'string' ? id : null);
   };
-  window.__focusHotspot = function (id, offsetY) {
-    if (typeof id === 'string') viewer.focus(id, typeof offsetY === 'number' ? offsetY : 0);
+  window.__focusHotspot = function (id, offsetY, offsetX) {
+    if (typeof id === 'string') viewer.focus(id, typeof offsetY === 'number' ? offsetY : undefined, typeof offsetX === 'number' ? offsetX : undefined);
+  };
+  window.__revealHotspot = function (id, offsetY, offsetX, freeBottom, freeRight) {
+    if (typeof id === 'string') viewer.reveal(id, typeof offsetY === 'number' ? offsetY : undefined, typeof offsetX === 'number' ? offsetX : undefined, typeof freeBottom === 'number' ? freeBottom : undefined, typeof freeRight === 'number' ? freeRight : undefined);
+  };
+  window.__setInsets = function (top, bottom) {
+    viewer.setInsets(typeof top === 'number' ? top : 0, typeof bottom === 'number' ? bottom : 0);
   };
   document.addEventListener('gesturestart', function (event) { event.preventDefault(); });
+  post({ t: 'boot' });
 
   var controller = new AbortController();
   var timer = 0;
@@ -152,6 +163,8 @@ export type ViewerPage = {
   reducedMotion: boolean;
   /** The hotspot markers' colours from the theme, as [red, green, blue] from 0 to 1. */
   markers: { fill: number[]; ring: number[]; ink: number[]; selectedFill: number[]; selectedRing: number[] };
+  /** The backdrop behind the model, as [red, green, blue] from 0 to 1: a soft light of `center` in the middle fading to `edge`. */
+  stage: { center: number[]; edge: number[] };
   /** The most triangles this device is asked to hold (a model with more is refused with the error code too-large). */
   maxTriangles: number;
 };
@@ -161,7 +174,7 @@ export function buildViewerHtml(page: ViewerPage): string {
   const background = plainColor(page.background);
   const cssBackground = background ?? 'transparent';
   const csp = `default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src blob: data:; connect-src ${page.origin}`;
-  const config = safeJson({ url: page.url, background: page.background, reducedMotion: page.reducedMotion, markers: page.markers, maxTriangles: page.maxTriangles });
+  const config = safeJson({ url: page.url, background: page.background, reducedMotion: page.reducedMotion, markers: page.markers, stage: page.stage, maxTriangles: page.maxTriangles });
   return [
     '<!doctype html><html><head><meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">',

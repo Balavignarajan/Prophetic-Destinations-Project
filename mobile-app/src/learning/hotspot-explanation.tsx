@@ -144,7 +144,7 @@ export function HotspotNavigator({
  * dip begins, so nothing ever flashes empty, and it works the same when the learner switches quickly (the running animation is replaced). Opacity and position only, on the native driver; with
  * Reduce Motion it just changes. The first appearance is not animated here (the sheet or panel that holds it does that).
  */
-function Crossfade({ id, children }: { id: string; children: ReactNode }) {
+export function Crossfade({ id, children }: { id: string; children: ReactNode }) {
   const reduce = useReduceMotion();
   const [progress] = useState(() => new Animated.Value(1));
   const first = useRef(true);

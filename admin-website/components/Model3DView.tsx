@@ -1,55 +1,26 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import type { ViewerHotspot } from '../lib/glb-viewer';
-import { formatBytes } from '../lib/image-block';
 import { restrictedLevelsText } from '../lib/item-levels';
-import { getMedia } from '../lib/media-api';
 import { GLB_CONTENT_TYPE, model3DReadiness, readModel3D } from '../lib/model-3d';
-import type { MediaAsset } from '../lib/types';
+import { describeModelFile, useModelAsset } from '../lib/use-model-asset';
 import CubeIcon from './CubeIcon';
 import MediaImage from './MediaImage';
+import Icon from './Model3DIcons';
 import Model3DViewer from './Model3DViewer';
 import ScriptureEntriesView from './ScriptureEntriesView';
 
-const NAV = 'px-2.5 py-1.5 text-xs font-medium text-slate-800 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-40 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500';
-
-/** The chosen model file: loaded from the Media Library; null while it loads, 'missing' when it is gone. */
-function useModelAsset(mediaId: string): MediaAsset | 'missing' | null {
-  const [asset, setAsset] = useState<{ id: string; value: MediaAsset | 'missing' } | null>(null);
-  useEffect(() => {
-    if (!mediaId) return;
-    let cancelled = false;
-    getMedia(mediaId)
-      .then((found) => !cancelled && setAsset({ id: mediaId, value: found }))
-      .catch(() => !cancelled && setAsset({ id: mediaId, value: 'missing' }));
-    return () => {
-      cancelled = true;
-    };
-  }, [mediaId]);
-  return asset && asset.id === mediaId ? asset.value : null;
-}
-
-/** The chosen model file, named, with its size and whether it is usable. A missing or wrong file is said plainly. */
-function ModelFileLine({ asset }: { asset: MediaAsset | 'missing' | null }) {
-  if (asset === null) return <p className="text-xs text-slate-700">Checking the model file…</p>;
-  if (asset === 'missing') return <p className="text-xs font-medium text-rose-800">The model file is not in the Media Library any more.</p>;
-  if (asset.contentType !== GLB_CONTENT_TYPE) return <p className="text-xs font-medium text-rose-800">{asset.originalFilename} is not a 3D model. Choose a GLB model.</p>;
-  return (
-    <p className="text-xs text-slate-800 break-all">
-      <span className="font-semibold">{asset.originalFilename}</span> · {formatBytes(asset.sizeBytes)} · GLB model
-    </p>
-  );
-}
+const NAV = 'inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-40 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500';
 
 /**
- * An Interactive 3D Model block for the author (the working view, the lesson preview and a reusable block). It shows the poster (or a cube), the title, the model's file, the description,
- * the hotspots and what is still missing before publishing, and a "View in 3D" button: the real model is NOT loaded until it is pressed, so a lesson with several models costs nothing until
- * one is opened, and only one is live at a time (opening another closes this one). The live view is the same viewer the editor uses, read-only (nothing can be placed or changed here),
- * and shows the hotspots as numbered markers on the model.
+ * An Interactive 3D Model block for the author (the working view, the lesson preview and a reusable block). It shows the poster (or a dark stage with a cube), the title, the model's file, the
+ * description, the hotspots and what is still missing before publishing, and a "View in 3D" button: the real model is NOT loaded until it is pressed, so a lesson with several models costs
+ * nothing until one is opened, and only one is live at a time (opening another closes this one). The live view is the same stage the editor uses, read-only (nothing can be placed or changed
+ * here): the model on its dark stage with a toolbar (Reset view, Focus on the chosen hotspot, Help, Close) and the hotspots as numbered markers.
  *
  * The hotspots are the ones in the content it is given: in the learner preview that is already the previewed level's (the server leaves out the others), in the working view all of them,
- * with the levels each is reserved for. Choosing one (a marker, or its row) shows its explanation and Scripture exactly as the content has them, whether or not the 3D view is open.
+ * with the levels each is reserved for. Choosing one (a marker, or its chip) shows its explanation and Scripture exactly as the content has them, whether or not the 3D view is open.
  */
 export function Model3DView({ content }: { content: unknown }) {
   const c = readModel3D(content);
@@ -65,6 +36,7 @@ export function Model3DView({ content }: { content: unknown }) {
   if (!c.title && !c.mediaId && !c.posterMediaId && !c.description && c.hotspots.length === 0) return <span className="text-slate-600 italic font-sans text-xs">(No 3D model chosen yet)</span>;
   const needs = model3DReadiness(c);
   const usable = asset !== null && asset !== 'missing' && asset.contentType === GLB_CONTENT_TYPE;
+  const file = describeModelFile(c.mediaId, asset);
   const index = c.hotspots.findIndex((h) => h.id === selectedId);
   const selected = index >= 0 ? c.hotspots[index] : null;
   const step = (delta: -1 | 1) => {
@@ -78,29 +50,32 @@ export function Model3DView({ content }: { content: unknown }) {
         .filter((part) => part.length > 0)
     : [];
   return (
-    <figure className="font-sans space-y-2">
+    <figure className="font-sans space-y-3">
       {live && c.mediaId ? (
-        <Model3DViewer key={c.mediaId} mediaId={c.mediaId} title={c.title} showFileInfo={false} onClose={() => setLive(false)} hotspots={markers} selectedId={selectedId} onSelectHotspot={setSelectedId} />
+        <Model3DViewer key={c.mediaId} mediaId={c.mediaId} title={c.title} asset={asset} hotspots={markers} hotspotTotal={c.hotspots.length} selectedId={selectedId} onSelectHotspot={setSelectedId} onClose={() => setLive(false)} heightClass="h-96" />
       ) : c.posterMediaId ? (
-        <MediaImage mediaId={c.posterMediaId} alt={c.title ? `Poster for ${c.title}` : 'Poster for the 3D model'} className="block w-full h-auto max-h-64 rounded-lg border border-slate-200" fit="contain" />
+        <div className="overflow-hidden rounded-xl border border-slate-700 bg-[#0d121f]">
+          <MediaImage mediaId={c.posterMediaId} alt={c.title ? `Poster for ${c.title}` : 'Poster for the 3D model'} className="block h-auto max-h-72 w-full" fit="contain" />
+        </div>
       ) : (
-        <div className="flex h-36 items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 text-slate-500">
+        <div className="flex h-40 items-center justify-center rounded-xl border border-slate-700 bg-[#0d121f] text-amber-300/80">
           <CubeIcon className="h-14 w-14" />
         </div>
       )}
-      <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50/50 p-3">
-        <span className="mt-0.5 shrink-0 text-amber-800">
-          <CubeIcon className="h-6 w-6" />
+      <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-xs">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-900 text-amber-300">
+          <CubeIcon className="h-5 w-5" />
         </span>
         <div className="min-w-0 flex-1 space-y-0.5">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-800">Interactive 3D model</p>
           {c.title && <h4 className="text-base font-semibold text-slate-900 wrap-break-word">{c.title}</h4>}
-          {c.mediaId ? <ModelFileLine asset={asset} /> : <p className="text-xs text-slate-700">No model file chosen yet.</p>}
+          <p className={`text-xs break-all ${file.problem ? 'font-medium text-rose-800' : 'text-slate-700'}`}>{file.text}</p>
         </div>
         {usable && !live && (
           <button
             type="button"
             onClick={() => setLive(true)}
-            className="shrink-0 px-3 py-1.5 text-sm font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-lg focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500"
+            className="shrink-0 rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500"
           >
             View in 3D
           </button>
@@ -113,16 +88,22 @@ export function Model3DView({ content }: { content: unknown }) {
           <ol className="flex flex-wrap gap-1.5">
             {c.hotspots.map((h, i) => {
               const restricted = restrictedLevelsText(h.levels);
+              const isSelected = h.id === selectedId;
               return (
                 <li key={h.id}>
                   <button
                     type="button"
-                    onClick={() => setSelectedId(h.id === selectedId ? null : h.id)}
-                    aria-pressed={h.id === selectedId}
+                    onClick={() => setSelectedId(isSelected ? null : h.id)}
+                    aria-pressed={isSelected}
                     aria-label={`Hotspot ${i + 1}: ${h.label.trim() || 'untitled'}${h.position ? '' : ', not placed yet'}${restricted ? `, shown at ${restricted}` : ''}`}
-                    className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500 ${h.id === selectedId ? 'border-amber-600 bg-amber-100 text-slate-900' : 'border-slate-300 bg-white text-slate-800 hover:bg-slate-50'}`}
+                    className={`inline-flex items-center gap-1.5 rounded-full border py-1 pl-1 pr-2.5 text-xs font-medium focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500 ${isSelected ? 'border-amber-500 bg-amber-50 text-slate-900 ring-1 ring-amber-200' : 'border-slate-300 bg-white text-slate-800 hover:bg-slate-50'}`}
                   >
-                    <span aria-hidden="true" className="flex h-5 w-5 items-center justify-center rounded-full bg-amber-500 text-[11px] font-bold text-slate-900">{i + 1}</span>
+                    <span
+                      aria-hidden="true"
+                      className={`flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-bold ${h.position ? 'bg-amber-400 text-slate-900' : 'border border-dashed border-slate-400 bg-white text-slate-600'}`}
+                    >
+                      {i + 1}
+                    </span>
                     <span>{h.label.trim() || 'Untitled'}</span>
                     {restricted && <span className="text-[10px] text-slate-600">· {restricted}</span>}
                   </button>
@@ -131,19 +112,22 @@ export function Model3DView({ content }: { content: unknown }) {
             })}
           </ol>
           {selected && (
-            <section aria-label={`Hotspot ${index + 1} explanation`} className="space-y-2 rounded-xl border border-amber-300 bg-amber-50/40 p-3">
+            <section aria-label={`Hotspot ${index + 1} explanation`} className="space-y-2 rounded-xl border border-amber-300 border-l-4 border-l-amber-500 bg-white p-3 shadow-xs">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-xs font-semibold uppercase tracking-wide text-amber-900">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-900">
                   Hotspot {index + 1} of {c.hotspots.length}
                 </p>
                 <div className="flex gap-1.5">
                   <button type="button" className={NAV} aria-label="Previous hotspot" disabled={index === 0} onClick={() => step(-1)}>
+                    <Icon name="up" className="h-3.5 w-3.5 -rotate-90" />
                     Previous
                   </button>
                   <button type="button" className={NAV} aria-label="Next hotspot" disabled={index >= c.hotspots.length - 1} onClick={() => step(1)}>
                     Next
+                    <Icon name="up" className="h-3.5 w-3.5 rotate-90" />
                   </button>
                   <button type="button" className={NAV} aria-label="Close hotspot explanation" onClick={() => setSelectedId(null)}>
+                    <Icon name="close" className="h-3.5 w-3.5" />
                     Close
                   </button>
                 </div>
@@ -152,7 +136,7 @@ export function Model3DView({ content }: { content: unknown }) {
               {!selected.position && <p className="text-xs font-medium text-amber-800">Not placed on the model yet.</p>}
               {restrictedLevelsText(selected.levels) && (
                 <p>
-                  <span className="rounded-full border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-800">Only at: {restrictedLevelsText(selected.levels)}</span>
+                  <span className="rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-800">Only at: {restrictedLevelsText(selected.levels)}</span>
                 </p>
               )}
               {paragraphs.length === 0 ? (

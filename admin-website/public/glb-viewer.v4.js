@@ -1,14 +1,14 @@
-/*! Prophetic Destinations GLB viewer engine, version 3.
+/*! Prophetic Destinations GLB viewer engine, version 4.
  *
  * A small, self-contained WebGL viewer for GLB 3D models (glTF 2.0 binary). It has no dependencies and loads nothing from the internet: it only draws the bytes it is given.
- * ONE source, two hosts: the Admin tool loads this file (admin-website/public/glb-viewer.v3.js) and the learner app embeds the SAME text in its WebView page
+ * ONE source, two hosts: the Admin tool loads this file (admin-website/public/glb-viewer.v4.js) and the learner app embeds the SAME text in its WebView page
  * (mobile-app/src/learning/glb-viewer-engine.ts, generated from this file by mobile-app/scripts/sync-glb-engine.mjs, npm run sync:glb-engine; change the version in the file name whenever the engine changes).
  * Keep this file free of backslashes, backticks and dollar-brace sequences: the mobile copy is a template string.
  *
  * WHAT IT SHOWS: static triangle meshes of a model, placed by the scene's node transforms; materials with base colour, base colour texture, vertex colours, emissive colour and
  * texture, metallic and roughness (a studio-style lighting with a soft sky/ground environment, no image-based lighting), double-sided, alpha mask and blend, unlit, and the legacy
  * specular-glossiness material (read as a plain diffuse material). The model is centred and framed from its real bounds, in its authored orientation (glTF is Y-up, the camera looks at
- * its +Z side). NOT shown: animation, skinning (drawn in its bind pose), morph targets, normal/occlusion maps, cameras and lights of the file, and models compressed with Draco, Meshopt
+ * its +Z side; see UP AXIS below for the one kind of file that is not Y-up). NOT shown: animation, skinning (drawn in its bind pose), morph targets, normal/occlusion maps, cameras and lights of the file, and models compressed with Draco, Meshopt
  * or KTX2 (refused with a clear message). Triangle meshes only; points and lines are skipped.
  *
  * CONTROLS: one finger or the left mouse button rotates; two fingers pinch to zoom and pan; the wheel zooms; Shift-drag or the right/middle button pans; arrow keys rotate, plus and minus
@@ -36,11 +36,26 @@
  *   viewer.focus(id, offsetY): moves the camera's TARGET and brings it closer so the hotspot is framed, keeping the viewing direction. offsetY (-0.8..0.8, default 0) puts the hotspot that far
  *   above (positive) or below the middle of the view, in half-heights, for a host that covers part of the view with a panel. The hotspot's saved position is never touched; Reset view returns.
  *   options.maxTriangles: refuse a model with more triangles than this (default and ceiling 3,000,000) with the error code too-large, so a phone is not asked for more than it can hold.
+ *
+ * VERSION 4 (presentation). Nothing about a model's data, a hotspot's position or the commands changed; what changed is how the model is shown.
+ *   UP AXIS. glTF says +Y is up and the viewer shows a file in its authored orientation. The camera and every matrix were checked: they are correct for Y-up. Some tools, though, write their own
+ *   Z-up coordinates without the Y-up conversion the format asks for (the trimesh library does this: its files carry no rotation at all), and such a model, taller along Z, would be seen end-on,
+ *   from over its head. The viewer recognises exactly that case and nothing else: a file whose asset.generator names trimesh AND whose extent along Z is clearly the largest (Z > 1.25 x Y and
+ *   Z > X) is shown with Z as its up axis and +Y as its front (a file like this does not say which way it faces; the one it was made for has its toes and forearms toward +Y). This changes only the CAMERA's frame (which way is up and where the camera starts), never the model's data: its coordinates, a
+ *   hotspot's saved position, picking and the markers all stay exactly as they were. Every other file is Y-up. options.upAxis ('y' or 'z') forces one; load() reports the axis it used as .up.
+ *   FRAMING. The home view is fitted to the model's real shape (a cylinder round the up axis, from its actual vertices) and to the viewport's real aspect ratio instead of to a bounding sphere, so a tall
+ *   model in a tall phone view fills it. viewer.setInsets(top, bottom) tells it how much of the view (in CSS pixels) a host covers with its own controls: the model is framed, and centred,
+ *   in the space between. Nothing is ever cropped at the home view; zoom, pan and Reset work as before.
+ *   LIGHT. A stronger key light, a cooler fill and a soft edge light for shape and separation from the background; polished-metal reflections of a studio-like surround (two soft boxes and a
+ *   sky-to-ground gradient); the ambient light follows the up axis. A primitive with no material (vertex colours only) is drawn as a glossy semi-metal rather than as matte; materials the file
+ *   defines are drawn as authored. options.stage: { center, edge } as [r,g,b] draws a soft radial backdrop behind the model instead of a flat colour.
+ *   MARKERS are redrawn as a numbered gold medallion (a dark rim for contrast on bright materials, a thin outer ring, a brighter filled and larger state for the chosen one), appear once with a short
+ *   staggered growth (not with Reduce Motion) and then never animate. viewer.focus(id, offsetY, offsetX) can also place the point to the left or right (for a side panel).
  */
 (function (root) {
   'use strict';
 
-  var VERSION = 3;
+  var VERSION = 4;
   var FOV = (45 * Math.PI) / 180;
   var HOME_YAW = 0;
   var HOME_PITCH = 0.2;
@@ -61,8 +76,22 @@
   var MAX_HOTSPOTS = 30;
   var COORD_LIMIT = 1000000;
   /** Marker radius and the radius within which a tap counts as on it, in CSS pixels. */
-  var MARKER_RADIUS = 15;
-  var MARKER_HIT = 26;
+  var MARKER_RADIUS = 17;
+  var MARKER_HIT = 28;
+  /** The share of the view's width and height the framed model may fill at the home view (the rest is air round it). */
+  var FIT_X = 0.92;
+  var FIT_Y = 0.9;
+  /** The camera never comes closer to the target than this many radii of the model's bounding sphere (zoom floor for wide, flat models). */
+  var MIN_DISTANCE = 0.55;
+  /** A marker grows in once over REVEAL_MS, each one REVEAL_STEP later than the one before. */
+  var REVEAL_MS = 300;
+  var REVEAL_STEP = 45;
+  /** The frames of reference of a model: its up axis (the one the camera orbits), where the camera starts (front) and the side that is to the right from there. axis is the index of up. */
+  var ORIENTATIONS = {
+    y: { up: [0, 1, 0], front: [0, 0, 1], side: [1, 0, 0], axis: 1 },
+    // Z-up files: the camera starts on the +Y side (where the Daniel statue, the file this frame exists for, has its toes, its crown's middle point and its forearms), with -X to the right.
+    z: { up: [0, 0, 1], front: [0, 1, 0], side: [-1, 0, 0], axis: 2 }
+  };
   /** A touch or click that moves less than this and ends within this time is a tap. */
   var TAP_SLOP = 10;
   var TAP_MS = 450;
@@ -406,6 +435,7 @@
     'uniform float uMask;',
     'uniform float uUnlit;',
     'uniform vec3 uCam;',
+    'uniform vec3 uUp;',
     'uniform vec3 uL0;',
     'uniform vec3 uL1;',
     'uniform vec3 uL2;',
@@ -436,18 +466,23 @@
     '    vec3 diffuse = baseCol.rgb * (1.0 - m);',
     '    vec3 F0 = mix(vec3(0.04), baseCol.rgb, m);',
     '    float shin = mix(120.0, 6.0, r);',
-    '    float up = N.y * 0.5 + 0.5;',
-    '    vec3 ambient = mix(vec3(0.16, 0.16, 0.19), vec3(0.58, 0.60, 0.64), up);',
+    '    float up = dot(N, uUp) * 0.5 + 0.5;',
+    '    vec3 ambient = mix(vec3(0.11, 0.11, 0.14), vec3(0.54, 0.56, 0.62), up);',
     '    col = diffuse * ambient;',
     '    col += shade(uL0, uC0, N, V, diffuse, F0, shin);',
     '    col += shade(uL1, uC1, N, V, diffuse, F0, shin);',
     '    col += shade(uL2, uC2, N, V, diffuse, F0, shin);',
     '    vec3 R = reflect(-V, N);',
-    '    float sky = smoothstep(-0.3, 0.7, R.y);',
-    '    vec3 env = mix(vec3(0.10, 0.10, 0.12), vec3(0.80, 0.83, 0.90), sky);',
-    '    float fres = pow(1.0 - max(dot(N, V), 0.0), 5.0);',
+    '    float sky = smoothstep(-0.25, 0.75, dot(R, uUp));',
+    '    vec3 env = mix(vec3(0.05, 0.05, 0.07), vec3(0.72, 0.76, 0.84), sky);',
+    '    env += vec3(1.0, 0.95, 0.86) * pow(max(dot(R, uL0), 0.0), 9.0) * 0.6;',
+    '    env += vec3(0.55, 0.64, 0.9) * pow(max(dot(R, uL1), 0.0), 11.0) * 0.3;',
+    '    float nv = max(dot(N, V), 0.0);',
+    '    float fres = pow(1.0 - nv, 5.0);',
     '    vec3 F = F0 + (vec3(1.0) - F0) * fres;',
-    '    col += env * F * (1.0 - 0.75 * r);',
+    '    col += env * F * (1.0 - 0.7 * r);',
+    '    float rimLight = pow(1.0 - nv, 2.6);',
+    '    col += vec3(0.30, 0.29, 0.27) * rimLight * (0.25 + 0.75 * max(dot(N, uL2), 0.0)) * 0.55;',
     '    col += toLinear(texture2D(uEmisTex, vUv).rgb) * uEmissive;',
     '  }',
     '  gl_FragColor = vec4(toSrgb(col), baseCol.a);',
@@ -457,7 +492,7 @@
   var MARKER_VERTEX_SOURCE = [
     'attribute vec3 aPos;',
     'attribute vec2 aCorner;',
-    'attribute vec2 aCell;',
+    'attribute vec3 aInfo;',
     'uniform mat4 uViewProj;',
     'uniform vec2 uPixel;',
     'uniform float uRadius;',
@@ -466,12 +501,12 @@
     'varying float vSel;',
     'void main() {',
     '  vec4 clip = uViewProj * vec4(aPos, 1.0);',
-    '  float size = uRadius * (1.0 + 0.3 * aCell.y);',
+    '  float size = uRadius * (1.0 + 0.3 * aInfo.y) * aInfo.z;',
     '  clip.xy += aCorner * size * uPixel * clip.w;',
     '  gl_Position = clip;',
     '  vCorner = aCorner;',
-    '  vCell = aCell.x;',
-    '  vSel = aCell.y;',
+    '  vCell = aInfo.x;',
+    '  vSel = aInfo.y;',
     '}'
   ].join(String.fromCharCode(10));
 
@@ -494,23 +529,60 @@
     'void main() {',
     '  float d = length(vCorner);',
     '  if (d > 1.0) discard;',
-    '  float edge = 1.0 - smoothstep(0.9, 1.0, d);',
+    '  float medal = 1.0 - smoothstep(0.66, 0.72, d);',
+    '  float core = 1.0 - smoothstep(0.52, 0.58, d);',
+    '  float halo = smoothstep(0.78, 0.83, d) * (1.0 - smoothstep(0.93, 0.98, d));',
     '  vec3 fill = mix(uFill, uSelFill, vSel);',
-    '  vec3 ring = mix(uRing, uSelRing, vSel);',
-    '  float band = smoothstep(0.66, 0.74, d);',
-    '  vec3 col = mix(fill, ring, band);',
+    '  vec3 haloColor = mix(uFill, uSelRing, vSel);',
+    '  vec3 face = fill * (0.84 + 0.26 * (vCorner.y * 0.5 + 0.5));',
+    '  vec3 body = mix(uRing, face, core);',
+    '  vec3 col = mix(haloColor, body, medal);',
     '  float column = mod(vCell, 8.0);',
     '  float row = floor(vCell / 8.0);',
     '  vec2 uv = vec2((column + (vCorner.x * 0.5 + 0.5)) / 8.0, (row + (0.5 - vCorner.y * 0.5)) / 4.0);',
     '  float glyph = texture2D(uAtlas, uv).a;',
-    '  col = mix(col, uInk, glyph * (1.0 - band));',
-    '  gl_FragColor = vec4(col, edge * uAlpha);',
+    '  col = mix(col, uInk, glyph * core);',
+    '  float alpha = max(medal, halo * mix(0.55, 1.0, vSel));',
+    '  gl_FragColor = vec4(col, alpha * uAlpha);',
     '}'
   ].join(String.fromCharCode(10));
 
   var MARKER_UNIFORMS = ['uViewProj', 'uPixel', 'uRadius', 'uAtlas', 'uFill', 'uRing', 'uInk', 'uSelFill', 'uSelRing', 'uAlpha'];
 
-  var UNIFORMS = ['uModel', 'uViewProj', 'uNormalMat', 'uBaseTex', 'uEmisTex', 'uBase', 'uEmissive', 'uMetal', 'uRough', 'uCutoff', 'uMask', 'uUnlit', 'uCam', 'uL0', 'uL1', 'uL2', 'uC0', 'uC1', 'uC2'];
+  // The backdrop: one big triangle covering the view, shaded from a soft light in the middle to the edge colour, with a hair of noise so the dark gradient does not band.
+  var STAGE_VERTEX_SOURCE = [
+    'attribute vec2 aPos;',
+    'varying vec2 vNdc;',
+    'void main() {',
+    '  vNdc = aPos;',
+    '  gl_Position = vec4(aPos, 0.0, 1.0);',
+    '}'
+  ].join(String.fromCharCode(10));
+
+  var STAGE_FRAGMENT_SOURCE = [
+    '#ifdef GL_FRAGMENT_PRECISION_HIGH',
+    'precision highp float;',
+    '#else',
+    'precision mediump float;',
+    '#endif',
+    'varying vec2 vNdc;',
+    'uniform vec3 uCenter;',
+    'uniform vec3 uEdge;',
+    'uniform vec2 uFocus;',
+    'uniform vec2 uReach;',
+    'void main() {',
+    '  vec2 p = (vNdc - uFocus) / uReach;',
+    '  float d = clamp(length(p), 0.0, 1.0);',
+    '  float glow = pow(1.0 - d, 1.6);',
+    '  vec3 col = mix(uEdge, uCenter, glow);',
+    '  float grain = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) - 0.5;',
+    '  gl_FragColor = vec4(col + grain / 255.0, 1.0);',
+    '}'
+  ].join(String.fromCharCode(10));
+
+  var STAGE_UNIFORMS = ['uCenter', 'uEdge', 'uFocus', 'uReach'];
+
+  var UNIFORMS = ['uModel', 'uViewProj', 'uNormalMat', 'uBaseTex', 'uEmisTex', 'uBase', 'uEmissive', 'uMetal', 'uRough', 'uCutoff', 'uMask', 'uUnlit', 'uCam', 'uUp', 'uL0', 'uL1', 'uL2', 'uC0', 'uC1', 'uC2'];
 
   // ------------------------------------------------------------------------------------------------------------------------------ the viewer
 
@@ -540,7 +612,23 @@
     var spinPitch = 0;
     var lastMoveAt = 0;
     var anim = null;
-    // hotspots: { id, number, p: [x,y,z], sx, sy, w, shown } (sx, sy = CSS pixels in the canvas from the last drawn frame)
+    // The model's frame of reference (which way is up and where the camera starts), and how much of the view the host covers at the top and bottom (CSS pixels).
+    var orient = ORIENTATIONS.y;
+    var upAxisName = 'y';
+    var insetTop = 0;
+    var insetBottom = 0;
+    var fitKey = '';
+    var fitValue = 0;
+    // The optional backdrop (soft light behind the model) and the markers' one-time growth.
+    var stage = options.stage && options.stage.center && options.stage.edge && options.stage.center.length === 3 && options.stage.edge.length === 3 ? { center: options.stage.center, edge: options.stage.edge } : null;
+    var stageProgram = null;
+    var stageShaders = [];
+    var stageUniform = {};
+    var stageBuffer = null;
+    var stageBroken = false;
+    var revealStart = -1;
+    var drawNow = 0;
+    // hotspots: { id, number, order, p: [x,y,z], sx, sy, w, shown } (sx, sy = CSS pixels in the canvas from the last drawn frame)
     var markers = [];
     var selectedId = null;
     var markerProgram = null;
@@ -736,7 +824,8 @@
         var key = index === undefined ? 'default' : String(index);
         if (materialCache[key]) return materialCache[key];
         var def = index === undefined ? null : json.materials && json.materials[index];
-        var material = { base: [1, 1, 1, 1], metal: 0, rough: 0.8, emissive: [0, 0, 0], mask: false, cutoff: 0.5, blend: false, doubleSided: false, unlit: false, baseTexture: null, emissiveTexture: null };
+        // A primitive with no material (colours come from the vertices) is drawn as a glossy semi-metal; a material the file defines replaces all of these values below.
+        var material = { base: [1, 1, 1, 1], metal: 0.55, rough: 0.42, emissive: [0, 0, 0], mask: false, cutoff: 0.5, blend: false, doubleSided: false, unlit: false, baseTexture: null, emissiveTexture: null };
         if (def) {
           var pbr = def.pbrMetallicRoughness || {};
           var ext = def.extensions || {};
@@ -813,7 +902,9 @@
           min: min,
           max: max,
           pickPosition: options.pickable ? position : null,
-          pickIndex: options.pickable ? indices.data : null
+          pickIndex: options.pickable ? indices.data : null,
+          // Held only until the model's real extent has been measured (end of doLoad), then released.
+          vertices: position
         };
       }
 
@@ -887,28 +978,151 @@
       return Promise.all(pending).then(function () {
         if (disposed || lost) throw fail('context-lost', 'The 3D view was interrupted.');
         if (gl.getError() === gl.OUT_OF_MEMORY) throw fail('memory', 'This model is too large for this device.');
-        var center = [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2];
-        var dx = hi[0] - lo[0], dy = hi[1] - lo[1], dz = hi[2] - lo[2];
-        var radius = Math.sqrt(dx * dx + dy * dy + dz * dz) / 2;
-        if (!(radius > 0) || !isFinite(radius)) radius = 1;
-        scene = { items: items, center: center, radius: radius };
+        var chosen = chooseUp(json, lo, hi);
+        var shape = measure(items, lo, hi, ORIENTATIONS[chosen].axis);
+        for (var released = 0; released < items.length; released++) items[released].prim.vertices = null;
+        orient = ORIENTATIONS[chosen];
+        upAxisName = chosen;
+        scene = { items: items, center: shape.center, radius: shape.radius, half: shape.half, reach: shape.reach };
+        fitKey = '';
+        revealStart = -1;
         yaw = HOME_YAW;
         pitch = HOME_PITCH;
         zoom = 1;
-        target = center.slice();
+        target = shape.center.slice();
         anim = null;
         spinYaw = 0;
         spinPitch = 0;
         requestRender();
-        return { triangles: Math.round(triangleCount), warnings: warnings };
+        return { triangles: Math.round(triangleCount), warnings: warnings, up: upAxisName };
       });
     }
 
+    /**
+     * Which way is up for this file: 'y' (glTF's own, and the answer for every file but one kind) or 'z'. The one kind: a file written by the trimesh library (named in asset.generator), which
+     * writes its models' own Z-up coordinates with no rotation, and whose extent along Z is clearly the largest. The decision is about the camera's frame only; no coordinate is changed.
+     */
+    function chooseUp(json, lo, hi) {
+      if (options.upAxis === 'y' || options.upAxis === 'z') return options.upAxis;
+      var generator = json.asset && typeof json.asset.generator === 'string' ? json.asset.generator.toLowerCase() : '';
+      if (generator.indexOf('trimesh') < 0) return 'y';
+      var ex = hi[0] - lo[0], ey = hi[1] - lo[1], ez = hi[2] - lo[2];
+      return ez > ey * 1.25 && ez > ex ? 'z' : 'y';
+    }
+
+    /**
+     * The model's real extent from its vertices (each placed by its node's transform), not from the loose boxes of its parts: the centre, the sphere radius, the half-height along the up axis
+     * and the reach (the greatest distance of any vertex from the vertical line through the centre). The home view is fitted to the cylinder these make. Two passes, one multiply-add per
+     * coordinate per vertex; if a part has no vertices to read, the boxes the walk of the scene made are used instead.
+     */
+    function measure(list, looseLo, looseHi, axis) {
+      var a1 = (axis + 1) % 3;
+      var a2 = (axis + 2) % 3;
+      var minimum = [Infinity, Infinity, Infinity];
+      var maximum = [-Infinity, -Infinity, -Infinity];
+      var n;
+      var i;
+      for (n = 0; n < list.length; n++) {
+        var m = list[n].model;
+        var pos = list[n].prim.vertices;
+        if (!pos) continue;
+        for (i = 0; i + 2 < pos.length; i += 3) {
+          var x = pos[i], y = pos[i + 1], z = pos[i + 2];
+          var wx = m[0] * x + m[4] * y + m[8] * z + m[12];
+          var wy = m[1] * x + m[5] * y + m[9] * z + m[13];
+          var wz = m[2] * x + m[6] * y + m[10] * z + m[14];
+          if (wx < minimum[0]) minimum[0] = wx; if (wx > maximum[0]) maximum[0] = wx;
+          if (wy < minimum[1]) minimum[1] = wy; if (wy > maximum[1]) maximum[1] = wy;
+          if (wz < minimum[2]) minimum[2] = wz; if (wz > maximum[2]) maximum[2] = wz;
+        }
+      }
+      if (!isFinite(minimum[0] + minimum[1] + minimum[2] + maximum[0] + maximum[1] + maximum[2])) {
+        minimum = looseLo.slice();
+        maximum = looseHi.slice();
+      }
+      var center = [(minimum[0] + maximum[0]) / 2, (minimum[1] + maximum[1]) / 2, (minimum[2] + maximum[2]) / 2];
+      var dx = maximum[0] - minimum[0], dy = maximum[1] - minimum[1], dz = maximum[2] - minimum[2];
+      var radius = Math.sqrt(dx * dx + dy * dy + dz * dz) / 2;
+      if (!(radius > 0) || !isFinite(radius)) radius = 1;
+      var half = ([dx, dy, dz][axis]) / 2;
+      var reachSquared = 0;
+      for (n = 0; n < list.length; n++) {
+        var q = list[n].model;
+        var verts = list[n].prim.vertices;
+        if (!verts) continue;
+        for (i = 0; i + 2 < verts.length; i += 3) {
+          var px = verts[i], py = verts[i + 1], pz = verts[i + 2];
+          var ox = q[0] * px + q[4] * py + q[8] * pz + q[12] - center[0];
+          var oy = q[1] * px + q[5] * py + q[9] * pz + q[13] - center[1];
+          var oz = q[2] * px + q[6] * py + q[10] * pz + q[14] - center[2];
+          var first = a1 === 0 ? ox : a1 === 1 ? oy : oz;
+          var second = a2 === 0 ? ox : a2 === 1 ? oy : oz;
+          var around = first * first + second * second;
+          if (around > reachSquared) reachSquared = around;
+        }
+      }
+      var reach = Math.sqrt(reachSquared);
+      // A model that is only a box (or has no vertices to read): use the half-diagonal of its footprint, which cannot be too small.
+      if (!(reach > 0) || !isFinite(reach)) reach = Math.sqrt(Math.pow([dx, dy, dz][a1] / 2, 2) + Math.pow([dx, dy, dz][a2] / 2, 2));
+      if (!(half > 0) || !isFinite(half)) half = radius;
+      if (!(reach > 0) || !isFinite(reach)) reach = radius;
+      return { center: center, radius: radius, half: half, reach: reach };
+    }
+
     // ---- drawing
+    /** The share of the view's height a host leaves free of its own controls (1 when it covers none). */
+    function viewShare() {
+      var h = Math.max(1, canvas.clientHeight);
+      return Math.max(0.35, Math.min(1, (h - insetTop - insetBottom) / h));
+    }
+
+    /** How far (in clip-space units, upwards) the middle of the free space is above the middle of the view. */
+    function shiftY() {
+      var h = Math.max(1, canvas.clientHeight);
+      return Math.max(-0.6, Math.min(0.6, (insetBottom - insetTop) / h));
+    }
+
+    /**
+     * The distance at which the whole model fits the free part of the view at the home view. The model is the cylinder round the up axis that its vertices make (scene.reach, scene.half): the
+     * rim of each end of the cylinder is sampled, and for each point the distance that keeps it inside the (narrowed) field of view, horizontally and vertically, is worked out from where the
+     * point is in the camera's frame (a nearer point looks larger, so it needs more room). The greatest of those wins, so nothing is cropped. Remembered until the view's shape changes.
+     */
     function homeDistance(aspect) {
-      var halfX = Math.atan(Math.tan(FOV / 2) * aspect);
-      var half = Math.min(FOV / 2, halfX);
-      return (1.12 * scene.radius) / Math.sin(half);
+      var share = viewShare();
+      var key = aspect + ':' + share;
+      if (fitKey === key && fitValue > 0) return fitValue;
+      var tanHalf = Math.tan(FOV / 2);
+      var tx = tanHalf * aspect * FIT_X;
+      var ty = tanHalf * share * FIT_Y;
+      var cp = Math.cos(HOME_PITCH);
+      var sp = Math.sin(HOME_PITCH);
+      var need = 0;
+      for (var end = -1; end <= 1; end += 2) {
+        var height = end * scene.half;
+        for (var k = 0; k < 24; k++) {
+          var angle = (k / 24) * TWO_PI;
+          var toward = scene.reach * Math.cos(angle);
+          var across = scene.reach * Math.sin(angle);
+          var depth = toward * cp + height * sp;
+          var rise = height * cp - toward * sp;
+          need = Math.max(need, depth + Math.abs(across) / tx, depth + Math.abs(rise) / ty);
+        }
+      }
+      var distance = Math.max(need, scene.radius * 1.3);
+      fitKey = key;
+      fitValue = distance;
+      return distance;
+    }
+
+    /** The direction from the camera's target to the camera for the current yaw and pitch (a unit vector), in the model's own frame of reference. */
+    function eyeOffset() {
+      var cp = Math.cos(pitch), sp = Math.sin(pitch), sy = Math.sin(yaw), cy = Math.cos(yaw);
+      var u = orient.up, f = orient.front, s = orient.side;
+      return [
+        cp * (sy * s[0] + cy * f[0]) + sp * u[0],
+        cp * (sy * s[1] + cy * f[1]) + sp * u[1],
+        cp * (sy * s[2] + cy * f[2]) + sp * u[2]
+      ];
     }
 
     function syncSize() {
@@ -973,12 +1187,55 @@
     function cameraState() {
       var aspect = canvas.width / canvas.height;
       var distance = homeDistance(aspect) * zoom;
-      var eye = [
-        target[0] + distance * Math.cos(pitch) * Math.sin(yaw),
-        target[1] + distance * Math.sin(pitch),
-        target[2] + distance * Math.cos(pitch) * Math.cos(yaw)
-      ];
-      return { aspect: aspect, distance: distance, eye: eye, view: lookAt(eye, target, [0, 1, 0]) };
+      var offset = eyeOffset();
+      var eye = [target[0] + distance * offset[0], target[1] + distance * offset[1], target[2] + distance * offset[2]];
+      return { aspect: aspect, distance: distance, eye: eye, view: lookAt(eye, target, orient.up) };
+    }
+
+    /** The backdrop: a soft light behind the middle of the free space, drawn first and never into the depth buffer. Any trouble with it leaves the flat colour. */
+    function drawStage() {
+      if (!stage || stageBroken) return;
+      if (!stageProgram) {
+        try {
+          var vs = compile(gl.VERTEX_SHADER, STAGE_VERTEX_SOURCE);
+          var fs = compile(gl.FRAGMENT_SHADER, STAGE_FRAGMENT_SOURCE);
+          var created = gl.createProgram();
+          gl.attachShader(created, vs);
+          gl.attachShader(created, fs);
+          gl.bindAttribLocation(created, 0, 'aPos');
+          gl.linkProgram(created);
+          if (!gl.getProgramParameter(created, gl.LINK_STATUS)) throw fail('webgl', 'The backdrop could not be started.');
+          stageShaders = [vs, fs];
+          for (var s = 0; s < STAGE_UNIFORMS.length; s++) stageUniform[STAGE_UNIFORMS[s]] = gl.getUniformLocation(created, STAGE_UNIFORMS[s]);
+          stageBuffer = gl.createBuffer();
+          gl.bindBuffer(gl.ARRAY_BUFFER, stageBuffer);
+          gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+          stageProgram = created;
+        } catch (ignored) {
+          stageBroken = true;
+          return;
+        }
+      }
+      var w = Math.max(1, canvas.clientWidth);
+      var h = Math.max(1, canvas.clientHeight);
+      var reachPx = 0.55 * Math.sqrt(w * w + h * h);
+      gl.useProgram(stageProgram);
+      gl.uniform3fv(stageUniform.uCenter, stage.center);
+      gl.uniform3fv(stageUniform.uEdge, stage.edge);
+      gl.uniform2f(stageUniform.uFocus, 0, shiftY());
+      gl.uniform2f(stageUniform.uReach, reachPx / (w / 2), reachPx / (h / 2));
+      gl.disable(gl.DEPTH_TEST);
+      gl.disable(gl.CULL_FACE);
+      gl.disable(gl.BLEND);
+      gl.depthMask(false);
+      gl.bindBuffer(gl.ARRAY_BUFFER, stageBuffer);
+      gl.enableVertexAttribArray(0);
+      gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+      gl.disableVertexAttribArray(1);
+      gl.disableVertexAttribArray(2);
+      gl.disableVertexAttribArray(3);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      gl.depthMask(true);
     }
 
     function draw() {
@@ -986,6 +1243,7 @@
       gl.viewport(0, 0, canvas.width, canvas.height);
       gl.clearColor(background[0], background[1], background[2], 1);
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      drawStage();
       if (!scene) return;
       var cam = cameraState();
       var aspect = cam.aspect;
@@ -995,7 +1253,10 @@
       // The depth range reaches 3 radii either side of the target: a model panned off-centre (up to a radius, or more after Focus) is never cut by the near or far plane.
       var near = Math.max(scene.radius * 0.01, distance - scene.radius * 3);
       var far = distance + scene.radius * 4;
-      var viewProj = mat4Multiply(mat4Perspective(FOV, aspect, near, far), view.matrix);
+      // The projection is shifted up or down by the host's insets, so the target (the middle of the model) lands in the middle of the free space rather than of the whole view.
+      var projection = mat4Perspective(FOV, aspect, near, far);
+      projection[9] = -shiftY();
+      var viewProj = mat4Multiply(projection, view.matrix);
       var r = view.right, u = view.up, b = view.back;
       var key = normalize3([-0.5 * r[0] + 0.8 * u[0] + 0.9 * b[0], -0.5 * r[1] + 0.8 * u[1] + 0.9 * b[1], -0.5 * r[2] + 0.8 * u[2] + 0.9 * b[2]]);
       var fill = normalize3([0.8 * r[0] + 0.1 * u[0] + 0.6 * b[0], 0.8 * r[1] + 0.1 * u[1] + 0.6 * b[1], 0.8 * r[2] + 0.1 * u[2] + 0.6 * b[2]]);
@@ -1004,12 +1265,13 @@
       gl.useProgram(program);
       gl.uniformMatrix4fv(uniform.uViewProj, false, viewProj);
       gl.uniform3fv(uniform.uCam, eye);
+      gl.uniform3fv(uniform.uUp, orient.up);
       gl.uniform3fv(uniform.uL0, key);
       gl.uniform3fv(uniform.uL1, fill);
       gl.uniform3fv(uniform.uL2, rim);
-      gl.uniform3f(uniform.uC0, 1.15, 1.12, 1.06);
-      gl.uniform3f(uniform.uC1, 0.42, 0.48, 0.6);
-      gl.uniform3f(uniform.uC2, 0.4, 0.4, 0.46);
+      gl.uniform3f(uniform.uC0, 1.3, 1.24, 1.12);
+      gl.uniform3f(uniform.uC1, 0.3, 0.37, 0.52);
+      gl.uniform3f(uniform.uC2, 0.5, 0.5, 0.58);
       gl.uniform1i(uniform.uBaseTex, 0);
       gl.uniform1i(uniform.uEmisTex, 1);
       gl.enable(gl.DEPTH_TEST);
@@ -1045,7 +1307,13 @@
     }
 
     function clampZoom(value) {
-      return Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, value));
+      var low = ZOOM_MIN;
+      // A wide, flat model is framed close, so 0.4x of that could be inside it: the camera is also kept MIN_DISTANCE radii from the target.
+      if (scene) {
+        var floor = (scene.radius * MIN_DISTANCE) / homeDistance(canvas.width / Math.max(1, canvas.height));
+        if (floor > low) low = Math.min(floor, 1);
+      }
+      return Math.max(low, Math.min(ZOOM_MAX, value));
     }
 
     function frame(now) {
@@ -1069,6 +1337,12 @@
         spinPitch *= 0.9;
         again = true;
       }
+      // The markers' one-time growth: it starts with the first frame that has both a model and markers and runs for a fraction of a second; with Reduce Motion there is none.
+      drawNow = now;
+      if (scene && markers.length > 0 && !options.reducedMotion) {
+        if (revealStart < 0) revealStart = now;
+        if (now - revealStart < REVEAL_MS + REVEAL_STEP * (markers.length - 1)) again = true;
+      }
       draw();
       if (again) requestRender();
     }
@@ -1088,7 +1362,7 @@
       gl.attachShader(created, fs);
       gl.bindAttribLocation(created, 0, 'aPos');
       gl.bindAttribLocation(created, 1, 'aCorner');
-      gl.bindAttribLocation(created, 2, 'aCell');
+      gl.bindAttribLocation(created, 2, 'aInfo');
       gl.linkProgram(created);
       if (!gl.getProgramParameter(created, gl.LINK_STATUS)) {
         if (root.console) root.console.error('GLB viewer marker program: ' + gl.getProgramInfoLog(created));
@@ -1110,9 +1384,10 @@
       context.fillStyle = 'white';
       context.textAlign = 'center';
       context.textBaseline = 'middle';
-      context.font = 'bold 34px sans-serif';
       for (var n = 1; n <= MAX_HOTSPOTS; n++) {
         var cell = n - 1;
+        // Two digits are set a little smaller so they sit inside the medallion's face as one digit does.
+        context.font = n >= 10 ? 'bold 27px sans-serif' : 'bold 36px sans-serif';
         context.fillText(String(n), (cell % ATLAS_COLS) * ATLAS_CELL + ATLAS_CELL / 2, Math.floor(cell / ATLAS_COLS) * ATLAS_CELL + ATLAS_CELL / 2 + 2);
       }
       var texture = gl.createTexture();
@@ -1153,7 +1428,7 @@
       if (shown.length === 0) return;
       ensureMarkerGl();
       // One buffer for the life of the viewer (at most 30 markers), refilled each frame, instead of a new array every frame.
-      if (markerData === null) markerData = new Float32Array(MAX_HOTSPOTS * 6 * 7);
+      if (markerData === null) markerData = new Float32Array(MAX_HOTSPOTS * 6 * 8);
       var data = markerData;
       var at = 0;
       var bias = scene.radius * 0.012;
@@ -1164,10 +1439,16 @@
         var bx = item.p[0] + (dx / len) * bias, by = item.p[1] + (dy / len) * bias, bz = item.p[2] + (dz / len) * bias;
         var cell = Math.min(MAX_HOTSPOTS, Math.max(1, item.number)) - 1;
         var chosen = item.id === selectedId ? 1 : 0;
+        // Growth: 0 to 1 (eased out) over REVEAL_MS, each marker REVEAL_STEP after the one before; always 1 with Reduce Motion or once it has run.
+        var grown = 1;
+        if (!options.reducedMotion && revealStart >= 0) {
+          var progress = (drawNow - revealStart - item.order * REVEAL_STEP) / REVEAL_MS;
+          grown = progress <= 0 ? 0 : progress >= 1 ? 1 : 1 - Math.pow(1 - progress, 3);
+        }
         for (var v = 0; v < 6; v++) {
           data[at++] = bx; data[at++] = by; data[at++] = bz;
           data[at++] = MARKER_CORNERS[v * 2]; data[at++] = MARKER_CORNERS[v * 2 + 1];
-          data[at++] = cell; data[at++] = chosen;
+          data[at++] = cell; data[at++] = chosen; data[at++] = grown;
         }
       }
       gl.useProgram(markerProgram);
@@ -1186,11 +1467,11 @@
       gl.bufferData(gl.ARRAY_BUFFER, data.subarray(0, at), gl.DYNAMIC_DRAW);
       gl.disableVertexAttribArray(3);
       gl.enableVertexAttribArray(0);
-      gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 28, 0);
+      gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 32, 0);
       gl.enableVertexAttribArray(1);
-      gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 28, 12);
+      gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 32, 12);
       gl.enableVertexAttribArray(2);
-      gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 28, 20);
+      gl.vertexAttribPointer(2, 3, gl.FLOAT, false, 32, 20);
       gl.disable(gl.CULL_FACE);
       gl.enable(gl.DEPTH_TEST);
       gl.depthMask(false);
@@ -1242,6 +1523,8 @@
       var nx = ((clientX - rect.left) / rect.width) * 2 - 1;
       var ny = 1 - ((clientY - rect.top) / rect.height) * 2;
       if (nx < -1 || nx > 1 || ny < -1 || ny > 1) return null;
+      // A host that covers part of the view has the projection shifted; the ray goes through the point of the unshifted view that lands here.
+      ny -= shiftY();
       syncSize();
       var cam = cameraState();
       var tanHalf = Math.tan(FOV / 2);
@@ -1309,8 +1592,9 @@
     }
 
     function rotate(dx, dy) {
-      var h = Math.max(1, canvas.clientHeight);
-      var step = (Math.PI * 1.2) / h;
+      // A turn of the whole view takes the same swipe on a tall phone as on a squarer view: the length measured is the shorter of the height and 1.4 x the width.
+      var basis = Math.max(1, Math.min(canvas.clientHeight, canvas.clientWidth * 1.4));
+      var step = (Math.PI * 1.2) / basis;
       yaw -= dx * step;
       pitch = clampPitch(pitch + dy * step);
       spinYaw = -dx * step;
@@ -1325,8 +1609,8 @@
       var aspect = canvas.width / canvas.height;
       var distance = homeDistance(aspect) * zoom;
       var perPixel = (2 * distance * Math.tan(FOV / 2)) / Math.max(1, canvas.clientHeight);
-      var eye = [Math.cos(pitch) * Math.sin(yaw), Math.sin(pitch), Math.cos(pitch) * Math.cos(yaw)];
-      var view = lookAt(eye, [0, 0, 0], [0, 1, 0]);
+      var eye = eyeOffset();
+      var view = lookAt(eye, [0, 0, 0], orient.up);
       var before = Math.sqrt(
         (target[0] - scene.center[0]) * (target[0] - scene.center[0]) + (target[1] - scene.center[1]) * (target[1] - scene.center[1]) + (target[2] - scene.center[2]) * (target[2] - scene.center[2])
       );
@@ -1458,17 +1742,51 @@
      * Frames a hotspot: the viewing direction stays as the learner has it; the camera's target moves to the hotspot's point (lowered by offsetY half-heights so a host that covers part of the
      * view with a panel can have the point in the uncovered part) and the camera comes closer if it was farther out than FOCUS_ZOOM. Nothing about the hotspot is changed.
      */
-    function focusMarker(id, offsetY) {
-      if (!scene || disposed || lost || typeof id !== 'string') return;
-      var found = null;
-      for (var i = 0; i < markers.length; i++) if (markers[i].id === id) found = markers[i];
+    function focusMarker(id, offsetY, offsetX) {
+      var found = markerById(id);
       if (!found) return;
+      frameMarker(found, offsetY, offsetX, Math.min(zoom, FOCUS_ZOOM));
+    }
+
+    /**
+     * Brings a hotspot into the free part of the view only if it is not already there: a host that opens a panel over part of the view (everything below freeBottom, or right of freeRight, in
+     * CSS pixels; null for none) calls this so the point it is explaining is never hidden under the panel. The camera glides (the viewing direction and the distance stay); nothing moves
+     * when the point is already in the free part, in front of the model and not at its very edge.
+     */
+    function revealMarker(id, offsetY, offsetX, freeBottom, freeRight) {
+      var found = markerById(id);
+      if (!found) return;
+      var margin = 40;
+      var bottom = typeof freeBottom === 'number' && isFinite(freeBottom) ? freeBottom : canvas.clientHeight;
+      var right = typeof freeRight === 'number' && isFinite(freeRight) ? freeRight : canvas.clientWidth;
+      var inside = found.shown && found.sx >= margin && found.sx <= right - margin && found.sy >= insetTop + margin && found.sy <= bottom - margin;
+      if (!inside) frameMarker(found, offsetY, offsetX, zoom);
+    }
+
+    function markerById(id) {
+      if (!scene || disposed || lost || typeof id !== 'string') return null;
+      for (var i = 0; i < markers.length; i++) if (markers[i].id === id) return markers[i];
+      return null;
+    }
+
+    function frameMarker(found, offsetY, offsetX, zoomTo) {
       var cam = cameraState();
-      var zoomTo = Math.min(zoom, FOCUS_ZOOM);
-      var shift = typeof offsetY === 'number' && isFinite(offsetY) ? Math.max(-0.8, Math.min(0.8, offsetY)) : 0;
-      var rise = shift * Math.tan(FOV / 2) * homeDistance(cam.aspect) * zoomTo;
+      // Where the point should land, measured from the middle of the whole view in half-heights (up) and half-widths (right). Without an offsetY it lands in the middle of the free space.
+      var wantY = typeof offsetY === 'number' && isFinite(offsetY) ? Math.max(-0.8, Math.min(0.8, offsetY)) : shiftY();
+      var wantX = typeof offsetX === 'number' && isFinite(offsetX) ? Math.max(-0.8, Math.min(0.8, offsetX)) : 0;
+      var depth = homeDistance(cam.aspect) * zoomTo;
+      var tanHalf = Math.tan(FOV / 2);
+      // The target (which lands at shiftY) is moved so the point lands where it was asked to.
+      var rise = (wantY - shiftY()) * tanHalf * depth;
+      var slide = wantX * tanHalf * cam.aspect * depth;
       var up = cam.view.up;
-      var to = { yaw: yaw, pitch: pitch, zoom: zoomTo, target: [found.p[0] - up[0] * rise, found.p[1] - up[1] * rise, found.p[2] - up[2] * rise] };
+      var right = cam.view.right;
+      var to = {
+        yaw: yaw,
+        pitch: pitch,
+        zoom: zoomTo,
+        target: [found.p[0] - up[0] * rise - right[0] * slide, found.p[1] - up[1] * rise - right[1] * slide, found.p[2] - up[2] * rise - right[2] * slide]
+      };
       spinYaw = 0;
       spinPitch = 0;
       if (options.reducedMotion) {
@@ -1527,6 +1845,7 @@
       resize: onResize,
       pick: pick,
       focus: focusMarker,
+      reveal: revealMarker,
       setHotspots: function (list) {
         var next = [];
         if (Array.isArray(list)) {
@@ -1537,13 +1856,26 @@
             if (typeof x !== 'number' || typeof y !== 'number' || typeof z !== 'number') continue;
             if (!isFinite(x) || !isFinite(y) || !isFinite(z) || Math.abs(x) > COORD_LIMIT || Math.abs(y) > COORD_LIMIT || Math.abs(z) > COORD_LIMIT) continue;
             var number = typeof h.number === 'number' && h.number >= 1 && h.number <= MAX_HOTSPOTS ? Math.floor(h.number) : next.length + 1;
-            next.push({ id: h.id, number: number, p: [x, y, z], sx: 0, sy: 0, w: 0, shown: false });
+            next.push({ id: h.id, number: number, order: next.length, p: [x, y, z], sx: 0, sy: 0, w: 0, shown: false });
           }
         }
+        // The markers grow in once, when the first ones appear; changing a list that already has markers does not replay it.
+        if (markers.length === 0 && next.length > 0) revealStart = -1;
         markers = next;
         if (selectedId !== null && !next.some(function (m) { return m.id === selectedId; })) selectedId = null;
         requestRender();
       },
+      /** How much of the view (CSS pixels from its top and bottom edges) the host covers with its own controls; the model is framed and centred in the space between. */
+      setInsets: function (top, bottom) {
+        var t = typeof top === 'number' && isFinite(top) ? Math.max(0, top) : 0;
+        var b = typeof bottom === 'number' && isFinite(bottom) ? Math.max(0, bottom) : 0;
+        if (t === insetTop && b === insetBottom) return;
+        insetTop = t;
+        insetBottom = b;
+        fitKey = '';
+        requestRender();
+      },
+      upAxis: function () { return upAxisName; },
       setSelected: function (id) {
         selectedId = typeof id === 'string' ? id : null;
         requestRender();
@@ -1572,6 +1904,9 @@
           if (markerBuffer) gl.deleteBuffer(markerBuffer);
           if (markerProgram) gl.deleteProgram(markerProgram);
           for (var ms = 0; ms < markerShaders.length; ms++) gl.deleteShader(markerShaders[ms]);
+          if (stageBuffer) gl.deleteBuffer(stageBuffer);
+          if (stageProgram) gl.deleteProgram(stageProgram);
+          for (var ss = 0; ss < stageShaders.length; ss++) gl.deleteShader(stageShaders[ss]);
           gl.deleteProgram(program);
           gl.deleteShader(vertexShader);
           gl.deleteShader(fragmentShader);

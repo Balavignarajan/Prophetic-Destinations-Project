@@ -7,6 +7,12 @@ interface ModalProps {
   description?: string;
   children: React.ReactNode;
   maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '4xl' | '5xl' | '6xl';
+  /**
+   * `workspace` is a large editor window (almost the whole screen, up to 100rem wide) that draws NOTHING of its own inside: no header, no padding, no scrolling. The caller lays out its own
+   * header (which must contain the element with id `modal-title`, the dialog's name), body and footer, and decides what scrolls. Focus handling, the Tab trap, Escape and the backdrop behave
+   * exactly as in every other dialog. `title`, `description` and `maxWidth` are not drawn in this variant.
+   */
+  variant?: 'default' | 'workspace';
 }
 
 export function Modal({
@@ -16,6 +22,7 @@ export function Modal({
   description,
   children,
   maxWidth = 'md',
+  variant = 'default',
 }: ModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
@@ -58,6 +65,22 @@ export function Modal({
   }, [isOpen]);
 
   if (!isOpen) return null;
+
+  if (variant === 'workspace') {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-2 backdrop-blur-xs sm:p-4" role="presentation">
+        <div
+          ref={dialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="modal-title"
+          className="flex h-[calc(100dvh-1rem)] max-h-[70rem] w-full max-w-[100rem] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-95 sm:h-[calc(100dvh-2rem)]"
+        >
+          {children}
+        </div>
+      </div>
+    );
+  }
 
   const maxWidthClass = {
     sm: 'max-w-sm',

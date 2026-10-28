@@ -14,6 +14,8 @@ interface Props {
   value: string[] | null | undefined;
   onChange: (levels: string[] | null) => void;
   disabled?: boolean;
+  /** Replaces the default legend ("<item>: show at these levels"). */
+  legend?: string;
 }
 
 /**
@@ -21,7 +23,7 @@ interface Props {
  * are shown at every level, so every box starts ticked. This is separate from the block's own level setting in the lesson: the block decides whether a learner
  * sees it at all, the ticks decide which of its items they get.
  */
-export default function ItemLevelsField({ idPrefix, itemLabel, plural, value, onChange, disabled = false }: Props) {
+export default function ItemLevelsField({ idPrefix, itemLabel, plural, value, onChange, disabled = false, legend }: Props) {
   const ticked = value === undefined || value === null ? [...ITEM_LEVELS] : value;
   const toggle = (level: string) => {
     const next = ticked.includes(level) ? ticked.filter((l) => l !== level) : [...ticked, level];
@@ -30,7 +32,7 @@ export default function ItemLevelsField({ idPrefix, itemLabel, plural, value, on
   };
   return (
     <fieldset disabled={disabled} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-      <legend className="px-1 text-[11px] font-semibold uppercase text-slate-600">{itemLabel}: show at these levels</legend>
+      <legend className="px-1 text-[11px] font-semibold uppercase text-slate-600">{legend ?? `${itemLabel}: show at these levels`}</legend>
       <div className="flex flex-wrap gap-4">
         {ITEM_LEVELS.map((level) => (
           <label key={level} htmlFor={`${idPrefix}-${level}`} className="inline-flex items-center gap-2 text-sm text-slate-800 min-h-6">

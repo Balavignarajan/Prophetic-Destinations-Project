@@ -1,12 +1,14 @@
+import { LinearGradient } from 'expo-linear-gradient';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Image, type ImageLoadEventData, type NativeSyntheticEvent, View } from 'react-native';
+import { Image, type ImageLoadEventData, type NativeSyntheticEvent, StyleSheet, View } from 'react-native';
 
 import { AppText, PrimaryButton, Reveal } from '@/components/ui';
 import { canSwitchToSavedWebCopy, reportBrokenAsset, switchToSavedWebCopy, useAssetUri } from '@/features/offline/offline-media';
 import { lessonImageUrl } from '@/learning/lesson-image';
 import type { LearningLevel } from '@/learning/levels';
+import { CubeIcon } from '@/learning/model-3d-ui';
 import { type Model3DHotspot, Model3DViewer } from '@/learning/model-3d-viewer';
-import { useTheme } from '@/theme';
+import { useTheme, withAlpha } from '@/theme';
 import { motion } from '@/theme/motion';
 
 /**
@@ -14,14 +16,16 @@ import { motion } from '@/theme/motion';
  *   { title?, mediaId (the GLB model), posterMediaId?, description?, hotspots?: [{ id, position?: { x, y, z }, label, explanation, scripture?: FROZEN passages }] }
  * The hotspots are the learner's level's: the server leaves out the ones reserved for other levels (and the `levels` field), so the app does no filtering of its own.
  *
- * IN THE LESSON the block is light: the optional poster, a cube, the title, the description and an "Explore in 3D" button. No WebGL scene, WebView or download of the model exists until the
- * learner taps it, so a lesson with several models costs nothing until one is opened. The poster is an ordinary lesson image, shown from its saved copy when there is one.
+ * IN THE LESSON the block is a discovery card: a dark, softly lit surface with a thin gold edge; at the top the optional poster (shown whole, on the card's own dark stage, fading into the card)
+ * or, without one, a quiet emblem of a cube; then the small label "INTERACTIVE 3D EXPERIENCE", the title, one line of what to do, a note that it needs the internet, and the "Explore in 3D" button.
+ * No WebGL scene, WebView or download of the model exists until the learner taps the button, so a lesson with several models costs nothing until one is opened. The poster is an ordinary lesson
+ * image, shown from its saved copy when there is one. The author's description follows the card as lesson text.
  *
  * EXPLORING opens the real model in a full-screen viewer (model-3d-viewer.tsx). Only one viewer can be open at a time, and it is closed (and its WebView and graphics released) when the
  * lesson loses focus or the app goes to the background (`appActive` is both), when the learner closes it or presses Back, and when this block goes away. The model is requested from the learner
  * media route, which serves it only while it is in the published lesson at this level; it is online-only and never part of the lesson's saved images (see offline-assets.ts).
  *
- * A block with no title, no description and no poster still shows the cube and the button, so it is never blank. The rest of the lesson is unaffected whatever this block holds.
+ * A block with no title, no description and no poster still shows the emblem, the label and the button, so it is never blank. The rest of the lesson is unaffected whatever this block holds.
  */
 const isText = (value: unknown): value is string => typeof value === 'string' && value.trim() !== '';
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -61,30 +65,8 @@ function readHotspots(content: Record<string, unknown>): Model3DHotspot[] {
 /** The block whose viewer is open, if any: opening another one closes it first, so there is never more than one 3D view alive. */
 let closeActiveViewer: (() => void) | null = null;
 
-/**
- * A small wireframe cube drawn with views (the app uses no icon font): a back square, a front square that hides the back one's covered edges, and three edges joining them.
- * Decorative: hidden from screen readers.
- */
-function CubeIcon({ size, color, fill }: { size: number; color: string; fill: string }) {
-  const stroke = 2;
-  const depth = Math.round(size * 0.3);
-  const side = size - depth;
-  const diagonal = Math.round(depth * Math.SQRT2);
-  // One edge from the front square to the back square, centred on (x, y), rising to the right.
-  const edge = (x: number, y: number) => ({ position: 'absolute' as const, left: x - diagonal / 2, top: y - stroke / 2, width: diagonal, height: stroke, backgroundColor: color, transform: [{ rotate: '-45deg' }] });
-  return (
-    <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ width: size, height: size }}>
-      <View style={{ position: 'absolute', left: depth, top: 0, width: side, height: side, borderWidth: stroke, borderColor: color }} />
-      <View style={edge(depth / 2, depth / 2)} />
-      <View style={edge(side + depth / 2, depth / 2)} />
-      <View style={edge(side + depth / 2, side + depth / 2)} />
-      <View style={{ position: 'absolute', left: 0, top: depth, width: side, height: side, borderWidth: stroke, borderColor: color, backgroundColor: fill }} />
-    </View>
-  );
-}
-
 export function Model3DBlock({ lessonId, level, content, appActive = true }: { lessonId: string; level: LearningLevel; content: Record<string, unknown>; appActive?: boolean }) {
-  const { spacing, colors, radius, layout } = useTheme();
+  const { spacing, colors, radius, layout, shadows, gradients } = useTheme();
   const title = isText(content.title) ? content.title.trim() : '';
   const description = isText(content.description) ? content.description.trim() : '';
   const modelId = isText(content.mediaId) ? content.mediaId.trim() : '';
@@ -129,78 +111,109 @@ export function Model3DBlock({ lessonId, level, content, appActive = true }: { l
     } else setPosterFailed(true);
   };
 
+  const showPoster = Boolean(posterUri) && !posterFailed;
+  // The poster is shown whole; a very tall or very wide one is given a stage of a comfortable shape (it sits centred in it) rather than stretching the card.
+  const stageRatio = Math.min(1.9, Math.max(1.15, ratio));
+  const line = !modelUrl ? 'This 3D model is not available right now.' : hotspots.length > 0 ? 'Rotate, zoom and tap the numbered points to discover more.' : 'Rotate and zoom to look closer.';
+
   return (
     <Reveal offset={motion.offset.subtle} style={{ gap: spacing.md }} accessible={false}>
-      {/* The poster is optional: if it is not there or cannot be shown, the card below stands alone. */}
-      {posterUri && !posterFailed ? (
-        <View style={{ width: '100%', aspectRatio: ratio, borderRadius: radius.lg, overflow: 'hidden', backgroundColor: colors.surface }}>
-          <Image
-            source={{ uri: posterUri }}
-            style={{ width: '100%', height: '100%' }}
-            resizeMode="contain"
-            accessible
-            accessibilityRole="image"
-            accessibilityLabel={title ? `Poster of ${title}` : 'Poster of the 3D model'}
-            onLoad={onPosterLoad}
-            onError={onPosterError}
-          />
-        </View>
-      ) : null}
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: spacing.md,
-          padding: spacing.lg,
-          borderRadius: radius.lg,
-          borderWidth: layout.hairline,
-          borderColor: colors.borderGold,
-          backgroundColor: colors.surface,
-        }}>
-        <View
-          style={{
-            width: 56,
-            height: 56,
-            borderRadius: 28,
-            borderWidth: layout.hairline,
-            borderColor: colors.borderGold,
-            backgroundColor: colors.surfaceElevated,
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}>
-          <CubeIcon size={30} color={colors.primaryHighlight} fill={colors.surfaceElevated} />
-        </View>
-        <View style={{ flex: 1, gap: spacing.xs }}>
-          <AppText variant="caption" color="primaryHighlight" style={{ fontWeight: '700', letterSpacing: 1 }}>
-            3D MODEL
-          </AppText>
-          {title ? (
-            <AppText variant="heading" accessibilityRole="header">
-              {title}
+      <View style={[shadows.card, { borderRadius: radius.xl, borderWidth: layout.hairline, borderColor: colors.borderGold, backgroundColor: colors.surface }]}>
+        <View style={{ borderRadius: radius.xl - layout.hairline, overflow: 'hidden' }}>
+          <LinearGradient colors={[colors.surfaceElevated, colors.surface, colors.background]} start={{ x: 0.1, y: 0 }} end={{ x: 0.9, y: 1 }} style={StyleSheet.absoluteFill} />
+
+          {/* The visual: the poster on the card's own dark stage, or a quiet emblem. Decorative apart from the poster's description. */}
+          {showPoster ? (
+            <View style={{ width: '100%', aspectRatio: stageRatio, backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center' }}>
+              <Image
+                source={{ uri: posterUri ?? undefined }}
+                style={{ width: '100%', height: '100%' }}
+                resizeMode="contain"
+                accessible
+                accessibilityRole="image"
+                accessibilityLabel={title ? `Poster of ${title}` : 'Poster of the 3D model'}
+                onLoad={onPosterLoad}
+                onError={onPosterError}
+              />
+              <View pointerEvents="none" style={[StyleSheet.absoluteFill, { top: '55%' }]}>
+                <LinearGradient colors={[withAlpha(colors.surface, 0), colors.surface]} style={StyleSheet.absoluteFill} />
+              </View>
+              <View
+                pointerEvents="none"
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+                style={{
+                  position: 'absolute',
+                  top: spacing.md,
+                  left: spacing.md,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: spacing.xs + 2,
+                  paddingVertical: spacing.xs,
+                  paddingHorizontal: spacing.md,
+                  borderRadius: radius.pill,
+                  borderWidth: layout.hairline,
+                  borderColor: colors.borderGold,
+                  backgroundColor: colors.scrim,
+                }}>
+                <CubeIcon size={14} color={colors.textOnImage} fill={colors.scrim} />
+                <AppText variant="caption" color="textOnImage" style={{ fontWeight: '700', letterSpacing: 1 }}>
+                  3D
+                </AppText>
+              </View>
+            </View>
+          ) : (
+            <View
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+              style={{ height: 136, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background }}>
+              <LinearGradient colors={gradients.goldGlow} style={StyleSheet.absoluteFill} />
+              <View style={{ width: 104, height: 104, borderRadius: 52, borderWidth: layout.hairline, borderColor: colors.borderSubtle, alignItems: 'center', justifyContent: 'center' }}>
+                <View style={{ width: 80, height: 80, borderRadius: 40, borderWidth: layout.hairline, borderColor: colors.borderGold, alignItems: 'center', justifyContent: 'center' }}>
+                  <View style={{ width: 58, height: 58, borderRadius: 29, backgroundColor: colors.surfaceElevated, alignItems: 'center', justifyContent: 'center' }}>
+                    <CubeIcon size={28} color={colors.primaryHighlight} fill={colors.surfaceElevated} />
+                  </View>
+                </View>
+              </View>
+            </View>
+          )}
+
+          <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.lg, gap: spacing.sm }}>
+            <AppText variant="caption" color="primaryHighlight" style={{ fontWeight: '700', letterSpacing: 1.6 }}>
+              INTERACTIVE 3D EXPERIENCE
             </AppText>
-          ) : null}
-          <AppText variant="bodySmall" color="textSecondary">
-            {modelUrl
-              ? hotspots.length > 0
-                ? 'Turn it, zoom in and tap the numbered points to learn more. Needs an internet connection.'
-                : 'Turn it, zoom in and look closer. Needs an internet connection.'
-              : 'This 3D model is not available right now.'}
-          </AppText>
+            {title ? (
+              <AppText variant="sectionHeading" accessibilityRole="header" style={{ fontSize: 22, lineHeight: 30 }}>
+                {title}
+              </AppText>
+            ) : null}
+            <AppText variant="bodySmall" color="textSecondary">
+              {line}
+            </AppText>
+            {modelUrl ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.primary }} />
+                <AppText variant="caption" color="textMuted">
+                  Needs an internet connection
+                </AppText>
+              </View>
+            ) : null}
+            {modelUrl ? (
+              <PrimaryButton
+                label="Explore in 3D"
+                size="large"
+                onPress={explore}
+                accessibilityHint="Opens the model in a full-screen 3D view. Drag to rotate and pinch to zoom."
+                style={{ alignSelf: 'stretch', marginTop: spacing.sm }}
+              />
+            ) : null}
+          </View>
         </View>
       </View>
       {description ? (
         <AppText variant="body" style={{ fontSize: 16, lineHeight: 26 }}>
           {description}
         </AppText>
-      ) : null}
-      {modelUrl ? (
-        <PrimaryButton
-          label="Explore in 3D"
-          size="medium"
-          onPress={explore}
-          accessibilityHint="Opens the model in a full-screen 3D view. Drag to rotate and pinch to zoom."
-          style={{ alignSelf: 'flex-start' }}
-        />
       ) : null}
       {open && modelUrl ? <Model3DViewer title={title} modelUrl={modelUrl} posterUri={posterFailed ? null : posterUri} hotspots={hotspots} onClose={close} /> : null}
     </Reveal>

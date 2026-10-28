@@ -3,7 +3,7 @@ import { api } from './api';
 /**
  * The Admin's side of the GLB 3D viewer: loading the viewer engine, downloading a model from the Media Library, turning failures into plain words, and keeping to ONE live viewer.
  *
- * THE ENGINE is public/glb-viewer.v3.js: a small, dependency-free WebGL viewer that is part of this site (versioned by its file name, served from our own public folder, not from a CDN).
+ * THE ENGINE is public/glb-viewer.v4.js: a small, dependency-free WebGL viewer that is part of this site (versioned by its file name, served from our own public folder, not from a CDN).
  * The learner app embeds the very same text in its WebView, so a model looks and turns the same way in both (see the header of that file). It only draws the bytes it is given; the model's
  * contents are never inserted into the page as HTML or run as script.
  *
@@ -30,8 +30,14 @@ export interface GlbViewerInstance {
   pick(clientX: number, clientY: number): { position: [number, number, number]; distance: number } | null;
   setHotspots(list: readonly ViewerHotspot[]): void;
   setSelected(id: string | null): void;
-  /** Frames a hotspot (the camera's target and distance; the viewing direction stays). `offsetY` puts it that many half-heights above the middle of the view. Reset view returns. */
-  focus(id: string, offsetY?: number): void;
+  /** Frames a hotspot (the camera's target and distance; the viewing direction stays). `offsetY` puts it that many half-heights above the middle of the view, `offsetX` that many half-widths to its right. Reset view returns. */
+  focus(id: string, offsetY?: number, offsetX?: number): void;
+  /** Brings a hotspot into the free part of the view only if it is not there already (the learner app uses it for the part a panel covers). */
+  reveal(id: string, offsetY?: number, offsetX?: number, freeBottom?: number, freeRight?: number): void;
+  /** How much of the view (CSS pixels from its top and bottom) a host covers with its own controls; the model is framed in the space between. */
+  setInsets(top: number, bottom: number): void;
+  /** The axis the model is shown upright on: 'y' (glTF's own) or 'z' (a Z-up file recognised by the engine). */
+  upAxis(): 'y' | 'z';
 }
 
 export interface GlbTap {
@@ -49,6 +55,10 @@ export interface GlbViewerOptions {
   markerStyle?: { fill?: [number, number, number]; ring?: [number, number, number]; ink?: [number, number, number]; selectedFill?: [number, number, number]; selectedRing?: [number, number, number] };
   /** Refuse a model with more triangles than this (the engine's own ceiling is 3,000,000). */
   maxTriangles?: number;
+  /** Force the model's up axis instead of letting the engine decide (it decides 'z' only for a Z-up file written by the trimesh library). */
+  upAxis?: 'y' | 'z';
+  /** A soft backdrop behind the model: `center` in the middle fading to `edge`, as [r,g,b] from 0 to 1 (a flat `background` when absent). */
+  stage?: { center: [number, number, number]; edge: [number, number, number] };
   onTap?: (tap: GlbTap) => void;
   onFirstInteraction?: () => void;
   onContextLost?: () => void;
@@ -59,7 +69,8 @@ export interface Placement {
   /** Shown over the viewer (the instruction, or why the last click did not work). */
   message: string;
   onPlace(position: [number, number, number]): void;
-  onMiss(): void;
+  /** The click placed nothing: it hit no surface ('surface', the default) or it was on a marker that is already there ('marker'). */
+  onMiss(reason?: 'surface' | 'marker'): void;
   onCancel(): void;
 }
 
@@ -74,7 +85,7 @@ declare global {
   }
 }
 
-const ENGINE_URL = '/glb-viewer.v3.js';
+const ENGINE_URL = '/glb-viewer.v4.js';
 
 /** A failure with a code the viewer can explain (the engine's own errors carry the same kind of code). */
 export function failure(code: string): Error & { code: string } {
