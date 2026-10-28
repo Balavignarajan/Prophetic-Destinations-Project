@@ -125,9 +125,10 @@ function TopicCard({ entry, open, courses, onToggle, onRetry }: { entry: Learner
  * app right now (the same answer: GET /home-entries?level=, and GET /home-entries/:id/courses?level= when a card is opened), so it respects, with no rules of its own, which entries are enabled,
  * which courses are published, which have published lessons at the level, and the saved order. Draft content never appears. It shows only the topics and their courses (not the rest of
  * Home), it is read-only (cards open to list their courses; nothing can be edited, published or deleted here) and it asks the server only while it is open: a new level cancels the
- * requests for the old one, so a slow answer can never replace a newer one.
+ * requests for the old one, so a slow answer can never replace a newer one. It always shows the SAVED order (the server's); an arrangement the administrator has not saved yet is not in it, and
+ * `unsavedOrder` makes the dialog say so. `entries` is the saved list, used only to word the empty states.
  */
-export default function HomePreviewDialog({ entries, onClose }: { entries: HomeEntry[]; onClose: () => void }) {
+export default function HomePreviewDialog({ entries, unsavedOrder = false, onClose }: { entries: HomeEntry[]; unsavedOrder?: boolean; onClose: () => void }) {
   const [level, setLevel] = useState<LearningLevel>('BEGINNER');
   const [attempt, setAttempt] = useState(0);
   const [list, setList] = useState<ListState>({ status: 'loading' });
@@ -188,6 +189,11 @@ export default function HomePreviewDialog({ entries, onClose }: { entries: HomeE
   return (
     <Modal isOpen onClose={onClose} title="Preview Home" description="How the Home Entries look to learners in the mobile app." maxWidth="lg">
       <div className="space-y-4">
+        {unsavedOrder && (
+          <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">
+            <span className="font-semibold">You have unsaved order changes.</span> This preview shows the <strong>saved</strong> order, which is what learners see until you choose Save Order.
+          </p>
+        )}
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div className="space-y-1">
             <p className="text-xs font-semibold uppercase tracking-wider text-slate-700">Learning level</p>

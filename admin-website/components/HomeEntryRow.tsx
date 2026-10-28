@@ -15,7 +15,7 @@ interface Props {
   canWrite: boolean;
   /** An enable/disable or a delete is being saved: nothing in the list can be changed. */
   busy: boolean;
-  /** A new order is being saved: reordering carries on (the page sends one request at a time), but switching, editing and deleting wait. */
+  /** The new order is being saved: until the answer comes, the arrangement cannot be changed and switching, editing and deleting wait. */
   ordering: boolean;
   /** This row's own switch is being saved. */
   pending: boolean;
@@ -55,8 +55,8 @@ function HomeEntryRowImpl({ entry, index, total, canWrite, busy, ordering, pendi
       onSelect: () => onToggle(entry),
       disabled: changesLocked,
     },
-    { key: 'up', label: 'Move up', onSelect: () => onMove(index, 'up', 'menu'), disabled: busy || index === 0 },
-    { key: 'down', label: 'Move down', onSelect: () => onMove(index, 'down', 'menu'), disabled: busy || index === total - 1 },
+    { key: 'up', label: 'Move up', hint: 'Not saved until you choose Save Order.', onSelect: () => onMove(index, 'up', 'menu'), disabled: changesLocked || index === 0 },
+    { key: 'down', label: 'Move down', hint: 'Not saved until you choose Save Order.', onSelect: () => onMove(index, 'down', 'menu'), disabled: changesLocked || index === total - 1 },
     { key: 'delete', label: 'Delete…', hint: 'Removes the entry only. You are asked first.', onSelect: () => onDelete(entry), disabled: changesLocked, danger: true, dividerBefore: true },
   ];
 
@@ -81,7 +81,7 @@ function HomeEntryRowImpl({ entry, index, total, canWrite, busy, ordering, pendi
               <button
                 type="button"
                 data-sort-id={entry.id}
-                disabled={busy}
+                disabled={changesLocked}
                 {...handle}
                 onKeyDown={(event) => {
                   if (event.key === 'ArrowUp') {
@@ -92,7 +92,7 @@ function HomeEntryRowImpl({ entry, index, total, canWrite, busy, ordering, pendi
                     onMove(index, 'down', 'handle');
                   }
                 }}
-                aria-label={`Reorder ${entry.title}. Position ${index + 1} of ${total}. Drag it with the mouse or a finger, or press the up or down arrow key to move it.`}
+                aria-label={`Reorder ${entry.title}. Position ${index + 1} of ${total}. Drag it with the mouse or a finger, or press the up or down arrow key to move it. The new order is not saved until you choose Save Order.`}
                 title="Drag to reorder"
                 className={`inline-flex h-8 w-7 touch-none select-none items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:opacity-30 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500 ${
                   dragging ? 'cursor-grabbing bg-slate-100 text-slate-800' : 'cursor-grab'

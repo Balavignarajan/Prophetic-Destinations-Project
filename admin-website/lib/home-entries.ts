@@ -23,6 +23,9 @@ export const entryOptionLabel = (entry: HomeEntry): string => (entry.isEnabled ?
 /** Whether two lists hold the same ids in the same order. */
 export const sameOrder = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((id, index) => id === b[index]);
 
+/** Whether two lists hold the same ids, whatever their order (the same entries, none added or removed). */
+export const sameMembers = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((id) => b.includes(id));
+
 /** A copy of the list with the item at `from` moved to `to` (both 0-based); the list itself is not changed. */
 export function moveItem<T>(items: readonly T[], from: number, to: number): T[] {
   const next = [...items];
@@ -34,7 +37,8 @@ export function moveItem<T>(items: readonly T[], from: number, to: number): T[] 
 
 /**
  * Whether saving the order failed because the list is not what this screen thought it was (409: someone reordered, added or deleted an entry; 404 or 422: an entry in the order is gone or the
- * ids no longer match). Retrying the same order would be wrong, and overwriting would undo someone else's work, so the screen reloads the latest list instead.
+ * ids no longer match). Saving the same order again would fail the same way, and forcing it would undo someone else's work, so the screen keeps the arrangement, says so, and waits for the
+ * administrator to reload the latest order.
  */
 export function isOrderConflict(error: unknown): boolean {
   const status = (error as { status?: number } | null)?.status;
