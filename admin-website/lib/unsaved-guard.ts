@@ -15,6 +15,11 @@ export interface UnsavedWork {
   label: string;
   /** Which list it is ("modules", "direct-lessons", "blocks"), so `guardUnsavedWork` can ask only about the lists an action actually changes. */
   scope?: string;
+  /**
+   * What the draft is: an arrangement of a list (the default, worded as "unsaved order changes") or edits to content in an editor, such as the Quiz Builder ("unsaved changes"). It only
+   * changes the words of the question asked when the administrator leaves the page.
+   */
+  kind?: 'order' | 'changes';
   /** False while the list was changed by someone else and must be reloaded before its order can be saved. */
   canSave: boolean;
   /** Saves the draft; true when it is saved. */
@@ -57,7 +62,7 @@ export function subscribeUnsavedWork(listener: () => void): () => void {
 export function unsavedWorkSnapshot(): string {
   if (registry.size === 0) return '';
   const works = [...registry.values()].map((ref) => ref.current);
-  return JSON.stringify({ labels: works.map((work) => work.label), canSave: works.every((work) => work.canSave) });
+  return JSON.stringify({ labels: works.map((work) => work.label), canSave: works.every((work) => work.canSave), changes: works.some((work) => work.kind === 'changes') });
 }
 
 /** The registered drafts an action concerns: all of them, or only those whose scope is in `scopes`. */

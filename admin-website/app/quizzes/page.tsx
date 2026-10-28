@@ -1,248 +1,136 @@
 'use client';
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
-import { QuizSummary, AdminQuiz, QuizQuestion } from '../../lib/types';
-import { LoadingSpinner, StatusBadge, EmptyState, Modal, ConfirmDialog } from '../../components/ui';
-import QuestionLevelsField, { levelsText, questionLevelSet } from '../../components/QuestionLevelsField';
-import QuizCreateForm from '../../components/QuizCreateForm';
-import QuizMoveButtons from '../../components/QuizMoveButtons';
-import { OptionFeedbackInput, QuestionScriptureField } from '../../components/QuizQuestionExtras';
-import { moveItem, newLocalId } from '../../lib/quiz-order';
 import { questionPayload } from '../../lib/quiz-question';
-import { describeReference, useScriptureInfo } from '../../lib/scripture-info';
+import type { AdminQuiz, QuizSummary } from '../../lib/types';
+import { friendlyError } from '../../lib/ui-messages';
+import { ConfirmDialog, LoadingSpinner } from '../../components/ui';
+import Icon from '../../components/quizzes/icons';
+import QuizBuilder from '../../components/quizzes/QuizBuilder';
+import QuizCatalog, { type StatusFilter } from '../../components/quizzes/QuizCatalog';
+import QuizWorkspace from '../../components/quizzes/QuizWorkspace';
 
+/** The quiz list route takes up to 100 a page (backend ListQuizzesQueryDto). */
+const PAGE = 100;
+
+type BuilderState = { mode: 'create' } | { mode: 'edit'; questionId?: string };
+
+/**
+ * Quiz Management. The quiz catalog is on the left; the selected quiz on the right as Overview, Questions and Publishing; creating and editing happen in the full-screen Quiz Builder
+ * (components/quizzes/QuizBuilder.tsx). Everything the old page could do is still here and goes through the same API with the same rules and roles: ADMIN and EDITOR create, edit a
+ * DRAFT, duplicate and delete a draft; only ADMIN publishes and unpublishes; a REVIEWER can read. A published quiz is read-only, as the server requires. Nothing here changes how quizzes are
+ * scored, published, versioned or used by lessons.
+ */
 export default function QuizzesPage() {
   const { user } = useAuth();
-  const scriptureInfo = useScriptureInfo();
   const [quizzes, setQuizzes] = useState<QuizSummary[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Search & filter
-  const [quizSearch, setQuizSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'DRAFT' | 'PUBLISHED'>('ALL');
+  const [search, setSearch] = useState('');
+  const [status, setStatus] = useState<StatusFilter>('ALL');
 
-  // Active quiz view & edit
+  const [activeId, setActiveId] = useState<string | null>(null);
   const [activeQuiz, setActiveQuiz] = useState<AdminQuiz | null>(null);
-  const [loadingQuizDetails, setLoadingQuizDetails] = useState(false);
+  const [loadingDetails, setLoadingDetails] = useState(false);
+  const [detailsError, setDetailsError] = useState<string | null>(null);
 
-  // Create quiz modal
-  const [createModalOpen, setCreateModalOpen] = useState(false);
-  const createDirtyRef = useRef(false);
-  const closeCreate = () => {
-    if (createDirtyRef.current && !window.confirm('Discard your unsaved changes?')) return;
-    createDirtyRef.current = false;
-    setCreateModalOpen(false);
-  };
+  const [builder, setBuilder] = useState<BuilderState | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  // An action that failed and has no tab to show it in (duplicating), and one that has: publishing, unpublishing and deleting show theirs in the Publishing tab.
+  const [pageError, setPageError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [working, setWorking] = useState(false);
 
-  // Edit quiz modal
-  const [editModalOpen, setEditModalOpen] = useState(false);
-  const [editTitle, setEditTitle] = useState('');
-  const [editDescription, setEditDescription] = useState('');
-  const [editQuestions, setEditQuestions] = useState<QuizQuestion[]>([]);
-  const [updating, setUpdating] = useState(false);
-  const [updateError, setUpdateError] = useState<string | null>(null);
-  // Read out by screen readers after each move (the order is saved with "Save Draft", like every other edit in this form).
-  const [orderAnnounce, setOrderAnnounce] = useState('');
-
-  // Delete draft quiz
-  const [deleteQuizId, setDeleteQuizId] = useState<string | null>(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [publishAction, setPublishAction] = useState<'publish' | 'unpublish' | null>(null);
 
-  // Publishing / Unpublishing action
-  const [publishingQuizId, setPublishingQuizId] = useState<string | null>(null);
-  const [publishAction, setPublishAction] = useState<'publish' | 'unpublish'>('publish');
-  const [togglingPublish, setTogglingPublish] = useState(false);
+  // Every request for the first page and every request for a quiz's details gets a number; an answer for an older number is ignored.
+  const listRequest = useRef(0);
+  const detailsRequest = useRef(0);
+
+  const canWrite = user?.role === 'ADMIN' || user?.role === 'EDITOR';
+  const canPublish = user?.role === 'ADMIN';
 
   const fetchQuizzes = useCallback(async () => {
+    const mine = ++listRequest.current;
     setLoading(true);
     setError(null);
-
     try {
-      const res = await api.request<{ items: QuizSummary[]; total: number }>(
-        '/admin/quizzes?limit=100'
-      );
+      const res = await api.request<{ items: QuizSummary[]; total: number }>(`/admin/quizzes?limit=${PAGE}`);
+      if (mine !== listRequest.current) return;
       setQuizzes(res.items);
+      setTotal(res.total ?? res.items.length);
     } catch (err: unknown) {
-      const e = err as { message?: string };
-      setError(e.message || 'Failed to load quizzes.');
+      if (mine === listRequest.current) setError(friendlyError(err, 'Failed to load quizzes.'));
     } finally {
-      setLoading(false);
+      if (mine === listRequest.current) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchQuizzes();
+    void fetchQuizzes();
   }, [fetchQuizzes]);
 
-  // Unsaved changes protection
-  useEffect(() => {
-    const isDirty = Boolean(
-      (createModalOpen && createDirtyRef.current) ||
-      (editModalOpen && (editTitle.trim() || editQuestions.some((q) => q.prompt.trim())))
-    );
+  const loadMore = async () => {
+    const mine = listRequest.current;
+    setLoadingMore(true);
+    setError(null);
+    try {
+      const res = await api.request<{ items: QuizSummary[]; total: number }>(`/admin/quizzes?limit=${PAGE}&offset=${quizzes.length}`);
+      if (mine !== listRequest.current) return;
+      setQuizzes((current) => [...current, ...res.items.filter((item) => !current.some((c) => c.id === item.id))]);
+      setTotal(res.total ?? total);
+    } catch (err: unknown) {
+      if (mine === listRequest.current) setError(friendlyError(err, 'Failed to load more quizzes.'));
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (isDirty) {
-        e.preventDefault();
-        e.returnValue = '';
-      }
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [createModalOpen, editModalOpen, editTitle, editQuestions]);
-
-  const fetchQuizDetails = async (quizId: string) => {
-    setLoadingQuizDetails(true);
+  const openQuiz = useCallback(async (quizId: string) => {
+    const mine = ++detailsRequest.current;
+    setActiveId(quizId);
+    setLoadingDetails(true);
+    setDetailsError(null);
+    setActionError(null);
     try {
       const quiz = await api.request<AdminQuiz>(`/admin/quizzes/${quizId}`);
-      setActiveQuiz(quiz);
+      if (mine === detailsRequest.current) setActiveQuiz(quiz);
     } catch (err: unknown) {
-      const e = err as { message?: string };
-      setError(e.message || 'Failed to load quiz details.');
-    } finally {
-      setLoadingQuizDetails(false);
-    }
-  };
-
-  const handleOpenEdit = (quiz: AdminQuiz) => {
-    setEditTitle(quiz.title);
-    setEditDescription(quiz.description || '');
-    setEditQuestions(
-      quiz.questions.map((q) => ({
-        ...q,
-        options: q.options.map((o) => ({ ...o })),
-      }))
-    );
-    setUpdateError(null);
-    setOrderAnnounce('');
-    setEditModalOpen(true);
-  };
-
-  // A move only changes the order in the list. Each question or option keeps all of its own content, including which option is the correct one (a flag on the option),
-  // and the saved positions are then written from the list order by the existing update (PUT /admin/quizzes/:id), so they stay 1..n with no gaps or repeats.
-  const moveEditQuestion = (from: number, to: number) => {
-    setEditQuestions((list) => moveItem(list, from, to));
-    setOrderAnnounce(`Question ${from + 1} moved to position ${to + 1} of ${editQuestions.length}. Not saved yet.`);
-  };
-  const moveEditOption = (qIndex: number, from: number, to: number) => {
-    const moved = editQuestions[qIndex]?.options[from];
-    setEditQuestions((list) => list.map((q, i) => (i === qIndex ? { ...q, options: moveItem(q.options, from, to) } : q)));
-    setOrderAnnounce(`Option ${from + 1} of question ${qIndex + 1} moved to position ${to + 1}.${moved?.correct ? ' It is still the correct answer.' : ''} Not saved yet.`);
-  };
-
-  const handleUpdateQuiz = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!activeQuiz) return;
-    setUpdateError(null);
-
-    // Validation
-    for (const q of editQuestions) {
-      if (!q.prompt.trim()) {
-        setUpdateError('Every question must have a prompt.');
-        return;
-      }
-      if (q.levels && q.levels.length === 0) {
-        setUpdateError('Every question needs at least one level.');
-        return;
-      }
-      if (q.options.length < 2 || q.options.length > 6) {
-        setUpdateError('Each question must have between 2 and 6 options.');
-        return;
-      }
-      const correctCount = q.options.filter((o) => o.correct).length;
-      if (correctCount !== 1) {
-        setUpdateError('Each question must have exactly one correct option.');
-        return;
-      }
-    }
-
-    setUpdating(true);
-
-    try {
-      const updated = await api.request<AdminQuiz>(
-        `/admin/quizzes/${activeQuiz.id}`,
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            title: editTitle.trim(),
-            description: editDescription.trim() || null,
-            version: activeQuiz.version,
-            questions: editQuestions.map(questionPayload),
-          }),
-        }
-      );
-
-      setActiveQuiz(updated);
-      setEditModalOpen(false);
-      fetchQuizzes();
-    } catch (err: unknown) {
-      const e = err as { payload?: { message?: string }; message?: string };
-      setUpdateError(e.payload?.message || e.message || 'Failed to update draft quiz.');
-    } finally {
-      setUpdating(false);
-    }
-  };
-
-  const handleDeleteQuiz = async () => {
-    if (!deleteQuizId) return;
-    setDeleting(true);
-    setDeleteError(null);
-
-    try {
-      await api.request(`/admin/quizzes/${deleteQuizId}`, {
-        method: 'DELETE',
-      });
-      setDeleteQuizId(null);
-      if (activeQuiz?.id === deleteQuizId) {
+      if (mine === detailsRequest.current) {
         setActiveQuiz(null);
+        setDetailsError(friendlyError(err, 'Failed to load quiz details.'));
       }
-      fetchQuizzes();
-    } catch (err: unknown) {
-      const e = err as { payload?: { message?: string }; message?: string };
-      setDeleteError(
-        e.payload?.message ||
-          e.message ||
-          'Failed to delete quiz. Only draft quizzes can be deleted.'
-      );
     } finally {
-      setDeleting(false);
+      if (mine === detailsRequest.current) setLoadingDetails(false);
     }
+  }, []);
+
+  /** The Quiz Builder saved: what the server now holds becomes the selected quiz, and the list is refreshed. */
+  const handleSaved = (saved: AdminQuiz) => {
+    const created = builder?.mode === 'create';
+    setBuilder(null);
+    detailsRequest.current += 1;
+    setActiveId(saved.id);
+    setActiveQuiz(saved);
+    setLoadingDetails(false);
+    setDetailsError(null);
+    setNotice(created ? `“${saved.title}” was saved as a draft quiz.` : `“${saved.title}” was saved.`);
+    void fetchQuizzes();
   };
 
-  const handleTogglePublish = async () => {
-    if (!publishingQuizId) return;
-    setTogglingPublish(true);
-
+  const handleDuplicate = async (quiz: AdminQuiz) => {
+    setWorking(true);
+    setActionError(null);
+    setPageError(null);
     try {
-      const updated = await api.request<AdminQuiz>(
-        `/admin/quizzes/${publishingQuizId}/${publishAction}`,
-        {
-          method: 'POST',
-        }
-      );
-
-      if (activeQuiz?.id === publishingQuizId) {
-        setActiveQuiz(updated);
-      }
-      setPublishingQuizId(null);
-      fetchQuizzes();
-    } catch (err: unknown) {
-      const e = err as { payload?: { message?: string }; message?: string };
-      setError(e.payload?.message || e.message || `Failed to ${publishAction} quiz.`);
-    } finally {
-      setTogglingPublish(false);
-    }
-  };
-
-  const handleDuplicateQuiz = async (quiz: AdminQuiz) => {
-    try {
-      await api.request('/admin/quizzes', {
+      const copy = await api.request<AdminQuiz>('/admin/quizzes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -252,579 +140,180 @@ export default function QuizzesPage() {
           questions: quiz.questions.map(questionPayload),
         }),
       });
-      fetchQuizzes();
+      detailsRequest.current += 1;
+      setActiveId(copy.id);
+      setActiveQuiz(copy);
+      setNotice(`A draft copy, “${copy.title}”, was created.`);
+      void fetchQuizzes();
     } catch (err: unknown) {
-      const e = err as { payload?: { message?: string }; message?: string };
-      setError(e.payload?.message || e.message || 'Failed to duplicate quiz.');
+      setNotice(null);
+      setPageError(friendlyError(err, 'Failed to duplicate quiz.'));
+    } finally {
+      setWorking(false);
     }
   };
 
-  const filteredQuizzes = quizzes.filter((q) => {
-    const matchesSearch =
-      q.title.toLowerCase().includes(quizSearch.toLowerCase()) ||
-      (q.description && q.description.toLowerCase().includes(quizSearch.toLowerCase()));
-    const matchesStatus = statusFilter === 'ALL' || q.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+  const handleDelete = async () => {
+    if (!deleteId) return;
+    setDeleting(true);
+    setActionError(null);
+    try {
+      await api.request(`/admin/quizzes/${deleteId}`, { method: 'DELETE' });
+      if (activeId === deleteId) {
+        detailsRequest.current += 1;
+        setActiveId(null);
+        setActiveQuiz(null);
+      }
+      setDeleteId(null);
+      setNotice('The draft quiz was deleted.');
+      void fetchQuizzes();
+    } catch (err: unknown) {
+      // The quiz stays: the reason (for example that a lesson uses it) is shown where the button is.
+      setDeleteId(null);
+      setActionError(friendlyError(err, 'Failed to delete quiz. Only draft quizzes can be deleted.'));
+    } finally {
+      setDeleting(false);
+    }
+  };
 
-  const canWrite = user?.role === 'ADMIN' || user?.role === 'EDITOR';
-  const canPublish = user?.role === 'ADMIN';
+  const handleTogglePublish = async () => {
+    if (!activeQuiz || !publishAction) return;
+    const action = publishAction;
+    setWorking(true);
+    setActionError(null);
+    try {
+      const updated = await api.request<AdminQuiz>(`/admin/quizzes/${activeQuiz.id}/${action}`, { method: 'POST' });
+      setActiveQuiz(updated);
+      setPublishAction(null);
+      setNotice(action === 'publish' ? `“${updated.title}” is now published.` : `“${updated.title}” was unpublished and is a draft again.`);
+      void fetchQuizzes();
+    } catch (err: unknown) {
+      setPublishAction(null);
+      setActionError(friendlyError(err, `Failed to ${action} quiz.`));
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const create = () => {
+    setNotice(null);
+    setBuilder({ mode: 'create' });
+  };
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-200 pb-5">
+      <div className="flex flex-col gap-4 border-b border-slate-200 pb-5 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="font-serif text-2xl font-bold text-slate-900">
-            Quiz Management
-          </h1>
-          <p className="text-sm text-slate-500 mt-0.5">
-            Author single-choice quizzes with explanations and publication controls.
-          </p>
+          <h1 className="font-serif text-2xl font-bold text-slate-900">Quiz Management</h1>
+          <p className="mt-0.5 text-sm text-slate-700">Create, organize and publish quizzes for your learning content.</p>
         </div>
-
         {canWrite && (
-          <button
-            onClick={() => setCreateModalOpen(true)}
-            className="px-4 py-2.5 text-sm font-medium bg-slate-950 hover:bg-slate-800 text-white rounded-lg shadow-xs transition-colors flex items-center gap-2 self-start sm:self-auto"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-            Create Draft Quiz
+          <button type="button" onClick={create} className="flex items-center gap-2 self-start rounded-lg bg-slate-950 px-4 py-2.5 text-sm font-medium text-white shadow-xs transition-colors hover:bg-slate-800 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500 sm:self-auto">
+            <Icon name="plus" />
+            Create Quiz
           </button>
         )}
       </div>
 
-      {deleteError && (
-        <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-sm flex items-start justify-between">
-          <span>{deleteError}</span>
-          <button onClick={() => setDeleteError(null)} className="text-rose-500 font-bold ml-2">
-            &times;
+      {pageError && (
+        <div role="alert" className="flex items-center justify-between gap-3 rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm text-rose-900">
+          <span>{pageError}</span>
+          <button type="button" onClick={() => setPageError(null)} aria-label="Dismiss this message" className="rounded-lg p-1 hover:bg-rose-100 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500">
+            <Icon name="close" />
           </button>
         </div>
       )}
 
-      {error && (
-        <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-sm">
-          {error}
+      {notice && (
+        <div role="status" className="flex items-center justify-between gap-3 rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-950">
+          <span>{notice}</span>
+          <button type="button" onClick={() => setNotice(null)} aria-label="Dismiss this message" className="rounded-lg p-1 hover:bg-emerald-100 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500">
+            <Icon name="close" />
+          </button>
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Quizzes List (Left Column) */}
-        <div className="lg:col-span-5 space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-              Quizzes Catalog ({filteredQuizzes.length})
-            </h2>
-          </div>
-
-          <div className="flex gap-2">
-            <input
-              type="text"
-              placeholder="Search quizzes..."
-              value={quizSearch}
-              onChange={(e) => setQuizSearch(e.target.value)}
-              className="flex-1 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs placeholder-slate-400 focus:outline-hidden focus:ring-1 focus:ring-amber-500"
-            />
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as 'ALL' | 'DRAFT' | 'PUBLISHED')}
-              className="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-hidden"
-            >
-              <option value="ALL">All Status</option>
-              <option value="DRAFT">Draft</option>
-              <option value="PUBLISHED">Published</option>
-            </select>
-          </div>
-
-          {loading ? (
-            <LoadingSpinner text="Loading quizzes..." />
-          ) : filteredQuizzes.length === 0 ? (
-            <EmptyState
-              title="No Quizzes Available"
-              description="No quizzes match your search criteria."
-            />
-          ) : (
-            <div className="space-y-2.5">
-              {filteredQuizzes.map((quiz) => (
-                <div
-                  key={quiz.id}
-                  onClick={() => fetchQuizDetails(quiz.id)}
-                  className={`p-4 rounded-xl border cursor-pointer transition-all ${
-                    activeQuiz?.id === quiz.id
-                      ? 'bg-amber-500/10 border-amber-500/40 shadow-xs'
-                      : 'bg-white border-slate-200 hover:border-slate-300'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <h3 className="font-semibold text-sm text-slate-900 line-clamp-1">
-                      {quiz.title}
-                    </h3>
-                    <StatusBadge status={quiz.status} />
-                  </div>
-                  {quiz.description && (
-                    <p className="text-xs text-slate-500 mt-1 line-clamp-2">
-                      {quiz.description}
-                    </p>
-                  )}
-                  <div className="flex items-center justify-between text-[11px] text-slate-400 mt-3 pt-2 border-t border-slate-100">
-                    <span>{quiz.questionCount} Questions</span>
-                    <span className="font-mono">v{quiz.version}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+        <div className="lg:col-span-5 xl:col-span-4">
+          <QuizCatalog
+            quizzes={quizzes}
+            total={total}
+            loading={loading}
+            loadingMore={loadingMore}
+            error={error}
+            activeId={activeId}
+            search={search}
+            status={status}
+            canWrite={canWrite}
+            onSearch={setSearch}
+            onStatus={setStatus}
+            onSelect={(id) => void openQuiz(id)}
+            onRetry={() => void fetchQuizzes()}
+            onLoadMore={() => void loadMore()}
+            onCreate={create}
+          />
         </div>
 
-        {/* Selected Quiz Viewer / Inspector (Right Column) */}
-        <div className="lg:col-span-7">
-          {loadingQuizDetails ? (
-            <div className="bg-white border border-slate-200 rounded-xl p-8">
-              <LoadingSpinner text="Fetching full quiz questions..." />
+        <div className="lg:col-span-7 xl:col-span-8" aria-live="polite">
+          {loadingDetails ? (
+            <div className="rounded-xl border border-slate-200 bg-white p-8">
+              <LoadingSpinner text="Loading the quiz..." />
+            </div>
+          ) : detailsError ? (
+            <div role="alert" className="flex items-center justify-between gap-3 rounded-xl border border-rose-300 bg-rose-50 p-4 text-sm text-rose-900">
+              <span>{detailsError}</span>
+              {activeId && (
+                <button type="button" onClick={() => void openQuiz(activeId)} className="shrink-0 rounded-lg border border-rose-300 bg-white px-3 py-1 font-medium hover:bg-rose-100 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500">
+                  Try again
+                </button>
+              )}
             </div>
           ) : activeQuiz ? (
-            <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs space-y-6">
-              <div className="flex items-start justify-between gap-4 pb-4 border-b border-slate-200">
-                <div>
-                  <div className="flex items-center gap-3">
-                    <h2 className="font-serif text-xl font-bold text-slate-900">
-                      {activeQuiz.title}
-                    </h2>
-                    <StatusBadge status={activeQuiz.status} />
-                    <span className="text-xs font-mono text-slate-400">v{activeQuiz.version}</span>
-                  </div>
-                  {activeQuiz.description && (
-                    <p className="text-sm text-slate-600 mt-1">
-                      {activeQuiz.description}
-                    </p>
-                  )}
-                  <div className="text-[11px] text-slate-400 mt-2 font-mono">
-                    ID: {activeQuiz.id}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 shrink-0">
-                  {canWrite && activeQuiz.status === 'DRAFT' && (
-                    <button
-                      onClick={() => handleOpenEdit(activeQuiz)}
-                      className="px-3 py-1.5 text-xs font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors"
-                    >
-                      Edit Draft
-                    </button>
-                  )}
-
-                  {canWrite && (
-                    <button
-                      onClick={() => handleDuplicateQuiz(activeQuiz)}
-                      className="px-3 py-1.5 text-xs font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors"
-                      title="Duplicate this quiz as a new draft"
-                    >
-                      Duplicate
-                    </button>
-                  )}
-
-                  {canPublish && (
-                    <button
-                      onClick={() => {
-                        setPublishingQuizId(activeQuiz.id);
-                        setPublishAction(
-                          activeQuiz.status === 'PUBLISHED' ? 'unpublish' : 'publish'
-                        );
-                      }}
-                      className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors text-white ${
-                        activeQuiz.status === 'PUBLISHED'
-                          ? 'bg-rose-600 hover:bg-rose-700'
-                          : 'bg-emerald-600 hover:bg-emerald-700'
-                      }`}
-                    >
-                      {activeQuiz.status === 'PUBLISHED' ? 'Unpublish' : 'Publish Quiz'}
-                    </button>
-                  )}
-
-                  {canWrite && activeQuiz.status === 'DRAFT' && (
-                    <button
-                      onClick={() => setDeleteQuizId(activeQuiz.id)}
-                      className="p-1.5 text-rose-500 hover:text-rose-700 rounded-lg"
-                      title="Delete draft quiz"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Questions List */}
-              <div className="space-y-4">
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  Questions ({activeQuiz.questions.length})
-                </h3>
-                <p className="text-xs text-slate-700">
-                  Questions learners get at each level:{' '}
-                  {(['BEGINNER', 'INTERMEDIATE', 'ADVANCED'] as const)
-                    .map((lv) => `${lv.charAt(0)}${lv.slice(1).toLowerCase()} ${activeQuiz.questions.filter((q) => questionLevelSet(q.levels).includes(lv)).length}`)
-                    .join(', ')}
-                  . A question without a setting is given at every level. This is separate from the quiz block&rsquo;s level setting in each lesson.
-                </p>
-
-                {activeQuiz.questions.length === 0 ? (
-                  <p className="text-xs text-slate-400 italic">No questions defined in this quiz draft.</p>
-                ) : (
-                  activeQuiz.questions.map((q, idx) => (
-                    <div
-                      key={q.id}
-                      className="p-4 rounded-xl bg-slate-50 border border-slate-200/80 space-y-3"
-                    >
-                      <div className="flex items-start gap-2.5">
-                        <span className="w-5 h-5 rounded-md bg-slate-200 text-slate-700 font-bold text-xs flex items-center justify-center font-mono shrink-0">
-                          {idx + 1}
-                        </span>
-                        <h4 className="font-medium text-sm text-slate-900 leading-snug">
-                          {q.prompt}
-                        </h4>
-                      </div>
-                      <p className="pl-7 text-[11px] text-slate-600">Shown at: {levelsText(q.levels)}</p>
-
-                      {/* Options with correct indicator */}
-                      <div className="pl-7 space-y-1.5">
-                        {q.options.map((opt) => (
-                          <div
-                            key={opt.id}
-                            className={`p-2.5 rounded-lg text-xs flex items-center justify-between border ${
-                              opt.correct
-                                ? 'bg-emerald-50 text-emerald-900 border-emerald-300 font-medium'
-                                : 'bg-white text-slate-700 border-slate-200'
-                            }`}
-                          >
-                            <span className="min-w-0">
-                              {opt.text}
-                              {opt.feedback && <span className="block mt-0.5 text-[11px] font-normal italic text-slate-600">Feedback: {opt.feedback}</span>}
-                            </span>
-                            {opt.correct && (
-                              <span className="text-[10px] uppercase font-bold text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-full">
-                                Correct Answer
-                              </span>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-
-                      {q.explanation && (
-                        <div className="pl-7 pt-1 text-xs text-slate-500 italic">
-                          <strong className="not-italic font-semibold text-slate-600">Explanation:</strong>{' '}
-                          {q.explanation}
-                        </div>
-                      )}
-                      {q.scripture && q.scripture.length > 0 && (
-                        <p className="pl-7 text-xs text-slate-700">
-                          <strong className="font-semibold text-slate-700">Scripture:</strong>{' '}
-                          {q.scripture.map((s) => describeReference(s.reference, scriptureInfo.bookNames)).join('; ')}
-                        </p>
-                      )}
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
+            <QuizWorkspace
+              key={activeQuiz.id}
+              quiz={activeQuiz}
+              canWrite={canWrite}
+              canPublish={canPublish}
+              publishError={actionError}
+              busy={working || deleting}
+              onEdit={(questionId) => setBuilder({ mode: 'edit', questionId })}
+              onDuplicate={() => void handleDuplicate(activeQuiz)}
+              onPublish={() => setPublishAction('publish')}
+              onUnpublish={() => setPublishAction('unpublish')}
+              onDelete={() => setDeleteId(activeQuiz.id)}
+            />
           ) : (
-            <div className="bg-white border border-slate-200 rounded-xl p-12 text-center text-slate-400 text-sm">
-              Select a quiz from the left column to view questions, explanations, and publication status.
+            <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white px-6 py-16 text-center">
+              <span className="mb-3 flex h-12 w-12 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-slate-500">
+                <Icon name="quiz" className="h-6 w-6" />
+              </span>
+              <h2 className="text-base font-semibold text-slate-900">Select a quiz to get started</h2>
+              <p className="mt-1 max-w-sm text-sm text-slate-700">Choose a quiz from the list to review its questions, edit content or manage publishing.</p>
+              {canWrite && (
+                <button type="button" onClick={create} className="mt-4 inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500">
+                  <Icon name="plus" />
+                  Create Quiz
+                </button>
+              )}
             </div>
           )}
         </div>
       </div>
 
-      {/* Create Quiz Modal (the same form is used in the lesson editor's Add content, Quiz) */}
-      <Modal
-        isOpen={createModalOpen}
-        onClose={closeCreate}
-        title="Create Draft Quiz"
-        description="Add a quiz with 2–6 options per question and mark exactly one correct option."
-        maxWidth="2xl"
-      >
-        {createModalOpen && (
-          <QuizCreateForm
-            idPrefix="new-quiz"
-            submitLabel="Save Draft Quiz"
-            dirtyRef={createDirtyRef}
-            onCancel={closeCreate}
-            onCreated={() => {
-              createDirtyRef.current = false;
-              setCreateModalOpen(false);
-              fetchQuizzes();
-            }}
-          />
-        )}
-      </Modal>
+      {builder && (
+        <QuizBuilder
+          mode={builder.mode}
+          quiz={builder.mode === 'edit' ? activeQuiz : null}
+          initialQuestionId={builder.mode === 'edit' ? builder.questionId : undefined}
+          onClose={() => setBuilder(null)}
+          onSaved={handleSaved}
+        />
+      )}
 
-      {/* Edit Quiz Modal */}
-      <Modal
-        isOpen={editModalOpen}
-        onClose={() => setEditModalOpen(false)}
-        title="Edit Draft Quiz"
-        description="Replaces draft quiz content and updates its version."
-        maxWidth="2xl"
-      >
-        <form onSubmit={handleUpdateQuiz} className="space-y-5">
-          <p role="status" aria-live="polite" className="sr-only">{orderAnnounce}</p>
-          {updateError && (
-            <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs">
-              {updateError}
-            </div>
-          )}
-
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5">
-              Quiz Title *
-            </label>
-            <input
-              type="text"
-              required
-              value={editTitle}
-              onChange={(e) => setEditTitle(e.target.value)}
-              className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5">
-              Description
-            </label>
-            <input
-              type="text"
-              value={editDescription}
-              onChange={(e) => setEditDescription(e.target.value)}
-              className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500"
-            />
-          </div>
-
-          {/* Edit Questions */}
-          <div className="space-y-4 pt-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-700">
-                Questions
-              </span>
-              <button
-                type="button"
-                onClick={() =>
-                  setEditQuestions([
-                    ...editQuestions,
-                    {
-                      // the ids are only this form's own handles (they are not sent); unique, so a moved question keeps its identity
-                      id: newLocalId('q'),
-                      type: 'SINGLE_CHOICE',
-                      prompt: '',
-                      explanation: '',
-                      options: [
-                        { id: newLocalId('o'), text: '', correct: true },
-                        { id: newLocalId('o'), text: '', correct: false },
-                      ],
-                    },
-                  ])
-                }
-                className="text-xs font-semibold text-amber-700 hover:text-amber-800"
-              >
-                + Add Question
-              </button>
-            </div>
-            {editQuestions.length > 1 && (
-              <p className="text-[11px] text-slate-600">Use the arrows to change the order of questions and of each question&rsquo;s options. The order is saved with Save Draft.</p>
-            )}
-
-            {editQuestions.map((q, qIndex) => (
-              <div
-                key={q.id}
-                className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-700 font-mono">
-                    Question #{qIndex + 1}
-                  </span>
-                  <div className="flex items-center gap-3">
-                    <QuizMoveButtons label={`question ${qIndex + 1}`} index={qIndex} count={editQuestions.length} disabled={updating} onMove={(to) => moveEditQuestion(qIndex, to)} />
-                    {editQuestions.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setEditQuestions(editQuestions.filter((_, i) => i !== qIndex))
-                        }
-                        className="text-xs text-rose-600 hover:underline"
-                      >
-                        Remove
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                <input
-                  type="text"
-                  required
-                  value={q.prompt}
-                  onChange={(e) => {
-                    const updated = [...editQuestions];
-                    updated[qIndex].prompt = e.target.value;
-                    setEditQuestions(updated);
-                  }}
-                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm"
-                />
-
-                <input
-                  type="text"
-                  placeholder="Optional explanation..."
-                  value={q.explanation || ''}
-                  onChange={(e) => {
-                    const updated = [...editQuestions];
-                    updated[qIndex].explanation = e.target.value;
-                    setEditQuestions(updated);
-                  }}
-                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs"
-                />
-
-                <QuestionLevelsField
-                  idPrefix={`edit-q${qIndex}`}
-                  questionLabel={`Question ${qIndex + 1}`}
-                  value={q.levels}
-                  onChange={(levels) => {
-                    const updated = [...editQuestions];
-                    updated[qIndex] = { ...updated[qIndex], levels };
-                    setEditQuestions(updated);
-                  }}
-                  disabled={updating}
-                />
-
-                <QuestionScriptureField
-                  idPrefix={`edit-q${qIndex}`}
-                  questionLabel={`Question ${qIndex + 1}`}
-                  value={q.scripture}
-                  onChange={(scripture) => {
-                    const updated = [...editQuestions];
-                    updated[qIndex] = { ...updated[qIndex], scripture };
-                    setEditQuestions(updated);
-                  }}
-                  disabled={updating}
-                />
-
-                <div className="space-y-2 pt-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-semibold text-slate-500 uppercase">
-                      Options (select single correct)
-                    </span>
-                    {q.options.length < 6 && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const updated = [...editQuestions];
-                          updated[qIndex].options.push({
-                            id: newLocalId('o'),
-                            text: '',
-                            correct: false,
-                          });
-                          setEditQuestions(updated);
-                        }}
-                        className="text-[11px] font-semibold text-amber-700 hover:underline"
-                      >
-                        + Add Option
-                      </button>
-                    )}
-                  </div>
-
-                  {q.options.map((opt, oIndex) => (
-                    <div key={opt.id} className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="radio"
-                        name={`edit-correct-opt-${qIndex}`}
-                        aria-label={`Option ${oIndex + 1} of question ${qIndex + 1} is the correct answer`}
-                        checked={opt.correct}
-                        onChange={() => {
-                          const updated = [...editQuestions];
-                          updated[qIndex].options.forEach((o, i) => {
-                            o.correct = i === oIndex;
-                          });
-                          setEditQuestions(updated);
-                        }}
-                        className="w-4 h-4 text-emerald-600"
-                      />
-                      <input
-                        type="text"
-                        required
-                        value={opt.text}
-                        onChange={(e) => {
-                          const updated = [...editQuestions];
-                          updated[qIndex].options[oIndex].text = e.target.value;
-                          setEditQuestions(updated);
-                        }}
-                        className="flex-1 px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs"
-                      />
-                      <QuizMoveButtons label={`option ${oIndex + 1} of question ${qIndex + 1}`} index={oIndex} count={q.options.length} disabled={updating} onMove={(to) => moveEditOption(qIndex, oIndex, to)} />
-                      {q.options.length > 2 && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const updated = [...editQuestions];
-                            updated[qIndex].options = updated[qIndex].options.filter(
-                              (_, i) => i !== oIndex
-                            );
-                            if (opt.correct && updated[qIndex].options.length > 0) {
-                              updated[qIndex].options[0].correct = true;
-                            }
-                            setEditQuestions(updated);
-                          }}
-                          className="text-slate-400 hover:text-rose-600 text-xs px-1"
-                        >
-                          &times;
-                        </button>
-                      )}
-                    </div>
-                    <div className="pl-6">
-                      <OptionFeedbackInput
-                        id={`edit-q${qIndex}-o${oIndex}-fb`}
-                        label={`Option ${oIndex + 1} feedback (optional), question ${qIndex + 1}`}
-                        value={opt.feedback}
-                        disabled={updating}
-                        onChange={(feedback) => {
-                          const updated = [...editQuestions];
-                          updated[qIndex].options[oIndex].feedback = feedback;
-                          setEditQuestions(updated);
-                        }}
-                      />
-                    </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
-            <button
-              type="button"
-              onClick={() => setEditModalOpen(false)}
-              className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={updating}
-              className="px-4 py-2 text-sm font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-lg flex items-center gap-2 disabled:opacity-50"
-            >
-              {updating && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
-              Save Draft
-            </button>
-          </div>
-        </form>
-      </Modal>
-
-      {/* Delete Quiz Dialog */}
       <ConfirmDialog
-        isOpen={Boolean(deleteQuizId)}
-        onClose={() => setDeleteQuizId(null)}
-        onConfirm={handleDeleteQuiz}
+        isOpen={Boolean(deleteId)}
+        onClose={() => setDeleteId(null)}
+        onConfirm={() => void handleDelete()}
         title="Delete Draft Quiz"
         message="Are you sure you want to delete this draft quiz? This cannot be undone."
         confirmLabel="Delete Draft"
@@ -832,19 +321,16 @@ export default function QuizzesPage() {
         isLoading={deleting}
       />
 
-      {/* Publish/Unpublish Confirmation Dialog */}
       <ConfirmDialog
-        isOpen={Boolean(publishingQuizId)}
-        onClose={() => setPublishingQuizId(null)}
-        onConfirm={handleTogglePublish}
-        title={`${publishAction === 'publish' ? 'Publish' : 'Unpublish'} Quiz`}
-        message={`Are you sure you want to ${publishAction} this quiz? ${
-          publishAction === 'publish'
-            ? 'It must have at least one valid question and will become available to learners.'
-            : 'It will no longer be visible on public learner routes.'
+        isOpen={publishAction !== null}
+        onClose={() => setPublishAction(null)}
+        onConfirm={() => void handleTogglePublish()}
+        title={`${publishAction === 'unpublish' ? 'Unpublish' : 'Publish'} Quiz`}
+        message={`Are you sure you want to ${publishAction ?? 'publish'} this quiz? ${
+          publishAction === 'unpublish' ? 'It will no longer be visible on public learner routes.' : 'It must have at least one valid question and will become available to learners.'
         }`}
-        confirmLabel={publishAction === 'publish' ? 'Publish' : 'Unpublish'}
-        isLoading={togglingPublish}
+        confirmLabel={publishAction === 'unpublish' ? 'Unpublish' : 'Publish'}
+        isLoading={working}
       />
     </div>
   );

@@ -18,7 +18,7 @@ const BUTTON = 'rounded-lg px-4 py-2 text-sm font-medium focus:outline-hidden fo
 export default function UnsavedGuardHost() {
   const pathname = usePathname() ?? '';
   const snapshot = useSyncExternalStore(subscribeUnsavedWork, unsavedWorkSnapshot, () => '');
-  const info = useMemo(() => (snapshot ? (JSON.parse(snapshot) as { labels: string[]; canSave: boolean }) : null), [snapshot]);
+  const info = useMemo(() => (snapshot ? (JSON.parse(snapshot) as { labels: string[]; canSave: boolean; changes?: boolean }) : null), [snapshot]);
   const guard = useUnsavedGuard(info !== null, pathname);
   const [question, setQuestion] = useState<UnsavedQuestion | null>(null);
   const [saving, setSaving] = useState(false);
@@ -34,13 +34,18 @@ export default function UnsavedGuardHost() {
   const concerned = question ? unsavedWorkSummary(question.scopes) : { labels: [] as string[], canSave: true };
 
   return (
-    <>
+    // Above any editor window the page has open (the Quiz Builder is one): a question about leaving must never be hidden behind it.
+    <div className="relative z-60">
       <ConfirmDialog
         isOpen={guard.held !== null}
         onClose={guard.stay}
         onConfirm={guard.leave}
-        title="Leave without saving the order?"
-        message={`You have unsaved order changes (${what}). If you leave now they are lost, and the saved order stays as it is. Stay on this page to choose Save Order or Reset.`}
+        title={info?.changes ? 'Discard unsaved changes?' : 'Leave without saving the order?'}
+        message={
+          info?.changes
+            ? `You have unsaved changes (${what}). If you leave now they are lost, and what is saved stays as it is. Stay on this page to keep editing and save them.`
+            : `You have unsaved order changes (${what}). If you leave now they are lost, and the saved order stays as it is. Stay on this page to choose Save Order or Reset.`
+        }
         confirmLabel="Leave and discard"
         cancelLabel="Stay on this page"
         isDestructive
@@ -93,6 +98,6 @@ export default function UnsavedGuardHost() {
           </div>
         </Modal>
       )}
-    </>
+    </div>
   );
 }
