@@ -1,12 +1,12 @@
-import type { AdminAccount, AdminStatus } from './admin-account.js';
+import type { AdminAccount, ManagedStatus } from './admin-account.js';
 import type { Role } from './role.js';
 
-/** An account as the management API shows it: no password hash, no tokens. */
+/** An account as the management API shows it: no password hash, no tokens. Permanently deleted accounts are never shown. */
 export interface ManagedAccount {
   id: string;
   email: string;
   role: Role;
-  status: AdminStatus;
+  status: ManagedStatus;
   mustChangePassword: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -20,6 +20,9 @@ export const ACCOUNT_EVENT_ACTIONS = [
   'ACCOUNT_ENABLED',
   'PASSWORD_RESET_REQUIRED',
   'PASSWORD_CHANGED',
+  // The subject's e-mail address and credentials were permanently erased (from_value is the role it had). The event
+  // carries no e-mail address, so it stays in the trail, pointing at the anonymous record, after the erasure.
+  'ACCOUNT_DELETED',
 ] as const;
 export type AccountEventAction = (typeof ACCOUNT_EVENT_ACTIONS)[number];
 

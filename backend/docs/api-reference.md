@@ -41,10 +41,18 @@ REVIEWER · **publish / unpublish** = ADMIN.
 | POST   | `/admin/accounts/:accountId/disable`        | disable; ends all sessions immediately                                                                     |
 | POST   | `/admin/accounts/:accountId/enable`         | enable                                                                                                     |
 | POST   | `/admin/accounts/:accountId/password-reset` | `{ temporaryPassword }` (mandatory) — replaces the password, ends all sessions; the account must change it |
+| DELETE | `/admin/accounts/:accountId`                | permanently delete (erase) the account → `{ id, deleted: true, deletedAt }`; see below                      |
 
 While an account must change its password every route except `/admin/auth/me` and `/admin/auth/password` answers 403 with
-`details.reason: "PASSWORD_CHANGE_REQUIRED"`. The last active ADMIN cannot be disabled or demoted (409), and no ADMIN can disable, demote or force a reset
+`details.reason: "PASSWORD_CHANGE_REQUIRED"`. The last active ADMIN cannot be disabled, demoted or deleted (409), and no ADMIN can disable, demote, delete or force a reset
 of their own account. Details: [architecture.md](./architecture.md#account-management-admin-only).
+
+**Permanent deletion** does not remove the `admins` row (publications, workflow events, quizzes, assessments, media, reusable blocks and the
+append-only audit trail reference it with RESTRICT keys). It erases the account in place, in one transaction: the e-mail address is replaced by
+`deleted-account-<id>@deleted.invalid`, the password hash by the hash of a random secret that is never kept, every session record is deleted, the status
+becomes `DELETED` (final; a database trigger refuses any later change), and an `ACCOUNT_DELETED` event (actor, subject id, former role, time; no e-mail
+address) is appended. A deleted account cannot sign in, is not listed or counted, and answers 404 on every account route. Content it authored is untouched.
+Requires migration `1791950000000-AddAdminAccountErasure`. 404 = unknown or already deleted; 409 = your own account, or the last active ADMIN.
 
 ## Curriculum (courses and modules)
 

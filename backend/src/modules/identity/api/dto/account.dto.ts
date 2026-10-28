@@ -88,6 +88,13 @@ export class AccountResponseDto {
   }
 }
 
+/** What a permanent deletion answers: the id that was erased and when. Nothing about the account's former identity. */
+export class AccountDeletionResponseDto {
+  id: string;
+  deleted: true;
+  deletedAt: string;
+}
+
 export class AccountListResponseDto {
   items: AccountResponseDto[];
   total: number;

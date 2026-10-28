@@ -1,9 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { type EntityManager, Repository } from 'typeorm';
+import { type EntityManager, In, Repository } from 'typeorm';
 import { ConflictError } from '../../../shared-kernel/index.js';
 import type { ManagedAccount } from '../domain/account-management.js';
-import type { AdminAccount, AdminStatus } from '../domain/admin-account.js';
+import type {
+  AdminAccount,
+  AdminStatus,
+  ManagedStatus,
+} from '../domain/admin-account.js';
 import type { Role } from '../domain/role.js';
 import { AdminEntity } from './admin.entity.js';
 import { isUniqueViolation } from '../../../database/pg-errors.js';
@@ -87,13 +91,17 @@ export class AdminRepository {
     }
   }
 
-  /** A page of accounts for the management API, oldest first. Never selects the password hash. */
+  /**
+   * A page of staff accounts for the management API, oldest first. Never selects the password hash. Permanently deleted
+   * accounts are not staff accounts any more: they are neither listed nor counted.
+   */
   async list(
     limit: number,
     offset: number,
     manager?: EntityManager,
   ): Promise<{ items: ManagedAccount[]; total: number }> {
     const [rows, total] = await this.repo(manager).findAndCount({
+      where: { status: In([...MANAGED_STATUSES]) },
       order: { createdAt: 'ASC', id: 'ASC' },
       take: limit,
       skip: offset,
@@ -106,8 +114,9 @@ export class AdminRepository {
     id: string,
     manager?: EntityManager,
   ): Promise<ManagedAccount | null> {
+    // A permanently deleted account is "not found" to the management API, exactly as if it never existed.
     const row = await this.repo(manager).findOne({
-      where: { id },
+      where: { id, status: In([...MANAGED_STATUSES]) },
       select: MANAGED_COLUMNS,
     });
     return row ? toManaged(row) : null;
@@ -151,12 +160,34 @@ export class AdminRepository {
 
   async setStatus(
     id: string,
-    status: AdminStatus,
+    status: ManagedStatus,
     manager: EntityManager,
   ): Promise<void> {
     await manager.query(
       `UPDATE "admins" SET "status" = $2, "version" = "version" + 1, "updated_at" = now() WHERE "id" = $1`,
       [id, status],
+    );
+  }
+
+  /**
+   * Permanently erases an account's identity, in place: the e-mail address becomes `erasedEmail` (derived from the id,
+   * identifying nobody), the password hash becomes `unusableHash` (a hash of a secret nobody ever saw), the status
+   * becomes DELETED and `deletedAt` is set. The row itself stays, with its id, because history in other tables points at
+   * that id (see AccountService.deletePermanently). Must be called inside a transaction that holds the row's lock.
+   */
+  async erase(
+    id: string,
+    erasedEmail: string,
+    unusableHash: string,
+    deletedAt: Date,
+    manager: EntityManager,
+  ): Promise<void> {
+    await manager.query(
+      `UPDATE "admins"
+          SET "email" = $2, "password_hash" = $3, "status" = 'DELETED', "must_change_password" = false,
+              "deleted_at" = $4, "version" = "version" + 1, "updated_at" = $4
+        WHERE "id" = $1`,
+      [id, erasedEmail, unusableHash, deletedAt],
     );
   }
 
@@ -192,6 +223,9 @@ function toAccount(row: AdminEntity): AdminAccount {
   };
 }
 
+/** The statuses of an account that is still a staff account. */
+const MANAGED_STATUSES: readonly ManagedStatus[] = ['ACTIVE', 'DISABLED'];
+
 /** Every column except the password hash. */
 const MANAGED_COLUMNS = {
   id: true,
@@ -209,7 +243,8 @@ function toManaged(row: AdminEntity): ManagedAccount {
     id: row.id,
     email: row.email,
     role: row.role as Role,
-    status: row.status as AdminStatus,
+    // list() and findManaged() only ever return ACTIVE and DISABLED rows.
+    status: row.status as ManagedStatus,
     mustChangePassword: row.mustChangePassword,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

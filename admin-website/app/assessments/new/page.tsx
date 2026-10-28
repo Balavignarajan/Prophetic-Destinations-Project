@@ -4,9 +4,9 @@ import React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../../lib/auth';
-import AssessmentEditor from '../../../components/assessments/AssessmentEditor';
+import AssessmentWorkspace from '../../../components/assessments/AssessmentWorkspace';
 
-/** Creates a new DRAFT assessment (POST /admin/assessments). Only ADMIN and EDITOR may; the server enforces it. */
+/** Creates a new DRAFT assessment (POST /admin/assessments) in the assessment workspace. Only ADMIN and EDITOR may; the server enforces it. */
 export default function NewAssessmentPage() {
   const { user } = useAuth();
   const router = useRouter();
@@ -14,19 +14,25 @@ export default function NewAssessmentPage() {
 
   return (
     <div className="space-y-6">
-      <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs font-medium text-slate-600">
-        <Link href="/assessments" className="hover:text-slate-900">Assessments</Link>
-        <span aria-hidden="true">/</span>
-        <span className="text-slate-900">New assessment</span>
-      </nav>
       <div>
-        <h1 className="font-serif text-2xl font-bold text-slate-900">Create Assessment</h1>
-        <p className="text-sm text-slate-700 mt-0.5">It is saved as a Draft. Nothing reaches learners until it is approved and published.</p>
+        <h1 className="sr-only">Create Assessment</h1>
+        <p className="text-sm text-slate-700">Create Assessment: it is saved as a Draft. Nothing reaches learners until it is approved and published.</p>
       </div>
       {!canWrite ? (
-        <p role="alert" className="p-4 rounded-xl border border-amber-300 bg-amber-50 text-sm text-amber-900">Your role can view assessments but not create them.</p>
+        <div className="space-y-3">
+          <p role="alert" className="p-4 rounded-xl border border-amber-300 bg-amber-50 text-sm text-amber-900">Your role can view assessments but not create them.</p>
+          <Link href="/assessments" className="inline-block text-sm text-amber-700 underline">&larr; Back to Assessments</Link>
+        </div>
       ) : (
-        <AssessmentEditor detail={null} readOnly={false} onSaved={(saved) => router.push(`/assessments/${saved.id}`)} onReload={() => undefined} onCancelNew={() => router.push('/assessments')} />
+        <AssessmentWorkspace
+          detail={null}
+          canWrite
+          onSaved={(saved) => router.push(`/assessments/${saved.id}`)}
+          onReload={() => undefined}
+          onCancelNew={() => router.push('/assessments')}
+          onWorkflowChanged={() => undefined}
+          onStale={() => undefined}
+        />
       )}
     </div>
   );

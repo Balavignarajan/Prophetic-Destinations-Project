@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Header,
   HttpCode,
@@ -16,6 +17,7 @@ import { Role } from '../domain/role.js';
 import { CurrentAdmin } from '../guards/current-admin.decorator.js';
 import { Roles } from '../guards/roles.decorator.js';
 import {
+  AccountDeletionResponseDto,
   AccountEventDto,
   AccountEventListResponseDto,
   AccountListResponseDto,
@@ -126,6 +128,25 @@ export class AccountsController {
     return AccountResponseDto.from(
       await this.accounts.enable(actor, accountId),
     );
+  }
+
+  /**
+   * Permanently deletes a staff account (see AccountService.deletePermanently for exactly what that means and
+   * what is kept). Not your own account, never the last active ADMIN; 404 if it does not exist or was already deleted.
+   * ADMIN only, like every route here, and re-checked inside the transaction.
+   */
+  @Header('Cache-Control', 'no-store')
+  @Delete(':accountId')
+  @HttpCode(200)
+  async remove(
+    @CurrentAdmin() actor: AuthenticatedAdmin,
+    @Param('accountId', ParseUUIDPipe) accountId: string,
+  ): Promise<AccountDeletionResponseDto> {
+    const { id, deletedAt } = await this.accounts.deletePermanently(
+      actor,
+      accountId,
+    );
+    return { id, deleted: true, deletedAt: deletedAt.toISOString() };
   }
 
   @Header('Cache-Control', 'no-store')

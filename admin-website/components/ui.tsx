@@ -15,6 +15,12 @@ interface ModalProps {
   variant?: 'default' | 'workspace';
 }
 
+/**
+ * The open dialogs, oldest first. Escape and the Tab trap belong to the NEWEST one only, so a dialog opened over another (a confirmation over an editor window, for instance) closes alone
+ * instead of taking the dialog beneath it with it.
+ */
+const openDialogs: symbol[] = [];
+
 export function Modal({
   isOpen,
   onClose,
@@ -33,15 +39,21 @@ export function Modal({
 
   useEffect(() => {
     if (!isOpen) return;
+    const me = Symbol('dialog');
+    openDialogs.push(me);
     triggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const focusFirst = () => {
-      const focusable = dialogRef.current?.querySelector<HTMLElement>(
-        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-      );
+      // An element marked data-autofocus (a confirmation's safe button) gets focus first; otherwise the first control.
+      const focusable =
+        dialogRef.current?.querySelector<HTMLElement>('[data-autofocus]:not([disabled])') ??
+        dialogRef.current?.querySelector<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        );
       focusable?.focus();
     };
     const timer = window.setTimeout(focusFirst, 0);
     const onKeyDown = (event: KeyboardEvent) => {
+      if (openDialogs[openDialogs.length - 1] !== me) return;
       if (event.key === 'Escape') {
         event.preventDefault();
         onCloseRef.current();
@@ -60,6 +72,8 @@ export function Modal({
     return () => {
       window.clearTimeout(timer);
       window.removeEventListener('keydown', onKeyDown);
+      const at = openDialogs.indexOf(me);
+      if (at >= 0) openDialogs.splice(at, 1);
       triggerRef.current?.focus();
     };
   }, [isOpen]);
@@ -100,18 +114,19 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
-        className={`w-full ${maxWidthClass} bg-white rounded-xl shadow-2xl border border-slate-200 overflow-hidden transform transition-all animate-in fade-in zoom-in-95`}
+        className={`w-full ${maxWidthClass} bg-white rounded-xl shadow-2xl border border-slate-200 overflow-hidden motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-95`}
       >
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/50">
           <div>
             <h3 id="modal-title" className="text-lg font-semibold text-slate-900">{title}</h3>
             {description && (
-              <p className="text-sm text-slate-500 mt-0.5">{description}</p>
+              <p className="text-sm text-slate-600 mt-0.5">{description}</p>
             )}
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+            className="p-1 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500"
             aria-label="Close"
           >
             <svg
@@ -145,6 +160,8 @@ interface ConfirmDialogProps {
   cancelLabel?: string;
   isDestructive?: boolean;
   isLoading?: boolean;
+  /** Focus starts on the cancel button instead of the first control, so Enter or Space cannot confirm by accident (for destructive or hard-to-undo actions). */
+  safeFocus?: boolean;
 }
 
 export function ConfirmDialog({
@@ -157,6 +174,7 @@ export function ConfirmDialog({
   cancelLabel = 'Cancel',
   isDestructive = false,
   isLoading = false,
+  safeFocus = false,
 }: ConfirmDialogProps) {
   if (!isOpen) return null;
 
@@ -169,6 +187,7 @@ export function ConfirmDialog({
             type="button"
             onClick={onClose}
             disabled={isLoading}
+            data-autofocus={safeFocus ? '' : undefined}
             className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 focus:outline-hidden focus:ring-2 focus:ring-slate-300 disabled:opacity-50"
           >
             {cancelLabel}

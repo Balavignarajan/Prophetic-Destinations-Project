@@ -82,7 +82,16 @@ already in flight). Responses never contain a password, a hash or a token and ar
 | `PUT /admin/accounts/:id/role`                | `{ role }`                                                                                                                |
 | `POST /admin/accounts/:id/disable`, `/enable` | disable (ends every session now) / enable                                                                                 |
 | `POST /admin/accounts/:id/password-reset`     | `{ temporaryPassword }` (mandatory): replaces the password, ends every session and requires a password change             |
+| `DELETE /admin/accounts/:id`                  | permanently delete (erase in place, see below); not your own account, never the last active ADMIN                         |
 | `POST /admin/auth/password`                   | an admin changes their own password: `{ currentPassword, newPassword }`; returns a fresh session                          |
+
+**Permanent deletion = erasure in place.** Every table that records who did something (publications, workflow events, quizzes, assessments, media, reusable
+blocks, the account audit trail) references `admins(id)` with `ON DELETE RESTRICT`, and the event tables are append-only, so the `admins` row is never removed.
+`DELETE /admin/accounts/:id` runs in the same lock set as the other management writes and, in one transaction, replaces the e-mail address with
+`deleted-account-<id>@deleted.invalid`, replaces the password hash with the hash of a random secret that is discarded, deletes every refresh-token row,
+sets `status = 'DELETED'` and `deleted_at`, and appends an `ACCOUNT_DELETED` event (actor, subject id, former role; no e-mail address). A trigger makes a
+DELETED row final. A deleted account cannot authenticate (`canAuthenticate` requires ACTIVE, and every request re-reads the account), is not listed or
+counted, and is "not found" for every management route. Content it authored is untouched. Needs migration `1791950000000-AddAdminAccountErasure`.
 
 - **Temporary passwords, no email.** There is no invitation or email delivery. The ADMIN chooses a temporary password (the normal password policy applies)
   and hands it over out of band. An account with `mustChangePassword` can sign in, but the global auth guard then refuses every route with 403 and

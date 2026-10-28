@@ -92,6 +92,20 @@ export class RefreshTokenRepository {
     return result.affected ?? 0;
   }
 
+  /**
+   * Removes every session record of an admin, revoked or not (used when the account is permanently erased: nothing
+   * that could ever have been presented as a credential should outlive it). Returns how many were removed.
+   */
+  async deleteAllForAdmin(
+    adminId: string,
+    manager: EntityManager,
+  ): Promise<number> {
+    const result = await manager
+      .getRepository(AdminRefreshTokenEntity)
+      .delete({ adminId });
+    return result.affected ?? 0;
+  }
+
   private repo(manager?: EntityManager): Repository<AdminRefreshTokenEntity> {
     return manager
       ? manager.getRepository(AdminRefreshTokenEntity)

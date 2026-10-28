@@ -165,6 +165,17 @@ export const ACTION_LABEL: Record<AssessmentAction, string> = {
   UNPUBLISH: 'Unpublish',
 };
 
+/** Who may do each action, in words. Copied from ACTION_ROLES in backend/src/modules/assessments/domain/assessment-workflow.ts; the server still decides and returns `allowedActions` for the signed-in role. */
+export const ACTION_WHO: Record<AssessmentAction, string> = {
+  SUBMIT_FOR_REVIEW: 'Admin or Editor',
+  REQUEST_CHANGES: 'Reviewer or Admin',
+  APPROVE: 'Reviewer or Admin',
+  PUBLISH: 'Admin only',
+  UNPUBLISH: 'Admin only',
+};
+
+export const STATUS_LABEL: Record<AssessmentStatus, string> = { DRAFT: 'Draft', READY_FOR_REVIEW: 'Ready for Review', APPROVED: 'Approved', PUBLISHED: 'Published' };
+
 // ------------------------------------------------------------------------------------------------------------------------------------ errors
 
 type ApiLikeError = { message?: string; status?: number; payload?: ApiErrorPayload };
@@ -324,6 +335,10 @@ export function fieldIdForPath(path: string | undefined): string | null {
   if (!path) return null;
   if (path === 'title') return 'as-title';
   if (path === 'description') return 'as-description';
+  // The Scoring tab names its fields, so a scoring problem leads to the field itself (the section is the fallback).
+  if (path === 'scoringConfig.tieBreak') return 'as-tiebreak';
+  if (path === 'scoringConfig.requireAllQuestions') return 'as-requireall-yes';
+  if (path.startsWith('scoringConfig.resultMessages.')) return `as-msg-${path.slice('scoringConfig.resultMessages.'.length)}`;
   if (path.startsWith('scoringConfig')) return 'as-scoring';
   const q = path.match(/^questions\[(\d+)\](?:\.options\[(\d+)\])?(?:\.(\w+))?/);
   if (!q) return path === 'questions' ? 'as-questions' : null;

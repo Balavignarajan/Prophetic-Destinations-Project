@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import type { EntityManager } from 'typeorm';
 import { TransactionRunner } from '../../../database/transaction-runner.js';
@@ -56,9 +57,9 @@ const NOT_ALLOWED = 'You do not have permission to do this';
  *   4. appends the audit event,
  * so the change, the revocation and the audit record commit or roll back together.
  *
- * Rules: an ADMIN cannot disable themselves or change their own role (self-service is the password change only,
+ * Rules: an ADMIN cannot disable, delete or change the role of themselves (self-service is the password change only,
  * which removes the "demoted myself by mistake" and "locked myself out" cases); the last active ADMIN can never be
- * disabled or demoted; passwords and hashes are never returned, logged or written to the audit trail.
+ * disabled, demoted or deleted; passwords and hashes are never returned, logged or written to the audit trail.
  */
 @Injectable()
 export class AccountService {
@@ -238,6 +239,67 @@ export class AccountService {
   }
 
   /**
+   * Permanently deletes a staff account (ADMIN only; not your own; never the last active ADMIN).
+   *
+   * WHAT "PERMANENT" MEANS HERE. The row of `admins` cannot simply be removed: lessons' publications, workflow events,
+   * quizzes, assessments, media, reusable blocks and the account-management audit trail all point at the account with
+   * RESTRICT foreign keys (and the audit tables are append-only), so a row delete would either fail or destroy history
+   * that must stay valid. So the account is ERASED IN PLACE, in one transaction:
+   *   - its e-mail address is replaced by an address derived from its id (it identifies nobody, and the real address
+   *     is free to be used by a new account),
+   *   - its password hash is replaced by the hash of a random secret that is never kept,
+   *   - every session record is deleted (nothing that was ever a credential remains),
+   *   - its status becomes DELETED (final: the database refuses any later change, it can never authenticate, and it
+   *     is not listed, counted or found by the management API any more),
+   *   - and an ACCOUNT_DELETED event (actor, subject id, the role it had, time; no e-mail address) is appended.
+   * The anonymous record (id, role, creation date) stays, so everything that was authored, edited, approved or
+   * published under it keeps a valid reference. Nothing authored by the account is deleted or changed.
+   *
+   * Concurrency: the same lock set as every other management write (actor, target and every active ADMIN, in id
+   * order), so two deletions of the same account, a deletion racing a role change or a disable, and two admins
+   * deleting each other all queue up and each sees the other's result; the "last active ADMIN" check cannot be
+   * bypassed. A deleted target is "not found"; a deleted (or no longer active) actor is refused.
+   */
+  async deletePermanently(
+    actor: AuthenticatedAdmin,
+    targetId: string,
+  ): Promise<{ id: string; deletedAt: Date }> {
+    // The replacement credential is a hash of 32 random bytes that are never stored or logged: nobody can ever match it.
+    const unusableHash = await this.passwords.hash(
+      randomBytes(32).toString('hex'),
+    );
+    return this.withLocks(actor, targetId, async (locked) => {
+      this.refuseSelf(locked, 'delete their own account');
+      const { target, manager } = locked;
+      if (
+        leavesNoActiveAdmin(
+          target,
+          { role: target.role, status: 'DELETED' },
+          locked.activeAdmins,
+        )
+      ) {
+        throw lastAdmin();
+      }
+      const deletedAt = new Date();
+      await this.tokens.deleteAllForAdmin(target.id, manager);
+      await this.admins.erase(
+        target.id,
+        erasedEmail(target.id),
+        unusableHash,
+        deletedAt,
+        manager,
+      );
+      await this.record(manager, {
+        subjectAdminId: target.id,
+        actorAdminId: locked.actor.id,
+        action: 'ACCOUNT_DELETED',
+        fromValue: target.role,
+      });
+      return { id: target.id, deletedAt };
+    });
+  }
+
+  /**
    * An admin changes their own password. The current password must be right, the new one must satisfy the policy
    * and differ from it. Every existing session ends (the caller gets a fresh one from the controller), and the
    * must-change flag is cleared.
@@ -300,7 +362,10 @@ export class AccountService {
         throw new ForbiddenError(NOT_ALLOWED);
       }
       const target = rows.find((row) => row.id === targetId);
-      if (!target) throw new NotFoundError('Account not found');
+      // A permanently deleted account is gone as far as management is concerned (and the database would refuse any change to it).
+      if (!target || target.status === 'DELETED') {
+        throw new NotFoundError('Account not found');
+      }
       return work({
         actor: current,
         target,
@@ -345,6 +410,10 @@ export class AccountService {
     await this.events.append(event, manager);
   }
 }
+
+/** The address an erased account keeps: derived from its id, so it is unique, identifies nobody, and can never be a real mailbox (".invalid" is reserved). */
+const erasedEmail = (id: string): string =>
+  `deleted-account-${id.toLowerCase()}@deleted.invalid`;
 
 function lastAdmin(): ConflictError {
   return new ConflictError(
