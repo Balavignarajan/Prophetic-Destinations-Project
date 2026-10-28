@@ -10,6 +10,8 @@ import { friendlyError } from '../../lib/ui-messages';
 import CoverThumb from '../../components/CoverThumb';
 import CoverImageField from '../../components/CoverImageField';
 import CourseHomeEntryField from '../../components/CourseHomeEntryField';
+import ReorderableList from '../../components/ReorderableList';
+import { guardUnsavedWork } from '../../lib/unsaved-guard';
 
 export default function CoursesPage() {
   const { user } = useAuth();
@@ -32,13 +34,11 @@ export default function CoursesPage() {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
-  // Arrange (manual ordering) mode: always works on the complete course list, never on a filtered or paged subset
+  // Arrange (manual ordering) mode: always works on the complete course list, never on a filtered or paged subset. The arrangement is a draft until Save Order (ReorderableList).
   const [arranging, setArranging] = useState(false);
   const [orderLoading, setOrderLoading] = useState(false);
-  const [orderSaving, setOrderSaving] = useState(false);
   const [orderCourses, setOrderCourses] = useState<Course[]>([]);
   const [orderError, setOrderError] = useState<string | null>(null);
-  const orderSavingRef = useRef(false);
 
   // Delete course state
   const [deleteCourseId, setDeleteCourseId] = useState<string | null>(null);
@@ -97,49 +97,28 @@ export default function CoursesPage() {
     }
   };
 
+  // Leaving arrange mode with an unsaved arrangement asks first (Save Order and continue, Discard, or Cancel).
   const handleLeaveArrange = () => {
-    if (orderSavingRef.current) return;
-    setArranging(false);
-    setOrderError(null);
-    fetchCourses();
+    guardUnsavedWork('Leaving arrange mode', () => {
+      setArranging(false);
+      setOrderError(null);
+      fetchCourses();
+    });
   };
 
-  const handleMoveCourse = async (index: number, direction: 'up' | 'down') => {
-    if (orderSavingRef.current) return;
-    const target = direction === 'up' ? index - 1 : index + 1;
-    if (target < 0 || target >= orderCourses.length) return;
-    const previous = orderCourses;
-    const next = [...previous];
-    [next[index], next[target]] = [next[target], next[index]];
-    const moved = previous[index].title;
-
-    orderSavingRef.current = true;
-    setOrderSaving(true);
-    setOrderError(null);
-    setSuccessMessage(null);
-    setOrderCourses(next);
-    try {
-      const res = await api.request<{ items: Course[] }>('/admin/courses/order', {
+  // The order is saved only by Save Order, with the order last seen so the server can refuse (409) if anyone changed it meanwhile; nothing is sent when a course is moved.
+  const saveCourseOrder = async (ids: string[], previousIds: string[]) =>
+    (
+      await api.request<{ items: Course[] }>('/admin/courses/order', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          courseIds: next.map((c) => c.id),
-          previousCourseIds: previous.map((c) => c.id),
-        }),
-      });
-      setOrderCourses(res.items);
-      setSuccessMessage(`Moved "${moved}" ${direction}. Order saved: learners see published courses in this order on their next refresh; no republishing is needed.`);
-    } catch (err: unknown) {
-      setOrderError(friendlyError(err, 'Failed to save the course order. The list below shows the saved order.'));
-      try {
-        await loadOrder();
-      } catch {
-        setOrderCourses(previous);
-      }
-    } finally {
-      orderSavingRef.current = false;
-      setOrderSaving(false);
-    }
+        body: JSON.stringify({ courseIds: ids, previousCourseIds: previousIds }),
+      })
+    ).items;
+
+  const reloadCourseOrder = () => {
+    setOrderError(null);
+    loadOrder().catch((err: unknown) => setOrderError(friendlyError(err, 'Failed to load the course order.')));
   };
 
   const handleCreateCourse = async (e: React.FormEvent) => {
@@ -227,8 +206,7 @@ export default function CoursesPage() {
           {arranging ? (
             <button
               onClick={handleLeaveArrange}
-              disabled={orderSaving}
-              className="px-4 py-2.5 text-sm font-medium bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-lg shadow-xs disabled:opacity-50"
+              className="px-4 py-2.5 text-sm font-medium bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-lg shadow-xs"
             >
               Done arranging
             </button>
@@ -277,9 +255,9 @@ export default function CoursesPage() {
           <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-sm">
             <p className="font-semibold">Arranging all {orderCourses.length || courses.length} courses</p>
             <p className="mt-1">
-              Use the arrows to move a course; each move is saved straight away. Search and status filters are turned off
-              so you always arrange the complete list. This order is what learners see for <strong>published</strong> courses
-              (learners get it on their next refresh, with no republishing). Draft and unpublished courses stay hidden from learners
+              Drag a course by its handle, or use the arrows, to arrange it, then choose <strong>Save Order</strong>; nothing is saved until you do.
+              Search and status filters are turned off so you always arrange the complete list. This order is what learners see for <strong>published</strong> courses
+              (learners get it on their next refresh of the app once it is saved, with no republishing). Draft and unpublished courses stay hidden from learners
               wherever they sit in the list, and moving a course does not change its status or version.
             </p>
           </div>
@@ -292,37 +270,23 @@ export default function CoursesPage() {
           {orderLoading ? (
             <LoadingSpinner text="Loading the full course order..." />
           ) : (
-            <ol className="bg-white border border-slate-200 rounded-xl shadow-xs divide-y divide-slate-100" aria-busy={orderSaving}>
-              {orderCourses.map((course, index) => (
-                <li key={course.id} className="flex items-center justify-between gap-3 px-4 py-3">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <span className="w-7 h-7 shrink-0 rounded-md bg-slate-100 text-slate-700 font-bold text-xs flex items-center justify-center">{index + 1}</span>
-                    <span className="font-semibold text-slate-900 truncate">{course.title}</span>
-                    <StatusBadge status={course.status} />
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      aria-label={`Move ${course.title} up`}
-                      disabled={orderSaving || index === 0}
-                      onClick={() => handleMoveCourse(index, 'up')}
-                      className="px-2 py-1 text-slate-600 border border-slate-200 rounded-md disabled:opacity-30"
-                    >
-                      ↑
-                    </button>
-                    <button
-                      aria-label={`Move ${course.title} down`}
-                      disabled={orderSaving || index === orderCourses.length - 1}
-                      onClick={() => handleMoveCourse(index, 'down')}
-                      className="px-2 py-1 text-slate-600 border border-slate-200 rounded-md disabled:opacity-30"
-                    >
-                      ↓
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ol>
+            <ReorderableList
+              items={orderCourses}
+              canWrite={canWrite}
+              listLabel="Courses, in order"
+              itemLabel={(course) => `course ${course.title}`}
+              save={saveCourseOrder}
+              onSaved={setOrderCourses}
+              onReload={reloadCourseOrder}
+              savedNote="Order saved successfully. Learners see published courses in this order on their next refresh; no republishing is needed."
+              renderItem={(course) => (
+                <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+                  <span className="font-semibold text-slate-900 wrap-break-word">{course.title}</span>
+                  <StatusBadge status={course.status} />
+                </div>
+              )}
+            />
           )}
-          {orderSaving && <p role="status" className="text-xs text-slate-500">Saving order...</p>}
         </div>
       )}
 

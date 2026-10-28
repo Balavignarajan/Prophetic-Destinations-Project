@@ -20,6 +20,8 @@ interface Props<T extends { id: string; status: string }> {
   onReload: () => void;
   savedNote: string;
   onPublish?: () => void;
+  /** Which list this is ("modules", "lessons"), for `guardUnsavedWork` on the page. */
+  workScope?: string;
 }
 
 /**
@@ -29,7 +31,7 @@ interface Props<T extends { id: string; status: string }> {
  * order last seen; the server then refuses a stale order (409) or any move of a non-published item. Saving changes the authoring order only: nothing is
  * published, approved or edited. Learners see the order after the parent is published again.
  */
-export default function StatusSectionedList<T extends { id: string; status: string }>({ items, canWrite, noun, listLabel, itemLabel, renderItem, save, onSaved, onReload, savedNote, onPublish }: Props<T>) {
+export default function StatusSectionedList<T extends { id: string; status: string }>({ items, canWrite, noun, listLabel, itemLabel, renderItem, save, onSaved, onReload, savedNote, onPublish, workScope }: Props<T>) {
   const published = items.filter((i) => i.status === 'PUBLISHED');
   const drafts = items.filter((i) => i.status === 'DRAFT');
   const inReview = items.filter((i) => i.status === 'READY_FOR_REVIEW' || i.status === 'APPROVED');
@@ -52,7 +54,7 @@ export default function StatusSectionedList<T extends { id: string; status: stri
         <div>
           <h3 className="font-serif text-lg font-bold text-slate-900">Published {plural[0].toUpperCase() + plural.slice(1)}</h3>
           <p className="text-xs text-slate-600 mt-0.5">
-            {published.length} published{notPublished > 0 ? ` · ${notPublished} not published` : ''}. Drag {plural} to set the order learners will follow.
+            {published.length} published{notPublished > 0 ? ` · ${notPublished} not published` : ''}. Arrange {plural} to set the order learners will follow, then choose Save Order.
           </p>
         </div>
         {published.length === 0 ? (
@@ -76,6 +78,7 @@ export default function StatusSectionedList<T extends { id: string; status: stri
             onReload={onReload}
             savedNote={savedNote}
             onPublish={onPublish}
+            workScope={workScope}
           />
         )}
       </section>

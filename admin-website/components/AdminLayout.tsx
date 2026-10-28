@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '../lib/auth';
+import UnsavedGuardHost from './UnsavedGuardHost';
 
 interface AdminLayoutProps {
   children: React.ReactNode;
@@ -129,6 +130,8 @@ export function AdminLayout({ children }: AdminLayoutProps) {
 
   return (
     <div className="min-h-screen flex bg-slate-50 text-slate-900">
+      {/* The one guard of unsaved list orders (does nothing until a list has an unsaved order). */}
+      <UnsavedGuardHost />
       {/* Desktop Sidebar */}
       <aside className="hidden md:flex flex-col w-64 bg-slate-950 text-slate-100 border-r border-slate-800">
         <div className="p-6 border-b border-slate-800/80">

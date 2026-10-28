@@ -1,11 +1,13 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { api } from '../lib/api';
+import { rowShift, usePointerSort } from '../lib/pointer-sort';
+import { useDraftOrder } from '../lib/use-draft-order';
 import type { LessonSummary } from '../lib/types';
-import { friendlyError } from '../lib/ui-messages';
 import CoverThumb from './CoverThumb';
+import OrderBar from './OrderBar';
 import { EmptyState, StatusBadge } from './ui';
 
 interface Props {
@@ -13,11 +15,13 @@ interface Props {
   /** The course's direct lessons in the backend's order (position). */
   lessons: LessonSummary[];
   canWrite: boolean;
+  /** Called when the administrator starts adding a lesson. The page asks about an unsaved order before it does anything (adding changes the list). */
   onAddLesson: () => void;
+  /** Called when the administrator starts duplicating a lesson (same: the page asks about an unsaved order first). */
   onDuplicate: (lesson: { id: string; title: string }) => void;
   /** Told the lessons the backend returned after a successful save. */
   onSaved: (lessons: LessonSummary[]) => void;
-  /** Reloads the course from the backend (after a stale-order conflict, "Reload"). */
+  /** Reloads the course from the backend (after a stale-order conflict, "Reload latest order"). */
   onReload: () => void;
   /** Opens the course's own Publish changes confirmation, when the signed-in user may publish the catalog. Omitted otherwise. */
   onPublishCatalog?: () => void;
@@ -26,92 +30,57 @@ interface Props {
 const LEVEL_BADGE = 'text-[10px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded';
 
 /**
- * The lessons placed directly in a course, split by their real status: Published (ordered here, drag and drop), Draft, and the review states in between.
- * Only PUBLISHED lessons take part in the ordering. The order is saved with the existing course lesson order API: the full list, in which every
- * non-published lesson keeps its own slot, plus the order this screen last saw, so the server refuses (409) if anyone changed it meanwhile.
- * Saving changes the authoring order only (no lesson content, revision or status changes). What learners see changes when the course is published
- * again ("Publish changes"), which is how the published catalog has always taken over the authoring order.
+ * The lessons placed directly in a course, split by their real status: Published (ordered here), Draft, and the review states in between. Only PUBLISHED lessons take part in the ordering.
+ * The order is a DRAFT until Save Order (lib/use-draft-order.ts; drag a lesson by its handle, press the up or down arrow key on it, or use its arrow buttons: nothing is sent), and is then saved
+ * with the existing course lesson order API: the full list, in which every non-published lesson keeps its own slot, plus the order this screen last saw, so the server refuses (409) if anyone
+ * changed it meanwhile. Saving changes the authoring order only (no lesson content, revision or status changes). What learners see changes when the course is published again ("Publish
+ * changes"), which is how the published catalog has always taken over the authoring order.
  */
 export default function DirectLessonLists({ courseId, lessons, canWrite, onAddLesson, onDuplicate, onSaved, onReload, onPublishCatalog }: Props) {
   const published = useMemo(() => lessons.filter((l) => l.status === 'PUBLISHED'), [lessons]);
   const drafts = useMemo(() => lessons.filter((l) => l.status === 'DRAFT'), [lessons]);
   const inReview = useMemo(() => lessons.filter((l) => l.status === 'READY_FOR_REVIEW' || l.status === 'APPROVED'), [lessons]);
 
-  const serverKey = published.map((l) => l.id).join(',');
-  const [order, setOrder] = useState<string[]>(() => published.map((l) => l.id));
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [stale, setStale] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [announce, setAnnounce] = useState('');
-  const [dragId, setDragId] = useState<string | null>(null);
-  const [overIndex, setOverIndex] = useState<number | null>(null);
-  const baseline = useRef(serverKey);
-
-  // The server's published list changed (reload, a lesson published or withdrawn): show it, and say so if unsaved changes were dropped.
-  useEffect(() => {
-    if (baseline.current === serverKey) return;
-    const hadChanges = order.join(',') !== baseline.current;
-    baseline.current = serverKey;
-    setOrder(published.map((l) => l.id));
-    if (hadChanges) setError('The list of published lessons changed, so your unsaved order was reset. Check the order and arrange it again.');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [serverKey]);
-
-  const byId = useMemo(() => new Map(published.map((l) => [l.id, l])), [published]);
-  const dirty = order.join(',') !== serverKey;
-  const ordered = order.map((id) => byId.get(id)).filter((l): l is LessonSummary => Boolean(l));
-
-  const move = (from: number, to: number) => {
-    if (saving || to < 0 || to >= order.length || from === to) return;
-    const next = [...order];
-    const [item] = next.splice(from, 1);
-    next.splice(to, 0, item);
-    setOrder(next);
-    setSaved(false);
-    setError(null);
-    const title = byId.get(item)?.title ?? 'Lesson';
-    setAnnounce(`${title} moved to position ${to + 1} of ${next.length}. Not saved yet.`);
-  };
-
-  const cancel = () => {
-    if (saving) return;
-    setOrder(published.map((l) => l.id));
-    setError(null);
-    setStale(false);
-    setAnnounce('Order changes discarded.');
-  };
-
-  const save = async () => {
-    if (saving || !dirty) return;
-    setSaving(true);
-    setError(null);
-    setStale(false);
-    try {
-      // Every non-published lesson keeps its slot; the published ones fill the published slots in the new order.
-      const remaining = [...order];
+  // The server wants every lesson of the course, each non-published one in its own slot; the response is kept whole for the page.
+  const stored = useRef<LessonSummary[]>(lessons);
+  const order = useDraftOrder<LessonSummary>({
+    label: 'Direct lessons',
+    scope: 'direct-lessons',
+    items: published,
+    canWrite,
+    itemLabel: (lesson) => lesson.title,
+    save: async (ids) => {
+      const remaining = [...ids];
       const full = lessons.map((l) => (l.status === 'PUBLISHED' ? (remaining.shift() as string) : l.id));
       const result = await api.request<{ items: LessonSummary[] }>(`/admin/courses/${courseId}/lessons/order`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ lessonIds: full, previousLessonIds: lessons.map((l) => l.id) }),
       });
-      onSaved(result.items);
-      baseline.current = result.items.filter((l) => l.status === 'PUBLISHED').map((l) => l.id).join(',');
-      setOrder(result.items.filter((l) => l.status === 'PUBLISHED').map((l) => l.id));
-      setSaved(true);
-      setAnnounce('Lesson order saved.');
-    } catch (err: unknown) {
-      // The arrangement stays on screen so nothing is lost; the admin can retry or reload.
-      if ((err as { status?: number }).status === 409) {
-        setStale(true);
-        setError('The lesson order was changed by someone else (or the lessons changed) after this page was loaded, so nothing was saved. Reload to see the current order, then arrange it again.');
-      } else {
-        setError(friendlyError(err, 'The lesson order could not be saved. Your arrangement is still here; try again.'));
-      }
-    } finally {
-      setSaving(false);
-    }
+      stored.current = result.items;
+      return result.items.filter((l) => l.status === 'PUBLISHED');
+    },
+    onSaved: () => onSaved(stored.current),
+    onReload,
+  });
+  const ids = useMemo(() => order.ordered.map((l) => l.id), [order.ordered]);
+  const { listRef, registerRow, handle, drag } = usePointerSort({ ids, disabled: !canWrite || order.saving, onMove: order.move });
+  const total = order.ordered.length;
+
+  // After a move by keyboard or button the row has been re-attached in its new place: put the keyboard back on the control that was used.
+  const focusAfter = useRef<{ id: string; kind: 'handle' | 'up' | 'down' } | null>(null);
+  useEffect(() => {
+    const target = focusAfter.current;
+    if (!target) return;
+    focusAfter.current = null;
+    const find = (kind: string) => document.querySelector<HTMLButtonElement>(`[data-direct-${kind}="${target.id}"]`);
+    const wanted = find(target.kind);
+    (wanted && !wanted.disabled ? wanted : (find(target.kind === 'up' ? 'down' : 'up') ?? find('handle')))?.focus();
+  }, [order.ordered]);
+  const moveBy = (index: number, delta: -1 | 1, kind: 'handle' | 'up' | 'down') => {
+    const lesson = order.ordered[index];
+    if (lesson) focusAfter.current = { id: lesson.id, kind };
+    order.move(index, index + delta);
   };
 
   const row = (lesson: LessonSummary, controls?: React.ReactNode, leading?: React.ReactNode) => (
@@ -147,7 +116,7 @@ export default function DirectLessonLists({ courseId, lessons, canWrite, onAddLe
           <div>
             <h2 id="published-lessons-heading" className="font-serif text-xl font-bold text-slate-900">Published Lessons</h2>
             <p className="text-xs text-slate-600 mt-0.5">
-              {published.length} published{drafts.length + inReview.length > 0 ? ` · ${drafts.length + inReview.length} not published` : ''}. Drag lessons to set the order learners will follow.
+              {published.length} published{drafts.length + inReview.length > 0 ? ` · ${drafts.length + inReview.length} not published` : ''}. Arrange lessons to set the order learners will follow, then choose Save Order.
             </p>
           </div>
           {canWrite && (
@@ -155,18 +124,14 @@ export default function DirectLessonLists({ courseId, lessons, canWrite, onAddLe
           )}
         </div>
 
-        <p role="status" aria-live="polite" className="sr-only">{announce}</p>
+        <p role="status" aria-live="polite" className="sr-only">{order.announcement}</p>
 
-        {(error || saved) && (
-          <div role={error ? 'alert' : 'status'} className={`p-3 rounded-lg border text-sm flex flex-wrap items-center justify-between gap-2 ${error ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-emerald-50 border-emerald-200 text-emerald-900'}`}>
-            <span>
-              {error ?? 'Order saved. Learners see the new order after the course is published again.'}
-            </span>
+        {order.saved && !order.dirty && (
+          <div role="status" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+            <span>Order saved successfully. Learners see the new order after the course is published again.</span>
             <span className="flex gap-2">
-              {stale && <button type="button" onClick={onReload} className="px-3 py-1 text-xs font-semibold rounded-md border border-rose-300 hover:bg-rose-100">Reload</button>}
-              {!error && onPublishCatalog && (
-                <button type="button" onClick={onPublishCatalog} className="px-3 py-1 text-xs font-semibold rounded-md border border-emerald-300 hover:bg-emerald-100">Publish changes…</button>
-              )}
+              {onPublishCatalog && <button type="button" onClick={onPublishCatalog} className="px-3 py-1 text-xs font-semibold rounded-md border border-emerald-300 hover:bg-emerald-100">Publish changes…</button>}
+              <button type="button" onClick={order.dismiss} aria-label="Dismiss message" className="rounded px-1.5 text-lg leading-none hover:bg-black/5">&times;</button>
             </span>
           </div>
         )}
@@ -175,82 +140,74 @@ export default function DirectLessonLists({ courseId, lessons, canWrite, onAddLe
           <EmptyState title="No published lessons" description="Lessons appear here once they are published. Draft lessons are listed below." />
         ) : (
           <>
-            <ul className="bg-white border border-slate-200 rounded-xl shadow-xs divide-y divide-slate-100" aria-label="Published lessons, in order" onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOverIndex(null); }}>
-              {ordered.map((lesson, index) => (
-                <li
-                  key={lesson.id}
-                  onDragOver={(e) => {
-                    if (!dragId || saving) return;
-                    e.preventDefault();
-                    e.dataTransfer.dropEffect = 'move';
-                    setOverIndex(index);
-                  }}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    const from = order.indexOf(dragId ?? '');
-                    setDragId(null);
-                    setOverIndex(null);
-                    if (from >= 0) move(from, index);
-                  }}
-                  className={`${dragId === lesson.id ? 'opacity-40' : ''} ${overIndex === index && dragId && dragId !== lesson.id ? 'border-t-2 border-amber-500' : 'border-t-2 border-transparent'}`}
-                >
-                  {row(
-                    lesson,
-                    canWrite ? (
-                      <span className="flex items-center">
-                        <button type="button" aria-label={`Move ${lesson.title} up`} disabled={saving || index === 0} onClick={() => move(index, index - 1)} className="p-1 text-slate-500 hover:text-slate-800 disabled:opacity-30">↑</button>
-                        <button type="button" aria-label={`Move ${lesson.title} down`} disabled={saving || index === ordered.length - 1} onClick={() => move(index, index + 1)} className="p-1 text-slate-500 hover:text-slate-800 disabled:opacity-30">↓</button>
-                      </span>
-                    ) : undefined,
-                    <>
-                      {canWrite && (
-                        <button
-                          type="button"
-                          draggable={!saving}
-                          disabled={saving}
-                          onDragStart={(e) => {
-                            e.dataTransfer.effectAllowed = 'move';
-                            e.dataTransfer.setData('text/plain', lesson.id);
-                            setDragId(lesson.id);
-                          }}
-                          onDragEnd={() => {
-                            setDragId(null);
-                            setOverIndex(null);
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === 'ArrowUp') {
-                              e.preventDefault();
-                              move(index, index - 1);
-                            } else if (e.key === 'ArrowDown') {
-                              e.preventDefault();
-                              move(index, index + 1);
-                            }
-                          }}
-                          className="cursor-grab active:cursor-grabbing touch-none px-1 py-1 text-slate-500 hover:text-slate-800 disabled:opacity-30 rounded-xs focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500"
-                          aria-label={`Drag handle for ${lesson.title}, position ${index + 1} of ${ordered.length}. Drag it, or press the up or down arrow key to move it.`}
-                          title="Drag to reorder"
-                        >
-                          <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                            <circle cx="7" cy="5" r="1.4" /><circle cx="13" cy="5" r="1.4" /><circle cx="7" cy="10" r="1.4" /><circle cx="13" cy="10" r="1.4" /><circle cx="7" cy="15" r="1.4" /><circle cx="13" cy="15" r="1.4" />
-                          </svg>
-                        </button>
-                      )}
-                      <span className="w-7 h-7 rounded-md bg-slate-100 text-slate-700 font-bold text-xs flex items-center justify-center">{index + 1}</span>
-                    </>,
-                  )}
-                </li>
-              ))}
+            {canWrite && total > 1 && <p className="text-xs text-slate-600">Drag lessons to arrange them. Click Save Order to apply your changes.</p>}
+            <ul
+              ref={(element) => {
+                listRef.current = element;
+              }}
+              className={`relative bg-white border border-slate-200 rounded-xl shadow-xs ${drag ? 'cursor-grabbing select-none' : ''}`}
+              aria-label="Published lessons, in order"
+              aria-busy={order.saving}
+            >
+              {order.ordered.map((lesson, index) => {
+                const dragging = drag?.id === lesson.id;
+                const shift = rowShift(drag, index);
+                return (
+                  <li
+                    key={lesson.id}
+                    ref={(element) => registerRow(lesson.id, element)}
+                    style={shift ? { transform: `translateY(${shift}px)` } : undefined}
+                    className={`relative ${index === 0 ? '' : 'border-t border-slate-100'} ${drag && !dragging ? 'transition-transform duration-150 ease-out motion-reduce:transition-none' : ''} ${
+                      dragging ? 'z-30 rounded-xl border-transparent bg-white shadow-xl ring-1 ring-amber-300' : ''
+                    }`}
+                  >
+                    {row(
+                      lesson,
+                      canWrite ? (
+                        <span className="flex items-center">
+                          <button type="button" data-direct-up={lesson.id} aria-label={`Move ${lesson.title} up`} disabled={order.saving || index === 0} onClick={() => moveBy(index, -1, 'up')} className="p-1 text-slate-500 hover:text-slate-800 disabled:opacity-30 rounded focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500">↑</button>
+                          <button type="button" data-direct-down={lesson.id} aria-label={`Move ${lesson.title} down`} disabled={order.saving || index === total - 1} onClick={() => moveBy(index, 1, 'down')} className="p-1 text-slate-500 hover:text-slate-800 disabled:opacity-30 rounded focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500">↓</button>
+                        </span>
+                      ) : undefined,
+                      <>
+                        {canWrite && (
+                          <button
+                            type="button"
+                            data-sort-id={lesson.id}
+                            data-direct-handle={lesson.id}
+                            disabled={order.saving}
+                            {...handle}
+                            onKeyDown={(e) => {
+                              if (e.key === 'ArrowUp') {
+                                e.preventDefault();
+                                moveBy(index, -1, 'handle');
+                              } else if (e.key === 'ArrowDown') {
+                                e.preventDefault();
+                                moveBy(index, 1, 'handle');
+                              }
+                            }}
+                            className={`touch-none select-none px-1 py-1 text-slate-500 hover:text-slate-800 disabled:opacity-30 rounded-xs focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500 ${dragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+                            aria-label={`Drag handle for ${lesson.title}, position ${index + 1} of ${total}. Drag it, or press the up or down arrow key to move it. The new order is not saved until you choose Save Order.`}
+                            title="Drag to reorder"
+                          >
+                            <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                              <circle cx="7" cy="5" r="1.4" /><circle cx="13" cy="5" r="1.4" /><circle cx="7" cy="10" r="1.4" /><circle cx="13" cy="10" r="1.4" /><circle cx="7" cy="15" r="1.4" /><circle cx="13" cy="15" r="1.4" />
+                            </svg>
+                          </button>
+                        )}
+                        <span className="w-7 h-7 rounded-md bg-slate-100 text-slate-700 font-bold text-xs flex items-center justify-center">
+                          <span className="sr-only">Position </span>
+                          {index + 1}
+                        </span>
+                      </>,
+                    )}
+                  </li>
+                );
+              })}
+              {/* Where the dragged row will land. */}
+              {drag && <li role="presentation" aria-hidden="true" style={{ top: drag.gapTop, height: drag.height }} className="pointer-events-none absolute inset-x-1 rounded-xl border-2 border-dashed border-amber-400 bg-amber-50/70" />}
             </ul>
-            {canWrite && (
-              <div className="flex flex-wrap items-center justify-end gap-3">
-                {dirty && <span className="text-xs text-amber-800">Unsaved order changes</span>}
-                <button type="button" onClick={cancel} disabled={!dirty || saving} className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50">Cancel</button>
-                <button type="button" onClick={() => void save()} disabled={!dirty || saving} aria-busy={saving} className="px-4 py-2 text-sm font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-lg flex items-center gap-2 disabled:opacity-50">
-                  {saving && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" aria-hidden="true" />}
-                  {saving ? 'Saving…' : 'Save order'}
-                </button>
-              </div>
-            )}
+            {canWrite && <OrderBar order={order} />}
           </>
         )}
       </section>

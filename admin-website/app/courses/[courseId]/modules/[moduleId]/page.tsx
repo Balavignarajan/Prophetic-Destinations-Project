@@ -19,6 +19,7 @@ import {
 } from '@/lib/types';
 import { LoadingSpinner, StatusBadge, EmptyState, Modal, ConfirmDialog } from '@/components/ui';
 import { friendlyError } from '@/lib/ui-messages';
+import { guardUnsavedWork } from '@/lib/unsaved-guard';
 import DuplicateLessonDialog from '@/components/DuplicateLessonDialog';
 import CoverThumb from '@/components/CoverThumb';
 import CoverImageField from '@/components/CoverImageField';
@@ -389,7 +390,7 @@ export default function ModuleDetailPage() {
                   return (
                     <button
                       key={action}
-                      onClick={() => setTransitionAction(action)}
+                      onClick={() => guardUnsavedWork('Changing the module status', () => setTransitionAction(action))}
                       className={`px-3 py-1.5 text-xs font-medium rounded-lg shadow-xs transition-colors ${
                         colorMap[action] || 'bg-slate-800 text-white'
                       }`}
@@ -427,7 +428,7 @@ export default function ModuleDetailPage() {
 
           {canWrite && (
             <button
-              onClick={() => setAddLessonFlowOpen(true)}
+              onClick={() => guardUnsavedWork('Creating a lesson', () => setAddLessonFlowOpen(true), ['lessons'])}
               className="px-3.5 py-2 text-xs font-medium bg-slate-900 hover:bg-slate-800 text-white rounded-lg flex items-center gap-1.5 shadow-xs"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -456,6 +457,7 @@ export default function ModuleDetailPage() {
         ) : (
           <StatusSectionedList
             noun="lesson"
+            workScope="lessons"
             items={lessons}
             canWrite={canWrite}
             listLabel="Module lessons, in order"
@@ -472,8 +474,8 @@ export default function ModuleDetailPage() {
               fetchModuleData();
             }}
             onReload={() => fetchModuleData()}
-            savedNote="Order saved. The lesson order is part of the module, so a published module returns to Draft. Learners keep seeing the previously published order until the module is published again. No lesson was changed."
-            onPublish={workflowState?.allowedActions.includes('PUBLISH') ? () => setTransitionAction('PUBLISH') : undefined}
+            savedNote="Order saved successfully. The lesson order is part of the module, so a published module returns to Draft. Learners keep seeing the previously published order until the module is published again. No lesson was changed."
+            onPublish={workflowState?.allowedActions.includes('PUBLISH') ? () => guardUnsavedWork('Publishing the module', () => setTransitionAction('PUBLISH')) : undefined}
             renderItem={(lesson) => (
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="flex items-start gap-4">
@@ -504,12 +506,12 @@ export default function ModuleDetailPage() {
                     </svg>
                   </Link>
                   {canWrite && (
-                    <button onClick={() => setDuplicateTarget({ id: lesson.id, title: lesson.title })} aria-label={`Duplicate lesson ${lesson.title}`} className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg">
+                    <button onClick={() => guardUnsavedWork('Duplicating a lesson', () => setDuplicateTarget({ id: lesson.id, title: lesson.title }), ['lessons'])} aria-label={`Duplicate lesson ${lesson.title}`} className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg">
                       Duplicate lesson
                     </button>
                   )}
                   {canWrite && (
-                    <button onClick={() => setDeleteLessonId(lesson.id)} className="text-xs font-medium text-rose-600 hover:text-rose-800 p-1.5" title="Delete lesson" aria-label={`Delete lesson ${lesson.title}`}>
+                    <button onClick={() => guardUnsavedWork('Deleting a lesson', () => setDeleteLessonId(lesson.id), ['lessons'])} className="text-xs font-medium text-rose-600 hover:text-rose-800 p-1.5" title="Delete lesson" aria-label={`Delete lesson ${lesson.title}`}>
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                       </svg>

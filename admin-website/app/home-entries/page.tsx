@@ -6,7 +6,7 @@ import { useAuth } from '../../lib/auth';
 import { courseCountText, homeEntryErrorMessage, isOrderConflict, moveItem, sameMembers, sameOrder } from '../../lib/home-entries';
 import { type VisibilityData, entryVisibility, fallbackCoverId, fetchVisibility } from '../../lib/home-visibility';
 import { rowShift, usePointerSort } from '../../lib/pointer-sort';
-import { useUnsavedGuard } from '../../lib/unsaved-guard';
+import { useUnsavedWork } from '../../lib/unsaved-guard';
 import type { HomeEntry } from '../../lib/types';
 import HomeEntryDialog from '../../components/HomeEntryDialog';
 import HomeEntryRow from '../../components/HomeEntryRow';
@@ -288,7 +288,8 @@ export default function HomeEntriesPage() {
     listRef.current?.focus();
   }, [draftIds, listRef]);
 
-  const guard = useUnsavedGuard(dirty);
+  // Leaving the page with an unsaved order is asked about by the one guard of the Admin (components/UnsavedGuardHost.tsx, in the layout): this list only reports its draft to it.
+  useUnsavedWork('home-entries-order', dirty, { label: 'Home Entries order', scope: 'home-entries', canSave: !stale, save: saveOrder, reset: resetOrder });
 
   // ------------------------------------------------------------------------------------------------------------------------------ the other actions
 
@@ -643,17 +644,6 @@ export default function HomeEntriesPage() {
           </div>
         </Modal>
       )}
-
-      <ConfirmDialog
-        isOpen={guard.held !== null}
-        onClose={guard.stay}
-        onConfirm={guard.leave}
-        title="Leave without saving the order?"
-        message="You have unsaved order changes. If you leave now they are lost, and learners keep seeing the saved order. Stay on this page to choose Save Order or Reset."
-        confirmLabel="Leave and discard"
-        cancelLabel="Stay on this page"
-        isDestructive
-      />
 
       <ConfirmDialog
         isOpen={Boolean(deleteTarget)}

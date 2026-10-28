@@ -13,6 +13,7 @@ import { STALE_CATALOG_MESSAGE, actionLabelFor, catalogPublishExplanation, visib
 import { Course, ModuleItem, LessonSummary, LearningLevel, WorkflowState, WorkflowEvent } from '../../../lib/types';
 import { LoadingSpinner, StatusBadge, EmptyState, Modal, ConfirmDialog } from '../../../components/ui';
 import { friendlyError } from '../../../lib/ui-messages';
+import { guardUnsavedWork } from '../../../lib/unsaved-guard';
 import DuplicateLessonDialog from '../../../components/DuplicateLessonDialog';
 import CoverImageField from '../../../components/CoverImageField';
 import CourseHomeEntryField from '../../../components/CourseHomeEntryField';
@@ -357,7 +358,7 @@ export default function CourseDetailPage() {
                   return (
                     <button
                       key={action}
-                      onClick={() => setTransitionAction(action)}
+                      onClick={() => guardUnsavedWork('Changing the course status', () => setTransitionAction(action))}
                       className={`px-3 py-1.5 text-xs font-medium rounded-lg shadow-xs transition-colors ${
                         colorMap[action] || 'bg-slate-800 text-white'
                       }`}
@@ -393,11 +394,11 @@ export default function CourseDetailPage() {
         courseId={courseId}
         lessons={directLessons}
         canWrite={canWrite}
-        onAddLesson={() => setAddLessonFlowOpen(true)}
-        onDuplicate={setDuplicateTarget}
+        onAddLesson={() => guardUnsavedWork('Adding a lesson', () => setAddLessonFlowOpen(true), ['direct-lessons'])}
+        onDuplicate={(lesson) => guardUnsavedWork('Duplicating a lesson', () => setDuplicateTarget(lesson), ['direct-lessons'])}
         onSaved={setDirectLessons}
         onReload={() => fetchCourseData()}
-        onPublishCatalog={workflowState?.allowedActions.includes('PUBLISH') ? () => setTransitionAction('PUBLISH') : undefined}
+        onPublishCatalog={workflowState?.allowedActions.includes('PUBLISH') ? () => guardUnsavedWork('Publishing the course', () => setTransitionAction('PUBLISH')) : undefined}
       />
 
       {/* Modules Section */}
@@ -414,7 +415,7 @@ export default function CourseDetailPage() {
 
           {canWrite && (
             <button
-              onClick={() => setCreateModuleModalOpen(true)}
+              onClick={() => guardUnsavedWork('Adding a module', () => setCreateModuleModalOpen(true), ['modules'])}
               className="px-3.5 py-2 text-xs font-medium bg-slate-900 hover:bg-slate-800 text-white rounded-lg flex items-center gap-1.5 shadow-xs"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -443,6 +444,7 @@ export default function CourseDetailPage() {
         ) : (
           <StatusSectionedList
             noun="module"
+            workScope="modules"
             items={modules}
             canWrite={canWrite}
             listLabel="Curriculum modules, in order"
@@ -459,8 +461,8 @@ export default function CourseDetailPage() {
               fetchCourseData();
             }}
             onReload={() => fetchCourseData()}
-            savedNote="Order saved. The module order is part of the course, so a published course returns to Draft. Learners keep seeing the previously published order until the course is published again."
-            onPublish={workflowState?.allowedActions.includes('PUBLISH') ? () => setTransitionAction('PUBLISH') : undefined}
+            savedNote="Order saved successfully. The module order is part of the course, so a published course returns to Draft. Learners keep seeing the previously published order until the course is published again."
+            onPublish={workflowState?.allowedActions.includes('PUBLISH') ? () => guardUnsavedWork('Publishing the course', () => setTransitionAction('PUBLISH')) : undefined}
             renderItem={(mod) => (
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
@@ -481,7 +483,7 @@ export default function CourseDetailPage() {
                     </svg>
                   </Link>
                   {canWrite && (
-                    <button onClick={() => setDeleteModuleId(mod.id)} className="text-xs font-medium text-rose-600 hover:text-rose-800 p-1.5" title="Delete module" aria-label={`Delete module ${mod.title}`}>
+                    <button onClick={() => guardUnsavedWork('Deleting a module', () => setDeleteModuleId(mod.id), ['modules'])} className="text-xs font-medium text-rose-600 hover:text-rose-800 p-1.5" title="Delete module" aria-label={`Delete module ${mod.title}`}>
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                       </svg>

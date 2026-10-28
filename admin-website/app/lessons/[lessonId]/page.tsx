@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { api } from '../../../lib/api';
@@ -87,6 +87,10 @@ import RichTextVersionDialog from '../../../components/RichTextVersionDialog';
 import InsertReusableBlockDialog from '../../../components/InsertReusableBlockDialog';
 import SaveAsReusableDialog from '../../../components/SaveAsReusableDialog';
 import { REUSABLE_PICKER_KEY, levelName } from '../../../lib/reusable-blocks';
+import OrderBar from '../../../components/OrderBar';
+import { rowShift, usePointerSort } from '../../../lib/pointer-sort';
+import { useDraftOrder } from '../../../lib/use-draft-order';
+import { guardUnsavedWork } from '../../../lib/unsaved-guard';
 
 export default function LessonAuthoringPage() {
   const params = useParams();
@@ -254,11 +258,8 @@ export default function LessonAuthoringPage() {
   const [deleteBlockId, setDeleteBlockId] = useState<string | null>(null);
   const [deletingBlock, setDeletingBlock] = useState(false);
   const [performingBlockAction, setPerformingBlockAction] = useState(false);
-  // Block ordering. The editor always lists EVERY block of the lesson (a level only dims the blocks hidden at it), so the list that is dragged and the
-  // list that is saved are the same complete list. Only one order save may be in flight.
-  const reorderBusy = useRef(false);
-  const [dragBlockId, setDragBlockId] = useState<string | null>(null);
-  const [dropIndex, setDropIndex] = useState<number | null>(null);
+  // Block ordering (see `blockOrder` below). The editor always lists EVERY block of the lesson (a level only dims the blocks hidden at it), so the list that is arranged and the
+  // list that is saved are the same complete list.
   const [readiness, setReadiness] = useState<ReadinessState>({ report: null, failed: null, checking: false });
 
   // Scripture reference validator & helper
@@ -334,6 +335,59 @@ export default function LessonAuthoringPage() {
   useEffect(() => {
     fetchLessonData();
   }, [fetchLessonData]);
+
+  /**
+   * THE ORDER OF THE BLOCKS is a draft until Save Order (lib/use-draft-order.ts), like the Home Entries order. Dragging a block by its handle, the arrow keys on the handle and the
+   * Move up / Move down buttons change only the arrangement on screen; the server hears nothing. Save Order sends the complete list (the endpoint requires every block) together with the
+   * order last seen, so the server refuses (409) if the blocks changed elsewhere; the arrangement is then kept and saving is held until the latest order is reloaded. The server decides
+   * the lesson's Draft status when the order is saved, and nothing about it changes here. Everything else on the page keeps working on the SAVED blocks: editing a block, a level version
+   * or the lesson's details reloads the lesson and leaves an unsaved arrangement alone when it still fits; the actions that add, remove or replace blocks, or that submit or publish the lesson,
+   * ask first (`guardUnsavedWork`).
+   */
+  const canArrange = user?.role === 'ADMIN' || user?.role === 'EDITOR';
+  const blockOrder = useDraftOrder<LessonBlock>({
+    label: 'Block order',
+    scope: 'blocks',
+    items: blocks,
+    canWrite: canArrange,
+    itemLabel: (block) => `${block.type.replace(/_/g, ' ').toLowerCase()} block`,
+    save: async (ids, previousIds) =>
+      (
+        await api.request<{ items: LessonBlock[] }>(`/admin/lessons/${lessonId}/blocks/order`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ blockIds: ids, previousBlockIds: previousIds }),
+        })
+      ).items,
+    onSaved: (items) => {
+      setBlocks(items);
+      setSuccessMessage('Order saved successfully.');
+      fetchLessonData();
+    },
+    onReload: () => {
+      void fetchLessonData();
+    },
+  });
+  const blockIds = useMemo(() => blockOrder.ordered.map((block) => block.id), [blockOrder.ordered]);
+  const { listRef: blockListRef, registerRow: registerBlockRow, handle: blockHandle, drag: blockDrag } = usePointerSort({ ids: blockIds, disabled: !canArrange || blockOrder.saving, onMove: blockOrder.move });
+  // Something else is being done to the blocks (a duplicate, a save of a version) or their order is being saved: the block actions wait.
+  const blockBusy = performingBlockAction || blockOrder.saving;
+
+  // After a move by keyboard or button the block has been re-attached in its new place: put the keyboard back on the control that was used (or its neighbour when it is now at an end).
+  const blockFocusAfter = useRef<{ id: string; kind: 'handle' | 'up' | 'down' } | null>(null);
+  useEffect(() => {
+    const target = blockFocusAfter.current;
+    if (!target) return;
+    blockFocusAfter.current = null;
+    const find = (kind: string) => document.querySelector<HTMLButtonElement>(`[data-block-${kind}="${target.id}"]`);
+    const wanted = find(target.kind);
+    (wanted && !wanted.disabled ? wanted : (find(target.kind === 'up' ? 'down' : 'up') ?? find('handle')))?.focus();
+  }, [blockOrder.ordered]);
+  const moveBlockBy = (index: number, delta: -1 | 1, kind: 'handle' | 'up' | 'down') => {
+    const block = blockOrder.ordered[index];
+    if (block) blockFocusAfter.current = { id: block.id, kind };
+    blockOrder.move(index, index + delta);
+  };
 
   // After "Copy existing lesson" (Add lesson in a course or module) the copy opens with ?copied=1: confirm once, with a way back to where it went.
   const [justCopied, setJustCopied] = useState(false);
@@ -1158,7 +1212,7 @@ export default function LessonAuthoringPage() {
   };
 
   const handleDuplicateBlock = async (blockId: string) => {
-    if (performingBlockAction) return;
+    if (blockBusy) return;
     setPerformingBlockAction(true);
     try {
       await api.request(`/admin/lessons/${lessonId}/blocks/${blockId}/duplicate`, {
@@ -1189,69 +1243,6 @@ export default function LessonAuthoringPage() {
     } finally {
       setDeletingBlock(false);
     }
-  };
-
-  /**
-   * Saves a new order of ALL blocks (the complete list the endpoint requires). The new order is shown at once and every block stays on screen while
-   * saving; a second save cannot start until this one ends. If the server refuses (for example the block list changed elsewhere), the previous order is
-   * put back, the authoritative order is reloaded and the author is told. The server decides the Draft status and nothing about it changes here.
-   */
-  const saveBlockOrder = async (next: LessonBlock[]) => {
-    if (reorderBusy.current || performingBlockAction) return;
-    if (next.length !== blocks.length || next.every((b, i) => b.id === blocks[i]?.id)) return;
-    reorderBusy.current = true;
-    const before = blocks;
-    setPerformingBlockAction(true);
-    setBlocks(next);
-    try {
-      const res = await api.request<{ items: LessonBlock[] }>(
-        `/admin/lessons/${lessonId}/blocks/order`,
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            blockIds: next.map((b) => b.id),
-            // The order that was current BEFORE this move: the server refuses the save if the persisted order is anything else.
-            previousBlockIds: before.map((b) => b.id),
-          }),
-        }
-      );
-      setBlocks(res.items);
-      setSuccessMessage('Block order saved.');
-      fetchLessonData();
-    } catch (err: unknown) {
-      setBlocks(before);
-      // 409 = the persisted order is not the one this editor was showing. Nothing was written; it is NOT retried automatically, so the other person's work is kept.
-      setError(
-        (err as { status?: number } | null)?.status === 409
-          ? 'The block order was changed by someone else (or blocks were added or removed), so your move was not saved. The latest order is being loaded: look at it and move the block again if you still want to.'
-          : `${friendlyError(err, 'Failed to update block order.')} The blocks are shown in their previous order, and the latest order is being reloaded.`,
-      );
-      fetchLessonData();
-    } finally {
-      reorderBusy.current = false;
-      setPerformingBlockAction(false);
-    }
-  };
-
-  const handleReorderBlocks = async (index: number, direction: 'up' | 'down') => {
-    const targetIndex = direction === 'up' ? index - 1 : index + 1;
-    if (targetIndex < 0 || targetIndex >= blocks.length) return;
-    const next = [...blocks];
-    [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
-    await saveBlockOrder(next);
-  };
-
-  /** Moves the dragged block so that it takes the place of the block it was dropped on. */
-  const dropBlockAt = (toIndex: number) => {
-    const fromIndex = blocks.findIndex((b) => b.id === dragBlockId);
-    setDragBlockId(null);
-    setDropIndex(null);
-    if (fromIndex < 0 || fromIndex === toIndex) return;
-    const next = [...blocks];
-    const [moved] = next.splice(fromIndex, 1);
-    next.splice(toIndex, 0, moved);
-    void saveBlockOrder(next);
   };
 
   /** Opens "Set visibility" for a level: show the block there with the shared content, or hide it. A level's own content is a "version" (below). */
@@ -1693,7 +1684,7 @@ export default function LessonAuthoringPage() {
             </button>
 
             <button
-              onClick={() => setHistoryOpen(true)}
+              onClick={() => guardUnsavedWork('Opening the draft history, where a draft can be restored,', () => setHistoryOpen(true), ['blocks'])}
               className="px-3.5 py-2 text-xs font-medium bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-lg shadow-xs"
             >
               Draft history
@@ -1701,7 +1692,7 @@ export default function LessonAuthoringPage() {
 
             {canWrite && (
               <button
-                onClick={() => setDuplicateOpen(true)}
+                onClick={() => guardUnsavedWork('Duplicating the lesson', () => setDuplicateOpen(true))}
                 className="px-3.5 py-2 text-xs font-medium bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-lg shadow-xs"
               >
                 Duplicate lesson
@@ -1727,10 +1718,13 @@ export default function LessonAuthoringPage() {
           workflowState={workflowState}
           blocks={blocks}
           refreshKey={`${lesson.version}:${workflowState?.status ?? ''}:${workflowState?.contentRevision ?? ''}`}
-          onAction={(action) => {
-            setTransitionError(null);
-            setTransitionAction(action);
-          }}
+          onAction={(action) =>
+            // Submitting, approving or publishing works on the SAVED blocks: an unsaved order is asked about first.
+            guardUnsavedWork('Changing the lesson status', () => {
+              setTransitionError(null);
+              setTransitionAction(action);
+            })
+          }
           onGoToBlock={goToBlock}
           onEditBlock={(blockId) => {
             const block = blocks.find((b) => b.id === blockId);
@@ -1778,8 +1772,9 @@ export default function LessonAuthoringPage() {
             <div>
               <button
                 type="button"
-                onClick={() => setPickerOpen(true)}
-                className="px-4 py-2.5 text-sm font-semibold bg-amber-600 hover:bg-amber-500 text-white rounded-lg flex items-center gap-2 shadow-xs focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2"
+                onClick={() => guardUnsavedWork('Adding content', () => setPickerOpen(true), ['blocks'])}
+                disabled={blockBusy}
+                className="px-4 py-2.5 text-sm font-semibold bg-amber-600 hover:bg-amber-500 text-white rounded-lg flex items-center gap-2 shadow-xs focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 disabled:opacity-50"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -1811,28 +1806,34 @@ export default function LessonAuthoringPage() {
           />
         ) : (
           <div className="space-y-4">
-            {blocks.map((block, index) => {
+            <p role="status" aria-live="polite" className="sr-only">{blockOrder.announcement}</p>
+            {canArrange && blockOrder.ordered.length > 1 && <p className="text-xs text-slate-600">Drag blocks to arrange them. Click Save Order to apply your changes.</p>}
+            <div
+              ref={(element) => {
+                blockListRef.current = element;
+              }}
+              aria-label="Lesson blocks, in order"
+              aria-busy={blockOrder.saving}
+              className={`relative flex flex-col gap-4 ${blockDrag ? 'cursor-grabbing select-none' : ''}`}
+            >
+            {blockOrder.ordered.map((block, index) => {
               const levelSetting = block.levels.find((l) => l.level === selectedLevel);
               const isVisibleAtSelected = Boolean(levelSetting);
               const hasCustomVariant = Boolean(levelSetting?.content);
               const displayContent = blockContentAtLevel(block, selectedLevel);
+              const dragging = blockDrag?.id === block.id;
+              const shift = rowShift(blockDrag, index);
 
               return (
                 <div
                   key={block.id}
                   id={`block-${block.id}`}
+                  ref={(element) => registerBlockRow(block.id, element)}
                   tabIndex={-1}
-                  onDragOver={(e) => {
-                    if (!dragBlockId) return;
-                    e.preventDefault();
-                    if (dropIndex !== index) setDropIndex(index);
-                  }}
-                  onDrop={(e) => {
-                    if (!dragBlockId) return;
-                    e.preventDefault();
-                    dropBlockAt(index);
-                  }}
-                  className={`${dropIndex === index && dragBlockId && dragBlockId !== block.id ? 'ring-2 ring-amber-500 ' : ''}${dragBlockId === block.id ? 'opacity-60 ' : ''}bg-white border rounded-xl p-5 shadow-xs transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500 ${
+                  style={shift ? { transform: `translateY(${shift}px)` } : undefined}
+                  className={`${dragging ? 'relative z-30 shadow-xl ring-2 ring-amber-300 ' : ''}bg-white border rounded-xl p-5 shadow-xs ${
+                    blockDrag && !dragging ? 'transition-transform duration-150 ease-out motion-reduce:transition-none' : 'transition-colors'
+                  } focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500 ${
                     isVisibleAtSelected
                       ? 'border-slate-200'
                       : 'border-slate-200/60 bg-slate-50/40 opacity-70'
@@ -1843,32 +1844,23 @@ export default function LessonAuthoringPage() {
                       {canWrite && (
                         <button
                           type="button"
-                          draggable={!performingBlockAction}
-                          disabled={performingBlockAction}
-                          onDragStart={(e) => {
-                            e.dataTransfer.effectAllowed = 'move';
-                            e.dataTransfer.setData('text/plain', block.id);
-                            const card = document.getElementById(`block-${block.id}`);
-                            if (card) e.dataTransfer.setDragImage(card, 24, 24);
-                            setDragBlockId(block.id);
-                          }}
-                          onDragEnd={() => {
-                            setDragBlockId(null);
-                            setDropIndex(null);
-                          }}
+                          data-sort-id={block.id}
+                          data-block-handle={block.id}
+                          disabled={blockBusy}
+                          {...blockHandle}
                           onKeyDown={(e) => {
                             // Keyboard alternative on the handle itself: the same single-step move as the Up and Down buttons.
                             if (e.key === 'ArrowUp') {
                               e.preventDefault();
-                              void handleReorderBlocks(index, 'up');
+                              moveBlockBy(index, -1, 'handle');
                             } else if (e.key === 'ArrowDown') {
                               e.preventDefault();
-                              void handleReorderBlocks(index, 'down');
+                              moveBlockBy(index, 1, 'handle');
                             }
                           }}
-                          className="cursor-grab active:cursor-grabbing touch-none px-1 py-1 text-slate-500 hover:text-slate-800 disabled:opacity-30 rounded-xs focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500"
-                          aria-label={`Drag handle for block ${index + 1}. Drag to move it, or press the up or down arrow key. The Move up and Move down buttons do the same.`}
-                          title="Drag to reorder (use the arrow buttons on touch screens)"
+                          className={`${dragging ? 'cursor-grabbing' : 'cursor-grab'} touch-none select-none px-1 py-1 text-slate-500 hover:text-slate-800 disabled:opacity-30 rounded-xs focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500`}
+                          aria-label={`Drag handle for block ${index + 1} of ${blockOrder.ordered.length}. Drag to move it, or press the up or down arrow key. The Move up and Move down buttons do the same. The new order is not saved until you choose Save Order.`}
+                          title="Drag to reorder"
                         >
                           <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                             <circle cx="7" cy="5" r="1.4" /><circle cx="13" cy="5" r="1.4" /><circle cx="7" cy="10" r="1.4" /><circle cx="13" cy="10" r="1.4" /><circle cx="7" cy="15" r="1.4" /><circle cx="13" cy="15" r="1.4" />
@@ -1897,22 +1889,26 @@ export default function LessonAuthoringPage() {
                     {canWrite && (
                       <div className="flex items-center gap-1">
                         <button
-                          onClick={() => handleReorderBlocks(index, 'up')}
-                          className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-20"
-                          aria-label="Move block up"
+                          type="button"
+                          data-block-up={block.id}
+                          onClick={() => moveBlockBy(index, -1, 'up')}
+                          className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-20 rounded focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500"
+                          aria-label={`Move block ${index + 1} up`}
                           title="Move block up"
-                          disabled={index === 0 || performingBlockAction}
+                          disabled={index === 0 || blockBusy}
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
                           </svg>
                         </button>
                         <button
-                          onClick={() => handleReorderBlocks(index, 'down')}
-                          className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-20"
-                          aria-label="Move block down"
+                          type="button"
+                          data-block-down={block.id}
+                          onClick={() => moveBlockBy(index, 1, 'down')}
+                          className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-20 rounded focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500"
+                          aria-label={`Move block ${index + 1} down`}
                           title="Move block down"
-                          disabled={index === blocks.length - 1 || performingBlockAction}
+                          disabled={index === blockOrder.ordered.length - 1 || blockBusy}
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -2010,8 +2006,8 @@ export default function LessonAuthoringPage() {
                           {block.type === 'IMAGE' ? 'Edit Image' : block.type === 'SUMMARY' ? 'Edit Summary' : block.type === 'QUIZ' ? 'Change quiz' : block.type === 'INTERACTIVE_IMAGE' ? 'Edit Interactive Image' : block.type === 'TIMELINE' ? 'Edit Timeline' : block.type === 'SCRIPTURE_PASSAGE' ? 'Edit Passage' : block.type === 'HISTORICAL_EVIDENCE' ? 'Edit Evidence' : block.type === 'SECTION_INTRO' ? 'Edit Heading' : block.type === 'CALLOUT' ? 'Edit Callout' : block.type === 'SCRIPTURE_CONNECTION' ? 'Edit Connection' : block.type === 'MAP' ? 'Edit Map' : block.type === 'PROPHECY_EQUIVALENCE' ? 'Edit Equivalence' : block.type === 'PROPHECY_COMPARISON' ? 'Edit Comparison' : block.type === 'PROPHECY_CALCULATION' ? 'Edit Calculation' : block.type === 'REFLECTION_STUDY_ACTIVITY' ? 'Edit Activity' : block.type === 'GUIDED_DISCOVERY_QUESTION' ? 'Edit Question' : block.type === 'CONTINUE_EXPLORING' ? 'Edit Links' : block.type === 'NARRATIVE_SCENE' ? 'Edit Scene' : block.type === 'MEDIA_ANIMATION' ? 'Edit Media' : block.type === 'INTERACTIVE_3D_MODEL' ? 'Edit 3D Model' : block.type === 'WORD_STUDY' ? 'Edit Word Study' : block.type === 'SYMBOL_STUDY' ? 'Edit Symbol Study' : block.type === 'EXPLORE_DEEPER' ? 'Edit Section' : 'Edit Shared'}
                         </button>
                         <button
-                          onClick={() => handleDuplicateBlock(block.id)}
-                          disabled={performingBlockAction}
+                          onClick={() => guardUnsavedWork('Duplicating a block', () => void handleDuplicateBlock(block.id), ['blocks'])}
+                          disabled={blockBusy}
                           className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
                           title="Duplicate block"
                         >
@@ -2019,7 +2015,7 @@ export default function LessonAuthoringPage() {
                         </button>
                         <button
                           onClick={() => setSaveReusableBlock(block)}
-                          disabled={performingBlockAction}
+                          disabled={blockBusy}
                           className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
                           title="Keep a copy of this block in the reusable block library"
                           aria-label={`Save block ${index + 1} as a reusable block`}
@@ -2027,8 +2023,9 @@ export default function LessonAuthoringPage() {
                           Save as reusable block
                         </button>
                         <button
-                          onClick={() => setDeleteBlockId(block.id)}
-                          className="p-1 text-rose-500 hover:text-rose-700 rounded-lg"
+                          onClick={() => guardUnsavedWork('Deleting a block', () => setDeleteBlockId(block.id), ['blocks'])}
+                          disabled={blockBusy}
+                          className="p-1 text-rose-500 hover:text-rose-700 rounded-lg disabled:opacity-40"
                           aria-label="Delete block"
                           title="Delete block"
                         >
@@ -2048,7 +2045,7 @@ export default function LessonAuthoringPage() {
                         blockNumber={index + 1}
                         lessonLevels={lesson.levels}
                         canWrite={canWrite}
-                        busy={performingBlockAction || savingVersion || removingVersion}
+                        busy={blockBusy || savingVersion || removingVersion}
                         onEdit={(level) => openVersionEditor(block, level)}
                         onRemove={(level) => setRemoveVersionTarget({ block, level })}
                       />
@@ -2057,6 +2054,10 @@ export default function LessonAuthoringPage() {
                 </div>
               );
             })}
+            {/* Where the dragged block will land. */}
+            {blockDrag && <div aria-hidden="true" style={{ top: blockDrag.gapTop, height: blockDrag.height }} className="pointer-events-none absolute inset-x-0 rounded-xl border-2 border-dashed border-amber-400 bg-amber-50/70" />}
+            </div>
+            {canArrange && <OrderBar order={blockOrder} sticky />}
           </div>
         )}
       </div>
@@ -2772,6 +2773,11 @@ export default function LessonAuthoringPage() {
         description="This preview shows the current working content, including unpublished changes."
         maxWidth="2xl"
       >
+        {blockOrder.dirty && (
+          <p role="status" className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">
+            <span className="font-semibold">You have unsaved order changes.</span> This preview shows the <strong>saved</strong> order of the blocks. Choose Save Order to apply the new one.
+          </p>
+        )}
         {loadingPreview ? (
           <LoadingSpinner text="Assembling lesson preview..." />
         ) : previewError ? (

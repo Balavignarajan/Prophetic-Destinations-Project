@@ -25,8 +25,10 @@ export interface SortDrag {
   id: string;
   from: number;
   over: number;
-  /** The dragged row's height: how far the rows it passes slide. */
+  /** The dragged row's height. */
   height: number;
+  /** How far the rows it passes slide: its height plus the space between rows (none in a list divided by borders, the gap of a list of cards). */
+  step: number;
   /** Where the slot is, in pixels from the top of the list. */
   gapTop: number;
 }
@@ -39,6 +41,7 @@ interface Session {
   over: number;
   rows: RowBox[];
   height: number;
+  step: number;
   listTop: number;
   startY: number;
   clientY: number;
@@ -61,11 +64,11 @@ const originTop = (scroller: HTMLElement | null) => (scroller ? scroller.getBoun
 /** A pointer height in the scrolling area's own coordinates, which do not change when it scrolls. */
 const toContent = (scroller: HTMLElement | null, clientY: number) => clientY - originTop(scroller) + scrollTopOf(scroller);
 
-/** How far a row that is not being dragged is moved while `drag` is under way: the dragged row's height up or down when the dragged row passes it, otherwise nothing. */
+/** How far a row that is not being dragged is moved while `drag` is under way: the dragged row's height (and the space between rows) up or down when the dragged row passes it, otherwise nothing. */
 export function rowShift(drag: SortDrag | null, index: number): number {
   if (!drag || index === drag.from) return 0;
-  if (drag.from < drag.over && index > drag.from && index <= drag.over) return -drag.height;
-  if (drag.from > drag.over && index >= drag.over && index < drag.from) return drag.height;
+  if (drag.from < drag.over && index > drag.from && index <= drag.over) return -drag.step;
+  if (drag.from > drag.over && index >= drag.over && index < drag.from) return drag.step;
   return 0;
 }
 
@@ -110,7 +113,7 @@ export function usePointerSort({ ids, disabled, onMove }: { ids: readonly string
       if (!s.moved) {
         if (Math.abs(offset) < START_PX) return;
         s.moved = true;
-        setDrag({ id: s.id, from: s.from, over: s.from, height: s.height, gapTop: s.rows[s.from].top - s.listTop });
+        setDrag({ id: s.id, from: s.from, over: s.from, height: s.height, step: s.step, gapTop: s.rows[s.from].top - s.listTop });
         window.addEventListener('keydown', onKey);
         s.frame = requestAnimationFrame(tick);
       }
@@ -191,6 +194,8 @@ export function usePointerSort({ ids, disabled, onMove }: { ids: readonly string
         } catch {
           return;
         }
+        // The space between this row and its neighbour (a list of cards has gaps; a list divided by borders has none).
+        const spacing = Math.max(0, from + 1 < rows.length ? rows[from + 1].top - rows[from].bottom : from > 0 ? rows[from].top - rows[from - 1].bottom : 0);
         session.current = {
           id,
           pointerId: event.pointerId,
@@ -199,6 +204,7 @@ export function usePointerSort({ ids, disabled, onMove }: { ids: readonly string
           over: from,
           rows,
           height: rows[from].bottom - rows[from].top,
+          step: rows[from].bottom - rows[from].top + spacing,
           listTop: list.getBoundingClientRect().top - origin + scrollTop,
           startY: toContent(scroller, event.clientY),
           clientY: event.clientY,

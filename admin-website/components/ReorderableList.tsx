@@ -1,7 +1,9 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { friendlyError } from '../lib/ui-messages';
+import React, { useEffect, useMemo, useRef } from 'react';
+import { rowShift, usePointerSort } from '../lib/pointer-sort';
+import { useDraftOrder } from '../lib/use-draft-order';
+import OrderBar from './OrderBar';
 
 interface Props<T extends { id: string }> {
   /** The items in the order the backend last returned them. */
@@ -24,175 +26,130 @@ interface Props<T extends { id: string }> {
   /** Opens the explicit publishing step, if the user may publish. Never called automatically. */
   onPublish?: () => void;
   publishLabel?: string;
+  /** Which list this is ("modules"), for `guardUnsavedWork` on the page. */
+  workScope?: string;
 }
 
 /**
- * Drag-and-drop ordering of the items of one parent, saved with ONE explicit action. It keeps a local unsaved order, offers Save order / Cancel, sends the
- * complete list plus the order last seen, and on a stale-order conflict keeps what the user arranged and offers a reload instead of overwriting anyone.
- * Same behaviour as the course's direct-lesson list. Keyboard: arrow keys on the handle (announced); touch screens use the Up/Down buttons, because native
- * HTML5 drag is unreliable there. Saving changes order only; it never publishes anything.
+ * A list whose order is arranged and then saved with ONE explicit action: Save Order. Drag a row by its handle (pointer events: mouse, finger or pen), press the up or down arrow key on the
+ * handle, or use the small up and down buttons: all of them change only a DRAFT (lib/use-draft-order.ts), nothing is sent. While the draft differs from the saved order a bar offers Reset
+ * (no request) and Save Order, which sends the complete list plus the order last seen; a refusal (409) keeps the arrangement and offers "Reload latest order" instead of overwriting anyone.
+ * Leaving the page, and the page's own guarded actions, ask first (components/UnsavedGuardHost.tsx). Saving changes order only; it never publishes anything.
  */
-export default function ReorderableList<T extends { id: string }>({ items, canWrite, listLabel, itemLabel, renderItem, save, onSaved, onReload, savedNote, onPublish, publishLabel = 'Publish changes…' }: Props<T>) {
-  const serverKey = items.map((i) => i.id).join(',');
-  const [order, setOrder] = useState<string[]>(() => items.map((i) => i.id));
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [stale, setStale] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [announce, setAnnounce] = useState('');
-  const [dragId, setDragId] = useState<string | null>(null);
-  const [overIndex, setOverIndex] = useState<number | null>(null);
-  const baseline = useRef(serverKey);
+export default function ReorderableList<T extends { id: string }>({ items, canWrite, listLabel, itemLabel, renderItem, save, onSaved, onReload, savedNote, onPublish, publishLabel = 'Publish changes…', workScope }: Props<T>) {
+  const order = useDraftOrder<T>({ label: listLabel, scope: workScope, items, canWrite, itemLabel, save, onSaved, onReload });
+  const ids = useMemo(() => order.ordered.map((item) => item.id), [order.ordered]);
+  const { listRef, registerRow, handle, drag } = usePointerSort({ ids, disabled: !canWrite || order.saving, onMove: order.move });
+  const total = order.ordered.length;
 
-  // The server's list changed (reload, an item added or deleted): show it, and say so if unsaved changes had to be dropped.
+  // After a move by keyboard or button the row has been re-attached in its new place: put the keyboard back on the control that was used (or its neighbour when it is now at an end).
+  const focusAfter = useRef<{ id: string; kind: 'handle' | 'up' | 'down' } | null>(null);
   useEffect(() => {
-    if (baseline.current === serverKey) return;
-    const hadChanges = order.join(',') !== baseline.current;
-    baseline.current = serverKey;
-    setOrder(items.map((i) => i.id));
-    if (hadChanges) setError('The list changed on the server, so your unsaved order was reset. Check the order and arrange it again.');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [serverKey]);
+    const target = focusAfter.current;
+    if (!target) return;
+    focusAfter.current = null;
+    const find = (kind: string) => document.querySelector<HTMLButtonElement>(`[data-reorder-${kind}="${target.id}"]`);
+    const wanted = find(target.kind);
+    (wanted && !wanted.disabled ? wanted : (find(target.kind === 'up' ? 'down' : 'up') ?? find('handle')))?.focus();
+  }, [order.ordered]);
 
-  const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
-  const ordered = order.map((id) => byId.get(id)).filter((i): i is T => Boolean(i));
-  const dirty = order.join(',') !== serverKey;
-
-  const move = (from: number, to: number) => {
-    if (saving || to < 0 || to >= order.length || from === to) return;
-    const next = [...order];
-    const [id] = next.splice(from, 1);
-    next.splice(to, 0, id);
-    setOrder(next);
-    setSaved(false);
-    setError(null);
-    setStale(false);
-    const item = byId.get(id);
-    setAnnounce(`${item ? itemLabel(item) : 'Item'} moved to position ${to + 1} of ${next.length}. Not saved yet.`);
-  };
-
-  const cancel = () => {
-    if (saving) return;
-    setOrder(items.map((i) => i.id));
-    setError(null);
-    setStale(false);
-    setAnnounce('Order changes discarded.');
-  };
-
-  const doSave = async () => {
-    if (saving || !dirty) return;
-    setSaving(true);
-    setError(null);
-    setStale(false);
-    try {
-      const result = await save(order, items.map((i) => i.id));
-      baseline.current = result.map((i) => i.id).join(',');
-      setOrder(result.map((i) => i.id));
-      onSaved(result);
-      setSaved(true);
-      setAnnounce('Order saved.');
-    } catch (err: unknown) {
-      // The arrangement stays on screen so nothing is lost; the admin can retry, or reload to see the current order.
-      if ((err as { status?: number }).status === 409) {
-        setStale(true);
-        setError('The order was changed by someone else (or the list changed) after this page was loaded, so nothing was saved. Reload to see the current order, then arrange it again.');
-      } else {
-        setError(friendlyError(err, 'The order could not be saved. Your arrangement is still here; try again.'));
-      }
-    } finally {
-      setSaving(false);
-    }
+  const moveBy = (index: number, delta: -1 | 1, kind: 'handle' | 'up' | 'down') => {
+    const item = order.ordered[index];
+    if (item) focusAfter.current = { id: item.id, kind };
+    order.move(index, index + delta);
   };
 
   return (
     <div className="space-y-3">
-      <p role="status" aria-live="polite" className="sr-only">{announce}</p>
+      <p role="status" aria-live="polite" className="sr-only">{order.announcement}</p>
 
-      {(error || saved) && (
-        <div role={error ? 'alert' : 'status'} className={`p-3 rounded-lg border text-sm flex flex-wrap items-center justify-between gap-2 ${error ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-emerald-50 border-emerald-200 text-emerald-900'}`}>
-          <span>{error ?? savedNote}</span>
+      {order.saved && !order.dirty && (
+        <div role="status" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+          <span>{savedNote}</span>
           <span className="flex gap-2">
-            {stale && <button type="button" onClick={onReload} className="px-3 py-1 text-xs font-semibold rounded-md border border-rose-300 hover:bg-rose-100">Reload</button>}
-            {!error && onPublish && <button type="button" onClick={onPublish} className="px-3 py-1 text-xs font-semibold rounded-md border border-emerald-300 hover:bg-emerald-100">{publishLabel}</button>}
+            {onPublish && <button type="button" onClick={onPublish} className="rounded-md border border-emerald-300 px-3 py-1 text-xs font-semibold hover:bg-emerald-100 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500">{publishLabel}</button>}
+            <button type="button" onClick={order.dismiss} aria-label="Dismiss message" className="rounded px-1.5 text-lg leading-none hover:bg-black/5 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500">&times;</button>
           </span>
         </div>
       )}
 
-      <ul className="bg-white border border-slate-200 rounded-xl shadow-xs divide-y divide-slate-100 overflow-hidden" aria-label={listLabel} onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOverIndex(null); }}>
-        {ordered.map((item, index) => (
-          <li
-            key={item.id}
-            onDragOver={(e) => {
-              if (!dragId || saving) return;
-              e.preventDefault();
-              e.dataTransfer.dropEffect = 'move';
-              setOverIndex(index);
-            }}
-            onDrop={(e) => {
-              e.preventDefault();
-              const from = order.indexOf(dragId ?? '');
-              setDragId(null);
-              setOverIndex(null);
-              if (from >= 0) move(from, index);
-            }}
-            className={`flex items-start gap-3 px-4 py-4 hover:bg-slate-50/60 transition-colors ${dragId === item.id ? 'opacity-40' : ''} ${overIndex === index && dragId && dragId !== item.id ? 'border-t-2 border-amber-500' : 'border-t-2 border-transparent'}`}
-          >
-            <div className="flex flex-col items-center gap-1 shrink-0">
-              <span className="w-7 h-7 rounded-md bg-slate-100 text-slate-700 font-bold text-xs flex items-center justify-center border border-slate-200 font-mono">{index + 1}</span>
-              {canWrite && (
-                <>
-                  <button
-                    type="button"
-                    draggable={!saving}
-                    disabled={saving}
-                    onDragStart={(e) => {
-                      e.dataTransfer.effectAllowed = 'move';
-                      e.dataTransfer.setData('text/plain', item.id);
-                      setDragId(item.id);
-                    }}
-                    onDragEnd={() => {
-                      setDragId(null);
-                      setOverIndex(null);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'ArrowUp') {
-                        e.preventDefault();
-                        move(index, index - 1);
-                      } else if (e.key === 'ArrowDown') {
-                        e.preventDefault();
-                        move(index, index + 1);
-                      }
-                    }}
-                    className="cursor-grab active:cursor-grabbing touch-none px-1 py-1 text-slate-500 hover:text-slate-800 disabled:opacity-30 rounded-xs focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500"
-                    aria-label={`Drag handle for ${itemLabel(item)}, position ${index + 1} of ${ordered.length}. Drag it, or press the up or down arrow key to move it.`}
-                    title="Drag to reorder"
-                  >
-                    <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                      <circle cx="7" cy="5" r="1.4" /><circle cx="13" cy="5" r="1.4" /><circle cx="7" cy="10" r="1.4" /><circle cx="13" cy="10" r="1.4" /><circle cx="7" cy="15" r="1.4" /><circle cx="13" cy="15" r="1.4" />
-                    </svg>
-                  </button>
-                  <span className="flex">
-                    <button type="button" aria-label={`Move ${itemLabel(item)} up`} disabled={saving || index === 0} onClick={() => move(index, index - 1)} className="p-0.5 text-slate-500 hover:text-slate-800 disabled:opacity-30">↑</button>
-                    <button type="button" aria-label={`Move ${itemLabel(item)} down`} disabled={saving || index === ordered.length - 1} onClick={() => move(index, index + 1)} className="p-0.5 text-slate-500 hover:text-slate-800 disabled:opacity-30">↓</button>
-                  </span>
-                </>
-              )}
-            </div>
-            <div className="flex-1 min-w-0">{renderItem(item, index)}</div>
-          </li>
-        ))}
+      {canWrite && total > 1 && <p className="text-xs text-slate-600">Drag entries to arrange them. Click Save Order to apply your changes.</p>}
+
+      <ul
+        ref={(element) => {
+          listRef.current = element;
+        }}
+        aria-label={listLabel}
+        aria-busy={order.saving}
+        className={`relative rounded-xl border border-slate-200 bg-white shadow-xs ${drag ? 'cursor-grabbing select-none' : ''}`}
+      >
+        {order.ordered.map((item, index) => {
+          const dragging = drag?.id === item.id;
+          const shift = rowShift(drag, index);
+          return (
+            <li
+              key={item.id}
+              ref={(element) => registerRow(item.id, element)}
+              style={shift ? { transform: `translateY(${shift}px)` } : undefined}
+              className={`relative flex items-start gap-3 px-4 py-4 ${index === 0 ? '' : 'border-t border-slate-100'} ${drag && !dragging ? 'transition-transform duration-150 ease-out motion-reduce:transition-none' : ''} ${
+                dragging ? 'z-30 rounded-xl border-transparent bg-white shadow-xl ring-1 ring-amber-300' : 'hover:bg-slate-50/60'
+              }`}
+            >
+              <div className="flex shrink-0 flex-col items-center gap-1">
+                <span className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-slate-100 font-mono text-xs font-bold text-slate-700">
+                  <span className="sr-only">Position </span>
+                  {index + 1}
+                </span>
+                {canWrite && (
+                  <>
+                    <button
+                      type="button"
+                      data-sort-id={item.id}
+                      data-reorder-handle={item.id}
+                      disabled={order.saving}
+                      {...handle}
+                      onKeyDown={(event) => {
+                        if (event.key === 'ArrowUp') {
+                          event.preventDefault();
+                          moveBy(index, -1, 'handle');
+                        } else if (event.key === 'ArrowDown') {
+                          event.preventDefault();
+                          moveBy(index, 1, 'handle');
+                        }
+                      }}
+                      className={`touch-none select-none rounded-xs px-1 py-1 text-slate-500 hover:text-slate-800 disabled:opacity-30 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500 ${dragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+                      aria-label={`Drag handle for ${itemLabel(item)}, position ${index + 1} of ${total}. Drag it, or press the up or down arrow key to move it. The new order is not saved until you choose Save Order.`}
+                      title="Drag to reorder"
+                    >
+                      <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                        <circle cx="7" cy="5" r="1.4" />
+                        <circle cx="13" cy="5" r="1.4" />
+                        <circle cx="7" cy="10" r="1.4" />
+                        <circle cx="13" cy="10" r="1.4" />
+                        <circle cx="7" cy="15" r="1.4" />
+                        <circle cx="13" cy="15" r="1.4" />
+                      </svg>
+                    </button>
+                    <span className="flex">
+                      <button type="button" data-reorder-up={item.id} aria-label={`Move ${itemLabel(item)} up`} disabled={order.saving || index === 0} onClick={() => moveBy(index, -1, 'up')} className="rounded p-0.5 text-slate-500 hover:text-slate-800 disabled:opacity-30 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500">
+                        ↑
+                      </button>
+                      <button type="button" data-reorder-down={item.id} aria-label={`Move ${itemLabel(item)} down`} disabled={order.saving || index === total - 1} onClick={() => moveBy(index, 1, 'down')} className="rounded p-0.5 text-slate-500 hover:text-slate-800 disabled:opacity-30 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-500">
+                        ↓
+                      </button>
+                    </span>
+                  </>
+                )}
+              </div>
+              <div className="min-w-0 flex-1">{renderItem(item, index)}</div>
+            </li>
+          );
+        })}
+        {/* Where the dragged row will land. */}
+        {drag && <li role="presentation" aria-hidden="true" style={{ top: drag.gapTop, height: drag.height }} className="pointer-events-none absolute inset-x-1 rounded-xl border-2 border-dashed border-amber-400 bg-amber-50/70" />}
       </ul>
 
-      {canWrite && (
-        <div className="flex flex-wrap items-center justify-end gap-3">
-          {dirty && <span className="text-xs text-amber-800">Unsaved order changes</span>}
-          <button type="button" onClick={cancel} disabled={!dirty || saving} className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50">Cancel</button>
-          <button type="button" onClick={() => void doSave()} disabled={!dirty || saving} aria-busy={saving} className="px-4 py-2 text-sm font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-lg flex items-center gap-2 disabled:opacity-50">
-            {saving && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" aria-hidden="true" />}
-            {saving ? 'Saving…' : 'Save order'}
-          </button>
-        </div>
-      )}
+      {canWrite && <OrderBar order={order} />}
     </div>
   );
 }
